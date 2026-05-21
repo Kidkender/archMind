@@ -1,0 +1,84 @@
+id: LARAVEL-AUTH-002
+entrypoint: "DELETE /tasks/{id}"
+framework: laravel
+source_project: tenant-workspace-api
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+
+  - id: check_permission
+    type: middleware
+    symbol: CheckPermission::handle
+    file: app/Http/Middleware/CheckPermission.php
+    args: [task.delete]
+
+  - id: task_controller_destroy
+    type: controller
+    symbol: TaskController::destroy
+    file: app/Modules/Task/Http/Controllers/TaskController.php
+
+  - id: task_policy_delete
+    type: policy
+    symbol: TaskPolicy::delete
+    file: app/Policies/TaskPolicy.php
+
+  - id: perm_task_delete
+    type: permission
+    symbol: Permission::TASK_DELETE
+    file: app/Common/Constants/Permission.php
+    privilege_level: basic
+
+  - id: perm_task_delete_any
+    type: permission
+    symbol: Permission::TASK_DELETE_ANY
+    file: app/Common/Constants/Permission.php
+    privilege_level: elevated
+
+edges:
+  - from: sanctum
+    to: resolve_tenant
+    relation: next_middleware
+
+  - from: resolve_tenant
+    to: check_permission
+    relation: next_middleware
+
+  - from: check_permission
+    to: task_controller_destroy
+    relation: next_middleware
+
+  - from: task_controller_destroy
+    to: task_policy_delete
+    relation: policy_check
+    via: $this->authorize('delete', $task)
+
+  - from: task_policy_delete
+    to: perm_task_delete
+    relation: checks_permission
+
+  - from: task_policy_delete
+    to: perm_task_delete_any
+    relation: checks_permission
+
+  - from: perm_task_delete_any
+    to: perm_task_delete
+    relation: privilege_hierarchy
+    description: TASK_DELETE_ANY is elevated above TASK_DELETE
+
+annotations:
+  - type: bug
+    location: task_policy_delete
+    description: >
+      Condition for TASK_DELETE_ANY is inverted.
+      Current: !hasPermission(TASK_DELETE_ANY) → return true
+      Intent:   hasPermission(TASK_DELETE_ANY) → return true
+      Effect: users with elevated privilege are MORE restricted than basic users.
+    severity: high
+    fix: invert the TASK_DELETE_ANY condition in TaskPolicy::delete() line 57

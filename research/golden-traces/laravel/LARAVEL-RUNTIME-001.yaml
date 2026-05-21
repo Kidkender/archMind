@@ -1,0 +1,63 @@
+id: LARAVEL-RUNTIME-001
+entrypoint: "ANY /tasks/*"
+framework: laravel
+source_project: tenant-workspace-api
+
+nodes:
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+
+  - id: container_instance
+    type: runtime_injection
+    symbol: app()->instance('tenant', $tenant)
+    key: tenant
+    injected_by: resolve_tenant
+
+  - id: task_controller
+    type: controller
+    symbol: TaskController
+    file: app/Modules/Task/Http/Controllers/TaskController.php
+    consumes_key: tenant
+    usage_count: 6
+
+  - id: require_feature
+    type: middleware
+    symbol: RequireFeature::handle
+    file: app/Http/Middleware/RequireFeature.php
+    consumes_key: tenant
+
+edges:
+  - from: resolve_tenant
+    to: container_instance
+    relation: runtime_inject
+    mechanism: app()->instance('tenant', $tenant)
+
+  - from: container_instance
+    to: task_controller
+    relation: runtime_consume
+    mechanism: app('tenant')
+    edge_type: RUNTIME_EDGE
+    static_visible: false
+
+  - from: container_instance
+    to: require_feature
+    relation: runtime_consume
+    mechanism: app('tenant')
+    edge_type: RUNTIME_EDGE
+    static_visible: false
+
+contract:
+  enforced_by: routes/api.php
+  route_group: "Route::middleware(ResolveTenant::class)->group(...)"
+  risk: >
+    Any route added outside this group will receive null from app('tenant').
+    No compile-time error. Silent runtime failure.
+
+annotations:
+  - type: implicit_contract
+    description: >
+      ResolveTenant MUST execute before TaskController on every task request.
+      This contract is enforced only by route group placement, not by
+      type system or constructor injection.

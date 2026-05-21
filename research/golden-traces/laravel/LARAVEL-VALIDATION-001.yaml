@@ -1,0 +1,53 @@
+id: LARAVEL-VALIDATION-001
+entrypoint: "PUT /tasks/{id}"
+framework: laravel
+source_project: tenant-workspace-api
+
+nodes:
+  - id: update_task_request
+    type: form_request
+    symbol: UpdateTaskRequest::authorize
+    file: app/Modules/Task/Requests/UpdateTaskRequest.php
+    returns: true
+    role: validation_only
+
+  - id: check_permission
+    type: middleware
+    symbol: CheckPermission::handle
+    file: app/Http/Middleware/CheckPermission.php
+    role: auth_layer_1
+
+  - id: task_policy_update
+    type: policy
+    symbol: TaskPolicy::update
+    file: app/Policies/TaskPolicy.php
+    role: auth_layer_2
+
+edges:
+  - from: update_task_request
+    to: null
+    relation: passthrough
+    description: authorize() returns true — no check performed
+
+  - from: check_permission
+    to: task_policy_update
+    relation: auth_chain
+    description: both are real authorization layers for this endpoint
+
+annotations:
+  - type: delegated_authorization
+    description: >
+      FormRequest::authorize() intentionally returns true.
+      Authorization is fully delegated to:
+        Layer 1: CheckPermission middleware (permission-based)
+        Layer 2: TaskPolicy (permission + ownership)
+      This is a consistent architectural pattern across all task FormRequests.
+      NOT a missing authorization check.
+
+  - type: pattern_consistency
+    affected_requests:
+      - UpdateTaskRequest
+      - CreateTaskRequest
+      - CreateCommentRequest
+      - StoreAttachmentRequest
+    description: All task FormRequests follow same delegation pattern.

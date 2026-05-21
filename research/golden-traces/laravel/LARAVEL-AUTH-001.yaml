@@ -1,0 +1,89 @@
+id: LARAVEL-AUTH-001
+entrypoint: "PUT /tasks/{id}"
+framework: laravel
+source_project: tenant-workspace-api
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+    file: ~
+
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+
+  - id: check_permission
+    type: middleware
+    symbol: CheckPermission::handle
+    file: app/Http/Middleware/CheckPermission.php
+    args: [task.update]
+
+  - id: task_controller_update
+    type: controller
+    symbol: TaskController::update
+    file: app/Modules/Task/Http/Controllers/TaskController.php
+
+  - id: update_task_request
+    type: form_request
+    symbol: UpdateTaskRequest::authorize
+    file: app/Modules/Task/Requests/UpdateTaskRequest.php
+
+  - id: task_policy_update
+    type: policy
+    symbol: TaskPolicy::update
+    file: app/Policies/TaskPolicy.php
+
+  - id: permission_service_1
+    type: service_call
+    symbol: PermissionService::hasPermission
+    file: app/Modules/Access/Services/PermissionService.php
+    args: [TASK_UPDATE]
+    called_by: check_permission
+
+  - id: permission_service_2
+    type: service_call
+    symbol: PermissionService::hasPermission
+    file: app/Modules/Access/Services/PermissionService.php
+    args: [TASK_UPDATE]
+    called_by: task_policy_update
+
+edges:
+  - from: sanctum
+    to: resolve_tenant
+    relation: next_middleware
+
+  - from: resolve_tenant
+    to: check_permission
+    relation: next_middleware
+    side_effect: injects app('tenant')
+
+  - from: check_permission
+    to: task_controller_update
+    relation: next_middleware
+
+  - from: task_controller_update
+    to: update_task_request
+    relation: form_request
+
+  - from: task_controller_update
+    to: task_policy_update
+    relation: policy_check
+    via: $this->authorize('update', $task)
+
+  - from: check_permission
+    to: permission_service_1
+    relation: calls
+
+  - from: task_policy_update
+    to: permission_service_2
+    relation: calls
+
+annotations:
+  - type: overlap
+    nodes: [permission_service_1, permission_service_2]
+    description: >
+      Both check TASK_UPDATE for the same user and tenant.
+      Middleware checks tenant->id, Policy checks task->tenant_id.
+      Values are equivalent for valid tasks — check is redundant.

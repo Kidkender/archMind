@@ -1,0 +1,21 @@
+{
+  "name": "@archmind/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "archmind": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@archmind/laravel-parser": "*",
+    "@archmind/protocol": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0"
+  }
+}
