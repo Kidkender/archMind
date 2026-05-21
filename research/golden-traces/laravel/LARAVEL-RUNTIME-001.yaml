@@ -3,17 +3,26 @@ entrypoint: "ANY /tasks/*"
 framework: laravel
 source_project: tenant-workspace-api
 
+retrieval:
+  query: "What breaks when a route is added outside the ResolveTenant middleware group?"
+
 nodes:
   - id: resolve_tenant
     type: middleware
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: container_instance
     type: runtime_injection
     symbol: app()->instance('tenant', $tenant)
     key: tenant
     injected_by: resolve_tenant
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: task_controller
     type: controller
@@ -21,12 +30,19 @@ nodes:
     file: app/Modules/Task/Http/Controllers/TaskController.php
     consumes_key: tenant
     usage_count: 6
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: require_feature
     type: middleware
     symbol: RequireFeature::handle
     file: app/Http/Middleware/RequireFeature.php
     consumes_key: tenant
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+      compressed_summary: "RequireFeature also consumes app('tenant') — same failure mode"
 
 edges:
   - from: resolve_tenant

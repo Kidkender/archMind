@@ -3,6 +3,9 @@ entrypoint: "PUT /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
 
+retrieval:
+  query: "Is UpdateTaskRequest::authorize() a missing authorization check or intentional delegation?"
+
 nodes:
   - id: update_task_request
     type: form_request
@@ -10,18 +13,27 @@ nodes:
     file: app/Modules/Task/Requests/UpdateTaskRequest.php
     returns: true
     role: validation_only
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: check_permission
     type: middleware
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     role: auth_layer_1
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: task_policy_update
     type: policy
     symbol: TaskPolicy::update
     file: app/Policies/TaskPolicy.php
     role: auth_layer_2
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
 edges:
   - from: update_task_request

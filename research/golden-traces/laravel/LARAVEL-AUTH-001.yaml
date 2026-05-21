@@ -3,37 +3,58 @@ entrypoint: "PUT /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
 
+retrieval:
+  query: "Why is permission checked twice for the same user and task?"
+
 nodes:
   - id: sanctum
     type: middleware
     symbol: auth:sanctum
     file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
 
   - id: resolve_tenant
     type: middleware
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
 
   - id: check_permission
     type: middleware
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     args: [task.update]
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: task_controller_update
     type: controller
     symbol: TaskController::update
     file: app/Modules/Task/Http/Controllers/TaskController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
 
   - id: update_task_request
     type: form_request
     symbol: UpdateTaskRequest::authorize
     file: app/Modules/Task/Requests/UpdateTaskRequest.php
+    retrieval:
+      relevance: LOW
+      compressible: true
 
   - id: task_policy_update
     type: policy
     symbol: TaskPolicy::update
     file: app/Policies/TaskPolicy.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: permission_service_1
     type: service_call
@@ -41,6 +62,10 @@ nodes:
     file: app/Modules/Access/Services/PermissionService.php
     args: [TASK_UPDATE]
     called_by: check_permission
+    retrieval:
+      relevance: HIGH
+      compressible: true
+      compressed_summary: "middleware invokes PermissionService::hasPermission(TASK_UPDATE)"
 
   - id: permission_service_2
     type: service_call
@@ -48,6 +73,10 @@ nodes:
     file: app/Modules/Access/Services/PermissionService.php
     args: [TASK_UPDATE]
     called_by: task_policy_update
+    retrieval:
+      relevance: HIGH
+      compressible: true
+      compressed_summary: "policy invokes PermissionService::hasPermission(TASK_UPDATE)"
 
 edges:
   - from: sanctum

@@ -1,6 +1,5 @@
 import { readFileSync } from "fs"
 import { dirname, join } from "path"
-import { type SyntaxNode } from "tree-sitter"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
@@ -11,6 +10,7 @@ import type {
 } from "@archmind/protocol"
 import { middlewareToNode } from "./middleware-mapper.js"
 import type { ConstantMap } from "./constant-resolver.js"
+import { extractUseMap } from "./controller-parser.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -19,7 +19,7 @@ _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
 
 export interface ParseOptions {
   constants?: ConstantMap    // pre-resolved PHP class constants
-  projectRoot?: string       // used for relative file paths in nodes
+  projectRoot?: string
 }
 
 export function parseRouteFile(
@@ -27,25 +27,24 @@ export function parseRouteFile(
   opts: ParseOptions = {}
 ): IntermediateExecutionGraph[] {
   const out: IntermediateExecutionGraph[] = []
-  const ctx: RouteCtx = { middleware: [], prefix: "" }
-  processFile(filePath, ctx, out, opts)
+  processFile(filePath, { middleware: [], prefix: "" }, out, opts)
   return out
 }
 
 // ---- Internal ---------------------------------------------------------
 
 interface RouteCtx {
-  middleware: string[]   // inherited middleware strings
-  prefix: string         // accumulated path prefix
+  middleware: string[]
+  prefix:     string
 }
 
 interface MethodCall {
   name: string
-  args: SyntaxNode[]
+  args: Parser.SyntaxNode[]
 }
 
 interface MethodChain {
-  base: string           // class name, e.g. "Route"
+  base:    string
   methods: MethodCall[]
 }
 
@@ -61,116 +60,118 @@ function processFile(
   } catch {
     return
   }
-
-  const tree = _parser.parse(source)
-  walkProgram(tree.rootNode, ctx, out, filePath, opts)
+  const tree   = _parser.parse(source)
+  const useMap = extractUseMap(tree.rootNode)
+  walkBlock(tree.rootNode, ctx, out, filePath, opts, useMap)
 }
 
-function walkProgram(
-  node: SyntaxNode,
+// Walk any block-like node (program or compound_statement)
+function walkBlock(
+  node: Parser.SyntaxNode,
   ctx: RouteCtx,
   out: IntermediateExecutionGraph[],
   file: string,
-  opts: ParseOptions
+  opts: ParseOptions,
+  useMap: Map<string, string>
 ): void {
   for (const child of node.children) {
-    dispatchStatement(child, ctx, out, file, opts)
+    dispatchNode(child, ctx, out, file, opts, useMap)
   }
 }
 
-function dispatchStatement(
-  node: SyntaxNode,
+function dispatchNode(
+  node: Parser.SyntaxNode,
   ctx: RouteCtx,
   out: IntermediateExecutionGraph[],
   file: string,
-  opts: ParseOptions
+  opts: ParseOptions,
+  useMap: Map<string, string>
 ): void {
-  switch (node.type) {
-    case "expression_statement": {
-      const expr = node.firstNamedChild
-      if (expr) handleExpression(expr, ctx, out, file, opts)
-      break
-    }
-    case "require_expression":
-    case "require_once_expression":
-    case "include_expression":
-    case "include_once_expression": {
-      handleRequire(node, ctx, out, file, opts)
-      break
-    }
-    default: {
-      // compound_statement, namespace_definition, etc. — recurse
-      for (const child of node.children) {
-        dispatchStatement(child, ctx, out, file, opts)
-      }
-    }
-  }
-}
+  if (node.type === "expression_statement") {
+    const expr = node.firstNamedChild
+    if (!expr) return
 
-// ---- Route expression dispatch ----------------------------------------
-
-function handleExpression(
-  expr: SyntaxNode,
-  ctx: RouteCtx,
-  out: IntermediateExecutionGraph[],
-  file: string,
-  opts: ParseOptions
-): void {
-  const chain = extractMethodChain(expr)
-  if (!chain || chain.base !== "Route") return
-
-  const methods = chain.methods
-  const HTTP_VERBS = new Set(["get", "post", "put", "patch", "delete", "options"])
-
-  // Does the chain end in a group() call?
-  const lastGroupIdx = findLastIndex(methods, (m) => m.name === "group")
-
-  if (lastGroupIdx >= 0) {
-    // Collect modifiers before the group call
-    let newPrefix = ctx.prefix
-    const newMiddleware = [...ctx.middleware]
-
-    for (let i = 0; i < lastGroupIdx; i++) {
-      const m = methods[i]
-      if (m.name === "middleware") {
-        newMiddleware.push(...resolveMiddlewareArgs(m.args, opts.constants))
-      } else if (m.name === "prefix") {
-        const seg = extractStringNode(m.args[0], opts.constants)
-        if (seg) newPrefix = joinPath(newPrefix, seg)
-      }
-      // scopeBindings, name, etc. — ignored for now
-    }
-
-    const newCtx: RouteCtx = { middleware: newMiddleware, prefix: newPrefix }
-
-    // Recurse into the anonymous function body
-    const closureNode = methods[lastGroupIdx].args[0]
-    if (closureNode) {
-      const body = findFunctionBody(closureNode)
-      if (body) walkProgram(body, newCtx, out, file, opts)
+    if (isRequireNode(expr)) {
+      handleRequire(expr, ctx, out, file, opts, useMap)
+    } else {
+      handleRouteExpression(expr, ctx, out, file, opts, useMap)
     }
     return
   }
 
-  // Leaf route: Route::get/post/put/delete/patch('path', [Controller, 'method'])
+  // Recurse into other containers (compound_statement, namespace blocks, etc.)
+  for (const child of node.children) {
+    dispatchNode(child, ctx, out, file, opts, useMap)
+  }
+}
+
+function isRequireNode(node: Parser.SyntaxNode): boolean {
+  return (
+    node.type === "require_expression" ||
+    node.type === "require_once_expression" ||
+    node.type === "include_expression" ||
+    node.type === "include_once_expression"
+  )
+}
+
+// ---- Route expression handler -----------------------------------------
+
+function handleRouteExpression(
+  expr: Parser.SyntaxNode,
+  ctx: RouteCtx,
+  out: IntermediateExecutionGraph[],
+  file: string,
+  opts: ParseOptions,
+  useMap: Map<string, string>
+): void {
+  const chain = extractMethodChain(expr)
+  if (!chain || chain.base !== "Route") return
+
+  const { methods } = chain
+  const HTTP_VERBS = new Set(["get", "post", "put", "patch", "delete", "options"])
+
+  // Group call — descend with enriched context
+  const groupIdx = findLastIndex(methods, (m) => m.name === "group")
+
+  if (groupIdx >= 0) {
+    let newPrefix = ctx.prefix
+    const newMiddleware = [...ctx.middleware]
+
+    for (let i = 0; i < groupIdx; i++) {
+      const m = methods[i]
+      if (m.name === "middleware") {
+        newMiddleware.push(...resolveMiddlewareArgs(m.args, opts.constants))
+      } else if (m.name === "prefix") {
+        const seg = resolveString(m.args[0], opts.constants)
+        if (seg) newPrefix = joinPath(newPrefix, seg)
+      }
+      // name(), scopeBindings(), where() — ignored
+    }
+
+    const closureNode = methods[groupIdx].args[0]
+    if (closureNode) {
+      const body = getFunctionBody(closureNode)
+      if (body) {
+        walkBlock(body, { middleware: newMiddleware, prefix: newPrefix }, out, file, opts, useMap)
+      }
+    }
+    return
+  }
+
+  // Leaf route: Route::get/post/put/delete/patch(...)
   const routeVerb = methods.find((m) => HTTP_VERBS.has(m.name.toLowerCase()))
   if (!routeVerb) return
 
-  // Additional inline middleware on this specific route
   const inlineMiddleware = methods
     .filter((m) => m.name === "middleware")
     .flatMap((m) => resolveMiddlewareArgs(m.args, opts.constants))
 
-  const allMiddleware = [...ctx.middleware, ...inlineMiddleware]
-
-  const rawPath = extractStringNode(routeVerb.args[0], opts.constants) ?? "/"
+  const rawPath = resolveString(routeVerb.args[0], opts.constants) ?? "/"
   const fullPath = joinPath(ctx.prefix, rawPath)
   const method = routeVerb.name.toUpperCase()
-
   const { controller, action } = extractControllerAction(routeVerb.args[1])
 
-  const graph = buildGraph(method, fullPath, allMiddleware, controller, action)
-  out.push(graph)
+  out.push(buildGraph(method, fullPath, [...ctx.middleware, ...inlineMiddleware], controller, action, useMap))
 }
 
 // ---- Graph construction -----------------------------------------------
@@ -180,75 +181,66 @@ function buildGraph(
   path: string,
   middlewareStack: string[],
   controller: string,
-  action: string
+  action: string,
+  useMap: Map<string, string>
 ): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   const edges: ExecutionEdge[] = []
 
-  // Middleware chain
   middlewareStack.forEach((raw, i) => {
     nodes.push(middlewareToNode(raw, i))
   })
 
-  // Controller node
+  // Resolve controller short name → FQCN → relative file path
+  const fqcn = useMap.get(controller) ?? controller
+  const file = fqcn.includes("\\")
+    ? fqcn.replace(/^App\\/, "app/").replace(/\\/g, "/") + ".php"
+    : undefined
+
   const ctrlId = `ctrl_${controller.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${action}`
-  nodes.push({
+  const ctrlNode: ExecutionNode = {
     id:     ctrlId,
     type:   "controller_action",
     symbol: `${controller}::${action}`,
     role:   "handler",
-  })
+    ...(file ? { file } : {}),
+  }
+  nodes.push(ctrlNode)
 
-  // Edges: middleware chain → controller
-  const chainIds = nodes.map((n) => n.id)
-  for (let i = 0; i < chainIds.length - 1; i++) {
-    edges.push({
-      from:         chainIds[i],
-      to:           chainIds[i + 1],
-      relation:     "next_middleware",
-      traceability: "static",
-    })
+  for (let i = 0; i < nodes.length - 1; i++) {
+    edges.push({ from: nodes[i].id, to: nodes[i + 1].id, relation: "next_middleware", traceability: "static" })
   }
 
-  return {
-    entrypoint:  `${method} ${path}`,
-    method,
-    path,
-    nodes,
-    edges,
-    annotations: [],
-  }
+  return { entrypoint: `${method} ${path}`, method, path, nodes, edges, annotations: [] }
 }
 
 // ---- AST helpers ------------------------------------------------------
 
-function extractMethodChain(node: SyntaxNode): MethodChain | null {
+// Unwind a chained method call into a flat list:
+// Route::prefix('x')->name('y')->group(fn) → { base:'Route', methods:[prefix,name,group] }
+function extractMethodChain(node: Parser.SyntaxNode): MethodChain | null {
   const methods: MethodCall[] = []
-  let current: SyntaxNode | null = node
+  let cur: Parser.SyntaxNode | null = node
 
-  while (current) {
-    if (
-      current.type === "method_call_expression" ||
-      current.type === "member_call_expression"
-    ) {
-      const nameNode = current.childForFieldName("name")
-      const argsNode = current.childForFieldName("arguments")
+  while (cur) {
+    if (cur.type === "member_call_expression") {
+      const nameNode = cur.childForFieldName("name")
+      const argsNode = cur.childForFieldName("arguments")
       methods.unshift({
         name: nameNode?.text ?? "",
         args: argsNode ? getArgNodes(argsNode) : [],
       })
-      current = current.childForFieldName("object") ?? null
-    } else if (current.type === "static_method_call_expression") {
-      const classNode =
-        current.childForFieldName("class_name") ??
-        current.childForFieldName("class")
-      const nameNode = current.childForFieldName("name")
-      const argsNode = current.childForFieldName("arguments")
+      cur = cur.childForFieldName("object") ?? null
+    } else if (cur.type === "scoped_call_expression") {
+      // Route::method(...)
+      const scopeNode = cur.childForFieldName("scope")
+      const nameNode  = cur.childForFieldName("name")
+      const argsNode  = cur.childForFieldName("arguments")
       methods.unshift({
         name: nameNode?.text ?? "",
         args: argsNode ? getArgNodes(argsNode) : [],
       })
-      return { base: classNode?.text ?? "", methods }
+      return { base: scopeNode?.text ?? "", methods }
     } else {
       break
     }
@@ -257,80 +249,71 @@ function extractMethodChain(node: SyntaxNode): MethodChain | null {
   return null
 }
 
-function getArgNodes(argsNode: SyntaxNode): SyntaxNode[] {
+function getArgNodes(argsNode: Parser.SyntaxNode): Parser.SyntaxNode[] {
   return argsNode.children
     .filter((c) => c.type === "argument")
-    .map((c) => c.firstNamedChild ?? c)
-    .filter((c): c is SyntaxNode => c !== null)
+    .map((c) => c.firstNamedChild)
+    .filter((c): c is Parser.SyntaxNode => c !== null)
 }
 
-function findFunctionBody(node: SyntaxNode): SyntaxNode | null {
-  if (
-    node.type === "anonymous_function_creation_expression" ||
-    node.type === "anonymous_function_expression" ||
-    node.type === "arrow_function"
-  ) {
+function getFunctionBody(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  // anonymous_function has field 'body' → compound_statement
+  if (node.type === "anonymous_function") {
     return node.childForFieldName("body") ?? null
   }
-  // Search children
+  // Search first child that is a compound_statement
   for (const child of node.children) {
-    const found = findFunctionBody(child)
+    if (child.type === "compound_statement") return child
+    const found = getFunctionBody(child)
     if (found) return found
   }
   return null
 }
 
-// Resolve middleware from a Route::middleware(...) argument list
-function resolveMiddlewareArgs(
-  args: SyntaxNode[],
-  constants?: ConstantMap
-): string[] {
+// Resolve a middleware argument list into string values
+function resolveMiddlewareArgs(args: Parser.SyntaxNode[], constants?: ConstantMap): string[] {
   const result: string[] = []
   for (const arg of args) {
     if (arg.type === "array_creation_expression") {
-      // Route::middleware([...])
       for (const el of arg.children) {
         if (el.type === "array_element_initializer") {
           const val = el.firstNamedChild
-          if (val) result.push(...resolveMiddlewareValue(val, constants))
+          if (val) result.push(...resolveValue(val, constants))
         }
       }
     } else {
-      result.push(...resolveMiddlewareValue(arg, constants))
+      result.push(...resolveValue(arg, constants))
     }
   }
   return result
 }
 
-function resolveMiddlewareValue(
-  node: SyntaxNode,
-  constants?: ConstantMap
-): string[] {
+function resolveValue(node: Parser.SyntaxNode, constants?: ConstantMap): string[] {
   switch (node.type) {
     case "string":
-    case "encapsed_string":
-      return [unquote(node.text)]
+    case "encapsed_string": {
+      // 'foo' or "foo"
+      const content = node.children.find((c) => c.type === "string_content")
+      return [content?.text ?? unquote(node.text)]
+    }
 
     case "class_constant_access_expression": {
-      // ResolveTenant::class  or  Permission::TASK_VIEW
-      const parts = node.text.split("::")
-      const className = parts[0].trim()
-      const constName = parts[1]?.trim() ?? ""
-
+      // TaskController::class  or  Permission::TASK_VIEW
+      const className = node.children[0]?.text ?? ""
+      const constName = node.children[2]?.text ?? ""
       if (constName === "class") return [className]
-
       const resolved = constants?.[className]?.[constName]
       return [resolved ?? `${className}::${constName}`]
     }
 
     case "binary_expression": {
       // 'permission:'.Permission::TASK_VIEW
-      const left = node.childForFieldName("left")
-      const right = node.childForFieldName("right")
-      const op = node.childForFieldName("operator")?.text ?? node.children.find(c => c.type === ".")?.text
+      const op = node.childForFieldName("operator")?.text
       if (op !== ".") return [node.text]
-      const ls = left ? resolveMiddlewareValue(left, constants) : [""]
-      const rs = right ? resolveMiddlewareValue(right, constants) : [""]
+      const left  = node.childForFieldName("left")
+      const right = node.childForFieldName("right")
+      const ls = left  ? resolveValue(left,  constants) : [""]
+      const rs = right ? resolveValue(right, constants) : [""]
       return ls.flatMap((l) => rs.map((r) => l + r))
     }
 
@@ -339,78 +322,68 @@ function resolveMiddlewareValue(
   }
 }
 
-function extractStringNode(
-  node: SyntaxNode | undefined,
-  constants?: ConstantMap
-): string | null {
+function resolveString(node: Parser.SyntaxNode | undefined, constants?: ConstantMap): string | null {
   if (!node) return null
-  const parts = resolveMiddlewareValue(node, constants)
-  return parts[0] ?? null
+  return resolveValue(node, constants)[0] ?? null
 }
 
-function extractControllerAction(node: SyntaxNode | undefined): {
+function extractControllerAction(node: Parser.SyntaxNode | undefined): {
   controller: string
-  action: string
+  action:     string
 } {
   if (!node) return { controller: "UnknownController", action: "unknown" }
 
-  // [TaskController::class, 'update']
   if (node.type === "array_creation_expression") {
-    const elements = node.children.filter(
-      (c) => c.type === "array_element_initializer"
-    )
-    const classEl = elements[0]?.firstNamedChild
+    const elements = node.children.filter((c) => c.type === "array_element_initializer")
+    const classEl  = elements[0]?.firstNamedChild
     const actionEl = elements[1]?.firstNamedChild
-
-    const controller = classEl
-      ? resolveMiddlewareValue(classEl)[0] ?? "UnknownController"
-      : "UnknownController"
-    const action = actionEl ? unquote(actionEl.text) : "unknown"
+    const controller = classEl  ? resolveValue(classEl)[0]  ?? "UnknownController" : "UnknownController"
+    const action     = actionEl ? resolveValue(actionEl)[0] ?? "unknown"           : "unknown"
     return { controller, action }
   }
 
-  // Closure or invokable: treat as inline
   return { controller: "Closure", action: "invoke" }
 }
 
 // ---- require handling -------------------------------------------------
 
 function handleRequire(
-  node: SyntaxNode,
+  node: Parser.SyntaxNode,
   ctx: RouteCtx,
   out: IntermediateExecutionGraph[],
   file: string,
-  opts: ParseOptions
+  opts: ParseOptions,
+  _useMap: Map<string, string>  // not threaded into sub-files — each file builds its own
 ): void {
-  // Find the path expression (first named child after the keyword)
-  const pathExpr = node.firstNamedChild
+  // require_expression: [require] [expr]
+  // The path is the first non-keyword named child
+  const pathExpr = (node.children as Parser.SyntaxNode[]).find(
+    (c) => c.type !== "require" && c.type !== "require_once" &&
+           c.type !== "include" && c.type !== "include_once" &&
+           !c.type.startsWith("(")
+  )
   if (!pathExpr) return
 
   const resolved = resolveRequirePath(pathExpr, file)
   if (resolved) processFile(resolved, ctx, out, opts)
 }
 
-function resolveRequirePath(expr: SyntaxNode, fromFile: string): string | null {
-  // require __DIR__.'/api/task.php'
+function resolveRequirePath(expr: Parser.SyntaxNode, fromFile: string): string | null {
+  // __DIR__ . '/api/task.php'
   if (expr.type === "binary_expression") {
-    const left = expr.childForFieldName("left")
+    const op    = expr.childForFieldName("operator")?.text
+    const left  = expr.childForFieldName("left")
     const right = expr.childForFieldName("right")
-    const op = expr.childForFieldName("operator")?.text
     if (op !== ".") return null
-
-    const base = left?.type === "magic_constant" && left.text === "__DIR__"
-      ? dirname(fromFile)
-      : null
-    if (!base) return null
-
-    const rel = right ? unquote(right.text) : null
+    if (left?.text !== "__DIR__") return null
+    const rel = right ? resolveValue(right)[0] ?? null : null
     if (!rel) return null
-    return join(base, rel)
+    return join(dirname(fromFile), rel)
   }
 
-  // require '/absolute/path.php' — unlikely in Laravel
   if (expr.type === "string") {
-    return unquote(expr.text)
+    const content = expr.children.find((c) => c.type === "string_content")
+    return content?.text ?? unquote(expr.text)
   }
 
   return null

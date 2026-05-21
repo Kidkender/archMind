@@ -37,10 +37,12 @@ function walkNode(
   if (node.type === "const_declaration" && currentClass) {
     for (const child of node.children) {
       if (child.type === "const_element") {
-        const nameNode = child.childForFieldName("name")
-        const valueNode = child.childForFieldName("value")
+        // const_element has positional children: [name] [=] [value]
+        const nameNode  = child.children[0]
+        const valueNode = child.children[2]
         if (nameNode && valueNode) {
-          map[currentClass][nameNode.text] = unquote(valueNode.text)
+          const content = valueNode.children?.find((c: Parser.SyntaxNode) => c.type === "string_content")
+          map[currentClass][nameNode.text] = content?.text ?? unquote(valueNode.text)
         }
       }
     }

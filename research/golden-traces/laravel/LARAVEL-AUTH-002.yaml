@@ -3,43 +3,67 @@ entrypoint: "DELETE /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
 
+retrieval:
+  query: "Why are elevated-privilege users blocked from deleting tasks they should be able to delete?"
+
 nodes:
   - id: sanctum
     type: middleware
     symbol: auth:sanctum
+    retrieval:
+      relevance: LOW
+      compressible: true
 
   - id: resolve_tenant
     type: middleware
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: LOW
+      compressible: true
 
   - id: check_permission
     type: middleware
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     args: [task.delete]
+    retrieval:
+      relevance: LOW
+      compressible: true
 
   - id: task_controller_destroy
     type: controller
     symbol: TaskController::destroy
     file: app/Modules/Task/Http/Controllers/TaskController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
 
   - id: task_policy_delete
     type: policy
     symbol: TaskPolicy::delete
     file: app/Policies/TaskPolicy.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: perm_task_delete
     type: permission
     symbol: Permission::TASK_DELETE
     file: app/Common/Constants/Permission.php
     privilege_level: basic
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
   - id: perm_task_delete_any
     type: permission
     symbol: Permission::TASK_DELETE_ANY
     file: app/Common/Constants/Permission.php
     privilege_level: elevated
+    retrieval:
+      relevance: HIGH
+      compressible: false
 
 edges:
   - from: sanctum

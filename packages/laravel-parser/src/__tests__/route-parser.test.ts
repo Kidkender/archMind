@@ -1,0 +1,122 @@
+import { join, dirname } from "path"
+import { fileURLToPath } from "url"
+import { parseRouteFile } from "../route-parser.js"
+import { parseConstantClass } from "../constant-resolver.js"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname  = dirname(__filename)
+const FIXTURES   = join(__dirname, "fixtures")
+
+function fixture(name: string): string {
+  return join(FIXTURES, name)
+}
+
+describe("parseRouteFile — simple routes", () => {
+  let graphs: ReturnType<typeof parseRouteFile>
+
+  beforeAll(() => {
+    graphs = parseRouteFile(fixture("routes-simple.php"))
+  })
+
+  test("extracts 2 routes", () => {
+    expect(graphs).toHaveLength(2)
+  })
+
+  test("GET /health has no middleware", () => {
+    const g = graphs.find((g) => g.path === "/health")
+    expect(g).toBeDefined()
+    expect(g!.nodes).toHaveLength(1)
+    expect(g!.nodes[0].type).toBe("controller_action")
+  })
+
+  test("POST /tasks has no middleware", () => {
+    const g = graphs.find((g) => g.method === "POST" && g.path === "/tasks")
+    expect(g).toBeDefined()
+    expect(g!.nodes[0].symbol).toBe("TaskController::store")
+  })
+})
+
+describe("parseRouteFile — nested middleware groups", () => {
+  let graphs: ReturnType<typeof parseRouteFile>
+
+  beforeAll(() => {
+    const constants = parseConstantClass(fixture("Permissions.php"))
+    graphs = parseRouteFile(fixture("routes-nested.php"), { constants })
+  })
+
+  test("extracts 3 routes", () => {
+    expect(graphs).toHaveLength(3)
+  })
+
+  test("PUT /tasks/{task} has correct entrypoint", () => {
+    const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")
+    expect(g).toBeDefined()
+  })
+
+  test("PUT /tasks/{task} inherits full middleware stack", () => {
+    const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")!
+    const types = g.nodes.map((n) => n.type)
+    expect(types).toEqual([
+      "authentication_gate",
+      "middleware",
+      "authorization_check",
+      "controller_action",
+    ])
+  })
+
+  test("permission arg is resolved from constant (task.update not raw constant name)", () => {
+    const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")!
+    const perm = g.nodes.find((n) => n.type === "authorization_check")
+    expect(perm?.args).toEqual(["task.update"])
+  })
+
+  test("DELETE /tasks/{task} has permission:task.delete", () => {
+    const g = graphs.find((g) => g.method === "DELETE")!
+    const perm = g.nodes.find((n) => n.type === "authorization_check")
+    expect(perm?.args).toEqual(["task.delete"])
+  })
+
+  test("edges form a complete chain", () => {
+    const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")!
+    expect(g.edges).toHaveLength(3)
+    expect(g.edges[0].relation).toBe("next_middleware")
+    expect(g.edges[0].traceability).toBe("static")
+    expect(g.edges[0].from).toBe(g.nodes[0].id)
+    expect(g.edges[0].to).toBe(g.nodes[1].id)
+  })
+
+  test("path prefix is applied", () => {
+    const paths = graphs.map((g) => g.path)
+    expect(paths.every((p) => p.startsWith("/tasks"))).toBe(true)
+  })
+})
+
+describe("parseRouteFile — require includes", () => {
+  let graphs: ReturnType<typeof parseRouteFile>
+
+  beforeAll(() => {
+    graphs = parseRouteFile(fixture("routes-with-require.php"))
+  })
+
+  test("follows require and finds routes in sub-file", () => {
+    expect(graphs).toHaveLength(2)
+  })
+
+  test("routes inherit middleware from parent file's groups", () => {
+    for (const g of graphs) {
+      const types = g.nodes.map((n) => n.type)
+      expect(types).toContain("authentication_gate")
+      expect(types).toContain("middleware")  // ResolveTenant
+    }
+  })
+})
+
+describe("parseConstantClass", () => {
+  test("parses PHP class constants into a map", () => {
+    const map = parseConstantClass(fixture("Permissions.php"))
+    expect(map["Permissions"]).toBeDefined()
+    expect(map["Permissions"]["TASK_VIEW"]).toBe("task.view")
+    expect(map["Permissions"]["TASK_UPDATE"]).toBe("task.update")
+    expect(map["Permissions"]["TASK_DELETE"]).toBe("task.delete")
+  })
+})

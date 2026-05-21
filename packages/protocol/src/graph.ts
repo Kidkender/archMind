@@ -41,3 +41,15 @@ export interface IntermediateExecutionGraph {
   edges:        ExecutionEdge[]
   annotations:  GraphAnnotation[]
 }
+
+export interface RetrievalRequest {
+  entrypoint: string              // e.g. "PUT /tasks/{id}"
+}
+
+export interface RetrievalResult {
+  entrypoint:     string
+  nodes:          ExecutionNode[]
+  edges:          ExecutionEdge[]
+  token_estimate: number          // rough: JSON length / 4
+  pruned:         boolean         // false at R0, true when relevance pruning is applied
+}
