@@ -37,15 +37,22 @@ export interface GoldenAnnotation {
   description: string
 }
 
+export interface ExpectedFinding {
+  type:           string
+  required_nodes: string[]
+}
+
 export interface GoldenTrace {
-  id:             string
-  entrypoint:     string
-  framework:      string
-  source_project?: string
-  retrieval?:     TraceRetrieval
-  nodes:          GoldenNode[]
-  edges:          GoldenEdge[]
-  annotations?:   GoldenAnnotation[]
+  id:                string
+  entrypoint:        string
+  framework:         string
+  source_project?:   string
+  retrieval?:        TraceRetrieval
+  nodes:             GoldenNode[]
+  edges:             GoldenEdge[]
+  annotations?:      GoldenAnnotation[]
+  expected_findings?:    ExpectedFinding[]
+  expected_top_finding?: string
 }
 
 export function loadGoldenTrace(filePath: string): GoldenTrace {

@@ -19,8 +19,8 @@ export function detect(
   const authNodeIds = getAuthNodeIds(facts)
 
   return [
-    ...detectDuplicateAuthorization(facts),
-    ...detectDelegatedValidation(facts, authNodeIds),
+    ...detectDuplicateAuthorization(facts, graph),
+    ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),
     ...detectPrivilegeHierarchy(facts, graph),
   ]

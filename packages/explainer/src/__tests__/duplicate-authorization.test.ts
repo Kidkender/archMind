@@ -35,7 +35,7 @@ describe("detectDuplicateAuthorization — AUTH-001", () => {
 
   beforeEach(() => {
     const facts = extractAuthorizationFacts(AUTH_001_GRAPH)
-    findings = detectDuplicateAuthorization(facts)
+    findings = detectDuplicateAuthorization(facts, AUTH_001_GRAPH)
   })
 
   test("emits at least one duplicate_authorization finding", () => {
@@ -50,7 +50,7 @@ describe("detectDuplicateAuthorization — AUTH-001", () => {
 
   test("finding involves nodes from multiple layers", () => {
     const finding = findings[0]!
-    expect(finding.involvedNodes.length).toBeGreaterThanOrEqual(2)
+    expect(finding.provenance.supporting_nodes.length).toBeGreaterThanOrEqual(2)
   })
 
   test("finding has reasoning steps", () => {
@@ -87,7 +87,7 @@ describe("detectDuplicateAuthorization — no duplicate", () => {
     }
 
     const facts = extractAuthorizationFacts(graph)
-    const findings = detectDuplicateAuthorization(facts)
+    const findings = detectDuplicateAuthorization(facts, graph)
     expect(findings).toHaveLength(0)
   })
 })

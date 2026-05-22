@@ -46,6 +46,12 @@ edges:
     relation: auth_chain
     description: both are real authorization layers for this endpoint
 
+expected_findings:
+  - type: delegated_validation
+    required_nodes: [update_task_request]
+
+expected_top_finding: delegated_validation
+
 annotations:
   - type: delegated_authorization
     description: >

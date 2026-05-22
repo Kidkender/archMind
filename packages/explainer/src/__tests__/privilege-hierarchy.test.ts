@@ -32,9 +32,9 @@ describe("detectPrivilegeHierarchy — AUTH-002", () => {
     expect(findings[0]!.type).toBe("privilege_hierarchy_present")
   })
 
-  test("severity is INFO (advisory, not conclusive)", () => {
+  test("severity is MEDIUM (potential inversion bug warrants attention)", () => {
     const findings = detectPrivilegeHierarchy([], AUTH_002_GRAPH)
-    expect(findings[0]!.severity).toBe("INFO")
+    expect(findings[0]!.severity).toBe("MEDIUM")
   })
 
   test("confidence is MEDIUM", () => {
@@ -51,7 +51,9 @@ describe("detectPrivilegeHierarchy — AUTH-002", () => {
   test("uncertainty field explains condition unverifiability", () => {
     const findings = detectPrivilegeHierarchy([], AUTH_002_GRAPH)
     expect(findings[0]!.uncertainty?.length).toBeGreaterThan(0)
-    expect(findings[0]!.uncertainty![0]!.toLowerCase()).toContain("condition direction")
+    const unverifiable = findings[0]!.uncertainty!.find((u) => u.kind === "unverifiable_condition")
+    expect(unverifiable).toBeDefined()
+    expect(unverifiable!.description.toLowerCase()).toContain("condition direction")
   })
 
   test("recommendations warn about inversion bug", () => {
@@ -62,7 +64,7 @@ describe("detectPrivilegeHierarchy — AUTH-002", () => {
 
   test("involved nodes include policy and both permissions", () => {
     const findings = detectPrivilegeHierarchy([], AUTH_002_GRAPH)
-    const nodes = findings[0]!.involvedNodes
+    const nodes = findings[0]!.provenance.supporting_nodes
     expect(nodes).toContain("task_policy_delete")
     expect(nodes).toContain("perm_task_delete")
     expect(nodes).toContain("perm_task_delete_any")

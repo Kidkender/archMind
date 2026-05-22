@@ -5,11 +5,16 @@ import type {
   ExecutionEdge,
 } from "@archmind/protocol"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
+import { parseConstantClass } from "./constant-resolver.js"
+import { extractPermissionNodes } from "./permission-extractor/constants.js"
+import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
 
 // ---- Public API -------------------------------------------------------
 
 export interface AugmentOptions {
   projectRoot: string
+  /** Relative paths (from projectRoot) to PHP permission constant class files. */
+  permissionConstantFiles?: string[]
 }
 
 /**
@@ -107,6 +112,16 @@ export function augmentGraph(
     if (l1) {
       addServiceCallNodes(newNodes, newEdges, mwNode.id, l1.serviceCalls, opts.projectRoot)
     }
+  }
+
+  // ---- Permission constant pass ----------------------------------------
+  for (const relFile of (opts.permissionConstantFiles ?? [])) {
+    const absPath = join(opts.projectRoot, relFile)
+    const map = parseConstantClass(absPath)
+    const permNodes = extractPermissionNodes(map, relFile)
+    const permEdges = buildHierarchyEdges(permNodes)
+    newNodes.push(...permNodes)
+    newEdges.push(...permEdges)
   }
 
   return { ...graph, nodes: newNodes, edges: newEdges }

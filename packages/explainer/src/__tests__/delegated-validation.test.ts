@@ -62,7 +62,7 @@ describe("detectDelegatedValidation — VALIDATION-001", () => {
   test("emits delegated_validation finding", () => {
     const facts = extractValidationGateFacts(VALIDATION_001_GRAPH)
     const authNodeIds = ["check_permission", "task_policy_update"]
-    const findings = detectDelegatedValidation(facts, authNodeIds)
+    const findings = detectDelegatedValidation(facts, authNodeIds, VALIDATION_001_GRAPH)
 
     expect(findings.length).toBe(1)
     expect(findings[0]!.type).toBe(FINDING_TYPES.DELEGATED_VALIDATION)
@@ -70,25 +70,25 @@ describe("detectDelegatedValidation — VALIDATION-001", () => {
 
   test("severity is INFO when auth layers present", () => {
     const facts = extractValidationGateFacts(VALIDATION_001_GRAPH)
-    const findings = detectDelegatedValidation(facts, ["check_permission", "task_policy_update"])
+    const findings = detectDelegatedValidation(facts, ["check_permission", "task_policy_update"], VALIDATION_001_GRAPH)
     expect(findings[0]!.severity).toBe("INFO")
   })
 
   test("severity is MEDIUM when no auth layers", () => {
     const facts = extractValidationGateFacts(VALIDATION_001_GRAPH)
-    const findings = detectDelegatedValidation(facts, [])
+    const findings = detectDelegatedValidation(facts, [], VALIDATION_001_GRAPH)
     expect(findings[0]!.severity).toBe("MEDIUM")
   })
 
   test("summary mentions delegation", () => {
     const facts = extractValidationGateFacts(VALIDATION_001_GRAPH)
-    const findings = detectDelegatedValidation(facts, ["check_permission", "task_policy_update"])
+    const findings = detectDelegatedValidation(facts, ["check_permission", "task_policy_update"], VALIDATION_001_GRAPH)
     expect(findings[0]!.summary).toContain("delegates")
   })
 
   test("reasoning contains delegation_confirmed step", () => {
     const facts = extractValidationGateFacts(VALIDATION_001_GRAPH)
-    const findings = detectDelegatedValidation(facts, ["check_permission"])
+    const findings = detectDelegatedValidation(facts, ["check_permission"], VALIDATION_001_GRAPH)
     const types = findings[0]!.reasoning.map((r) => r.type)
     expect(types).toContain("delegation_confirmed")
   })
@@ -103,7 +103,7 @@ describe("detectDelegatedValidation — VALIDATION-001", () => {
       annotations: [],
     }
     const facts = extractValidationGateFacts(graph)
-    const findings = detectDelegatedValidation(facts, [])
+    const findings = detectDelegatedValidation(facts, [], graph)
     expect(findings).toHaveLength(0)
   })
 })

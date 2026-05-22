@@ -9,7 +9,8 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
   },
   "dependencies": {
-    "@archmind/protocol": "*"
+    "@archmind/protocol": "*",
+    "@archmind/scorer": "*"
   },
   "devDependencies": {
     "@archmind/laravel-parser": "*",

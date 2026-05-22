@@ -109,6 +109,12 @@ edges:
     to: permission_service_2
     relation: calls
 
+expected_findings:
+  - type: duplicate_authorization
+    required_nodes: [check_permission, task_policy_update]
+
+expected_top_finding: duplicate_authorization
+
 annotations:
   - type: overlap
     nodes: [permission_service_1, permission_service_2]

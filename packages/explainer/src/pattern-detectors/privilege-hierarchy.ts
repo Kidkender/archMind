@@ -1,13 +1,15 @@
 import type { SemanticFact } from "../fact-extraction/types.js"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
-import type { Finding, ReasoningStep, Evidence } from "../findings/types.js"
+import type { Finding, ReasoningStep, Evidence, UncertaintyReason } from "../findings/types.js"
+import { FINDING_TYPES } from "../findings/types.js"
+import { stableHash } from "../findings/stable-hash.js"
+import { checkMissingNodes } from "../findings/uncertainty.js"
 
-const FINDING_TYPE = "privilege_hierarchy_present"
-
-let _counter = 0
-
-function makeId(): string {
-  return `${FINDING_TYPE}-${++_counter}`
+function edgesAmong(graph: IntermediateExecutionGraph, nodeIds: string[]): string[] {
+  const idSet = new Set(nodeIds)
+  return graph.edges
+    .filter((e) => idSet.has(e.from) && idSet.has(e.to))
+    .map((e) => `${e.from}:${e.relation}:${e.to}`)
 }
 
 interface PrivilegeHierarchyGroup {
@@ -76,6 +78,7 @@ export function detectPrivilegeHierarchy(
 
   for (const group of groups) {
     const allPermIds = [...group.basicPermIds, ...group.elevatedPermIds]
+    const allNodes = [group.policyNodeId, ...allPermIds]
 
     const reasoning: ReasoningStep[] = [
       {
@@ -122,18 +125,26 @@ export function detectPrivilegeHierarchy(
     ]
 
     findings.push({
-      id: makeId(),
-      type: FINDING_TYPE,
-      severity: "INFO",
+      id: `${FINDING_TYPES.PRIVILEGE_HIERARCHY_PRESENT}-${stableHash(allNodes)}`,
+      type: FINDING_TYPES.PRIVILEGE_HIERARCHY_PRESENT,
+      severity: "MEDIUM",
       confidence: "MEDIUM",
-      primitives: ["PrivilegeHierarchy"],
-      involvedNodes: [group.policyNodeId, ...allPermIds],
+      provenance: {
+        detector: FINDING_TYPES.PRIVILEGE_HIERARCHY_PRESENT,
+        ontology_primitives: ["PrivilegeHierarchy"],
+        supporting_nodes: allNodes,
+        supporting_edges: edgesAmong(graph, allNodes),
+      },
       summary: `${group.policySymbol} handles a privilege hierarchy — verify that elevated permission grants MORE access than basic`,
       reasoning,
       evidence,
       uncertainty: [
-        "Condition direction (hasPermission vs !hasPermission) is not encoded in the execution graph",
-      ],
+        ...checkMissingNodes(allNodes, graph),
+        {
+          kind: "unverifiable_condition" as const,
+          description: "Condition direction (hasPermission vs !hasPermission) is not encoded in the execution graph",
+        },
+      ] satisfies UncertaintyReason[],
       recommendations: [
         `Confirm that hasPermission(${group.elevatedPermIds.join(", ")}) → allow (not deny)`,
         `Common bug: inverted condition causes elevated users to be MORE restricted`,

@@ -1,14 +1,21 @@
 import type { SemanticFact, AuthorizationCheckFact } from "../fact-extraction/types.js"
-import type { Finding, ReasoningStep, Evidence } from "../findings/types.js"
+import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import type { Finding, ReasoningStep, Evidence, UncertaintyReason } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
+import { stableHash } from "../findings/stable-hash.js"
+import { checkMissingNodes } from "../findings/uncertainty.js"
 
-let _counter = 0
-
-function makeId(): string {
-  return `${FINDING_TYPES.DUPLICATE_AUTHORIZATION}-${++_counter}`
+function edgesAmong(graph: IntermediateExecutionGraph, nodeIds: string[]): string[] {
+  const idSet = new Set(nodeIds)
+  return graph.edges
+    .filter((e) => idSet.has(e.from) && idSet.has(e.to))
+    .map((e) => `${e.from}:${e.relation}:${e.to}`)
 }
 
-export function detectDuplicateAuthorization(facts: SemanticFact[]): Finding[] {
+export function detectDuplicateAuthorization(
+  facts: SemanticFact[],
+  graph: IntermediateExecutionGraph
+): Finding[] {
   const authFacts = facts.filter(
     (f): f is AuthorizationCheckFact => f.kind === "authorization_check"
   )
@@ -29,6 +36,8 @@ export function detectDuplicateAuthorization(facts: SemanticFact[]): Finding[] {
   for (const [ability, group] of byAbility) {
     const layers = [...new Set(group.map((f) => f.layer))]
     if (layers.length < 2) continue   // need ≥2 different layers to be duplicate
+
+    const nodeIds = group.map((f) => f.nodeId)
 
     const reasoning: ReasoningStep[] = group.map((f) => ({
       type: "authorization_check",
@@ -52,25 +61,31 @@ export function detectDuplicateAuthorization(facts: SemanticFact[]): Finding[] {
       detail: f.permission ?? undefined,
     }))
 
-    const uncertainty: string[] = []
+    const uncertainty: UncertaintyReason[] = checkMissingNodes(nodeIds, graph)
     const mediumFacts = group.filter((f) => f.confidence === "MEDIUM")
-    if (mediumFacts.length > 0) {
-      uncertainty.push(
-        `${mediumFacts.length} authorization check(s) inferred semantically (no explicit permission arg)`
-      )
+    for (const f of mediumFacts) {
+      uncertainty.push({
+        kind: "low_fact_confidence",
+        nodeId: f.nodeId,
+        description: `Authorization check at "${f.nodeId}" inferred semantically (no explicit permission arg)`,
+      })
     }
 
     findings.push({
-      id: makeId(),
+      id: `${FINDING_TYPES.DUPLICATE_AUTHORIZATION}-${stableHash([...nodeIds, ability])}`,
       type: FINDING_TYPES.DUPLICATE_AUTHORIZATION,
       severity: "LOW",
       confidence: group.every((f) => f.confidence === "HIGH") ? "HIGH" : "MEDIUM",
-      primitives: ["AuthorizationCheck", "ExecutionOverlap"],
-      involvedNodes: group.map((f) => f.nodeId),
+      provenance: {
+        detector: FINDING_TYPES.DUPLICATE_AUTHORIZATION,
+        ontology_primitives: ["AuthorizationCheck", "ExecutionOverlap"],
+        supporting_nodes: nodeIds,
+        supporting_edges: edgesAmong(graph, nodeIds),
+      },
       summary: `Permission "${ability}" is checked in ${layers.length} layers: ${layers.join(", ")}`,
       reasoning,
       evidence,
-      ...(uncertainty.length > 0 ? { uncertainty } : {}),
+      uncertainty: uncertainty.length > 0 ? uncertainty : undefined,
       recommendations: [
         `Consider consolidating "${ability}" authorization to a single layer (typically policy or middleware)`,
       ],

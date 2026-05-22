@@ -96,6 +96,12 @@ edges:
     relation: privilege_hierarchy
     description: TASK_DELETE_ANY is elevated above TASK_DELETE
 
+expected_findings:
+  - type: privilege_hierarchy_present
+    required_nodes: [task_policy_delete, perm_task_delete, perm_task_delete_any]
+
+expected_top_finding: privilege_hierarchy_present
+
 annotations:
   - type: bug
     location: task_policy_delete

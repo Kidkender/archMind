@@ -71,6 +71,12 @@ contract:
     Any route added outside this group will receive null from app('tenant').
     No compile-time error. Silent runtime failure.
 
+expected_findings:
+  - type: hidden_runtime_dependency
+    required_nodes: [container_instance, task_controller]
+
+expected_top_finding: hidden_runtime_dependency
+
 annotations:
   - type: implicit_contract
     description: >

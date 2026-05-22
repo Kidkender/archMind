@@ -18,7 +18,7 @@ function renderFinding(f: Finding, index: number): string {
   lines.push("")
   lines.push(`**Severity:** ${severityBadge(f.severity)}  `)
   lines.push(`**Confidence:** ${f.confidence}  `)
-  lines.push(`**Nodes:** ${f.involvedNodes.join(", ")}`)
+  lines.push(`**Nodes:** ${f.provenance.supporting_nodes.join(", ")}`)
   lines.push("")
   lines.push(`### Summary`)
   lines.push(f.summary)
@@ -48,7 +48,7 @@ function renderFinding(f: Finding, index: number): string {
   if (f.uncertainty && f.uncertainty.length > 0) {
     lines.push(`### Uncertainty`)
     for (const u of f.uncertainty) {
-      lines.push(`- ${u}`)
+      lines.push(`- ${u.description}`)
     }
     lines.push("")
   }

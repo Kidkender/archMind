@@ -1,13 +1,16 @@
 import type { SemanticFact, RuntimeInjectionFact } from "../fact-extraction/types.js"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
-import type { Finding, ReasoningStep, Evidence } from "../findings/types.js"
+import type { Finding, ReasoningStep, Evidence, UncertaintyReason } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
+import { stableHash } from "../findings/stable-hash.js"
+import { checkMissingNodes } from "../findings/uncertainty.js"
 import { extractRuntimeConsumers } from "../fact-extraction/runtime.js"
 
-let _counter = 0
-
-function makeId(): string {
-  return `${FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY}-${++_counter}`
+function edgesAmong(graph: IntermediateExecutionGraph, nodeIds: string[]): string[] {
+  const idSet = new Set(nodeIds)
+  return graph.edges
+    .filter((e) => idSet.has(e.from) && idSet.has(e.to))
+    .map((e) => `${e.from}:${e.relation}:${e.to}`)
 }
 
 export function detectHiddenRuntimeDependency(
@@ -60,29 +63,40 @@ export function detectHiddenRuntimeDependency(
       })),
     ]
 
-    const uncertainty: string[] = []
-    if (fact.confidence === "MEDIUM") {
-      uncertainty.push("Injected key inferred from symbol — actual key may differ")
-    }
-    if (consumers.length === 0) {
-      uncertainty.push("No consumers detected via static edges — runtime consumers may exist")
-    }
-
     const allNodes = [fact.nodeId, ...consumers.map((c) => c.nodeId)]
 
+    const uncertainty: UncertaintyReason[] = checkMissingNodes(allNodes, graph)
+    if (fact.confidence === "MEDIUM") {
+      uncertainty.push({
+        kind: "inferred_symbol",
+        nodeId: fact.nodeId,
+        description: "Injected key inferred from symbol — actual key may differ at runtime",
+      })
+    }
+    if (consumers.length === 0) {
+      uncertainty.push({
+        kind: "no_consumers_detected",
+        description: "No consumers detected via static edges — runtime consumers may exist",
+      })
+    }
+
     findings.push({
-      id: makeId(),
+      id: `${FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY}-${stableHash([fact.nodeId, fact.injectedValue, ...consumers.map((c) => c.nodeId)])}`,
       type: FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY,
       severity: "HIGH",
       confidence: fact.confidence,
-      primitives: ["RuntimeContract"],
-      involvedNodes: allNodes,
+      provenance: {
+        detector: FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY,
+        ontology_primitives: ["RuntimeContract"],
+        supporting_nodes: allNodes,
+        supporting_edges: edgesAmong(graph, allNodes),
+      },
       summary: consumers.length > 0
         ? `"${fact.injectedValue}" is injected at runtime and consumed by ${consumers.length} node(s) — implicit contract not enforced by type system`
         : `"${fact.injectedValue}" is injected at runtime — no static consumers detected`,
       reasoning,
       evidence,
-      ...(uncertainty.length > 0 ? { uncertainty } : {}),
+      uncertainty: uncertainty.length > 0 ? uncertainty : undefined,
       recommendations: [
         `Ensure the injector (${fact.nodeId}) is always in the route group middleware stack before any consumer`,
         `Consider constructor injection or service binding to make this dependency explicit`,

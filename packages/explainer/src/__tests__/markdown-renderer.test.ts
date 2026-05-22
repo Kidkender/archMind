@@ -3,12 +3,16 @@ import { renderMarkdown } from "../renderers/markdown.js"
 import type { Finding } from "../findings/types.js"
 
 const sampleFinding: Finding = {
-  id: "duplicate_authorization-1",
+  id: "duplicate_authorization-abcd1234",
   type: "duplicate_authorization",
   severity: "LOW",
   confidence: "HIGH",
-  primitives: ["AuthorizationCheck", "ExecutionOverlap"],
-  involvedNodes: ["check_permission", "task_policy_update"],
+  provenance: {
+    detector: "duplicate_authorization",
+    ontology_primitives: ["AuthorizationCheck", "ExecutionOverlap"],
+    supporting_nodes: ["check_permission", "task_policy_update"],
+    supporting_edges: [],
+  },
   summary: 'Permission "update" is checked in 2 layers: middleware, policy',
   reasoning: [
     { type: "authorization_check", node: "check_permission", ability: "update", layer: "middleware" },
@@ -74,7 +78,7 @@ describe("renderMarkdown", () => {
   test("uncertainty section shown when present", () => {
     const withUncertainty: Finding = {
       ...sampleFinding,
-      uncertainty: ["tenant equivalence inferred semantically"],
+      uncertainty: [{ kind: "low_fact_confidence", nodeId: "x", description: "tenant equivalence inferred semantically" }],
     }
     const output = renderMarkdown([withUncertainty])
     expect(output).toContain("Uncertainty")

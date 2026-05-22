@@ -4,13 +4,19 @@ import type { Finding } from "./findings/types.js"
 import { extractFacts } from "./fact-extraction/index.js"
 import { detect } from "./pattern-detectors/index.js"
 import { renderMarkdown } from "./renderers/markdown.js"
+import { rankFindings } from "./ranking/rank-findings.js"
+import { classifyQuery } from "./query/classify.js"
+import { prioritizeByFocus } from "./query/prioritize.js"
 
-export function explain(graph: IntermediateExecutionGraph): Finding[] {
+export function explain(graph: IntermediateExecutionGraph, query?: string): Finding[] {
   const facts = extractFacts(graph)
-  return detect(facts, graph)
+  const ranked = rankFindings(detect(facts, graph))
+  if (!query) return ranked
+  const ctx = classifyQuery(query)
+  return prioritizeByFocus(ranked, ctx.focus)
 }
 
-export { extractFacts, detect, renderMarkdown }
+export { extractFacts, detect, renderMarkdown, rankFindings }
 export type { SemanticFact, Finding }
 export * from "./fact-extraction/types.js"
 export * from "./findings/types.js"

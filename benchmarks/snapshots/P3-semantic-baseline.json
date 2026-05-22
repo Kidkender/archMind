@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-05-22T08:24:18.626Z",
+  "label": "P3-semantic-baseline",
+  "traces": {
+    "LARAVEL-AUTH-001": {
+      "entrypoint": "PUT /tasks/{id}",
+      "naive_rag_tokens": 1416,
+      "naive_rag_files": 6,
+      "r0_tokens": 857,
+      "r0_recall": 1,
+      "r1_tokens": 558,
+      "r1_recall": 0.7142857142857143,
+      "compression_r0": 1.65,
+      "compression_r1": 2.54,
+      "token_savings_r0": 39.5,
+      "token_savings_r1": 60.6,
+      "recall_gap": 0,
+      "recall_gap_reason": "ok",
+      "missing_high_nodes": []
+    },
+    "LARAVEL-AUTH-002": {
+      "entrypoint": "DELETE /tasks/{id}",
+      "naive_rag_tokens": 974,
+      "naive_rag_files": 4,
+      "r0_tokens": 805,
+      "r0_recall": 1,
+      "r1_tokens": 558,
+      "r1_recall": 0.75,
+      "compression_r0": 1.21,
+      "compression_r1": 1.75,
+      "token_savings_r0": 17.4,
+      "token_savings_r1": 42.7,
+      "recall_gap": 0,
+      "recall_gap_reason": "ok",
+      "missing_high_nodes": []
+    },
+    "LARAVEL-RUNTIME-001": {
+      "entrypoint": "ANY /tasks/*",
+      "naive_rag_tokens": 450,
+      "naive_rag_files": 2,
+      "r0_tokens": 0,
+      "r0_recall": 0,
+      "r1_tokens": 0,
+      "r1_recall": 0,
+      "compression_r0": 0,
+      "compression_r1": 0,
+      "token_savings_r0": 0,
+      "token_savings_r1": 0,
+      "recall_gap": 1,
+      "recall_gap_reason": "cross_cutting",
+      "missing_high_nodes": []
+    },
+    "LARAVEL-VALIDATION-001": {
+      "entrypoint": "PUT /tasks/{id}",
+      "naive_rag_tokens": 710,
+      "naive_rag_files": 3,
+      "r0_tokens": 678,
+      "r0_recall": 1,
+      "r1_tokens": 482,
+      "r1_recall": 0.6666666666666666,
+      "compression_r0": 1.05,
+      "compression_r1": 1.47,
+      "token_savings_r0": 4.5,
+      "token_savings_r1": 32.1,
+      "recall_gap": 0,
+      "recall_gap_reason": "ok",
+      "missing_high_nodes": []
+    }
+  },
+  "summary": {
+    "avg_r0_recall": 1,
+    "avg_compression_r0": 1.3,
+    "avg_token_savings_r0": 20.5,
+    "total_traces": 4
+  }
+}
