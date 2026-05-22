@@ -1,0 +1,61 @@
+id: ADV-ALIAS-001
+entrypoint: "GET /reports"
+framework: laravel
+category: adversarial
+adversarial_type: middleware_alias_resolution
+
+retrieval:
+  query: "What authorization gate protects the reports endpoint?"
+
+# Nodes as they SHOULD appear after full alias resolution.
+# Engine currently emits alias string — see expected_failure below.
+nodes:
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: role_admin
+    type: authorization_check
+    symbol: EnsureUserHasRole::handle
+    file: app/Http/Middleware/EnsureUserHasRole.php
+    args: [admin]
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: report_controller_index
+    type: controller_action
+    symbol: ReportController::index
+    file: app/Http/Controllers/ReportController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: sanctum
+    to: role_admin
+    relation: next_middleware
+
+  - from: role_admin
+    to: report_controller_index
+    relation: next_middleware
+
+expected_failure:
+  type: unresolved_middleware_alias
+  severity: MEDIUM
+  acceptable: true
+  description: >
+    Engine currently emits { symbol: "role:admin", type: "middleware" } instead of
+    resolving alias via Kernel.$middlewareAliases to EnsureUserHasRole::handle.
+    Alias resolution requires reading Kernel.php and parsing the $middlewareAliases map.
+  current_behavior:
+    r0_recall_estimate: 0.33
+    missing_nodes: [role_admin]
+    wrong_type_nodes: [role_admin]
+  target_behavior:
+    r0_recall_estimate: 1.0
+    required_capability: kernel_alias_resolution

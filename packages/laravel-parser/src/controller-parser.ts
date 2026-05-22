@@ -19,10 +19,19 @@ export interface AuthorizeCall {
   mechanism: string   // full call text, e.g. "$this->authorize('update', $task)"
 }
 
+export interface ServiceCall {
+  propertyName: string   // injected property name, e.g. "permissionService"
+  serviceClass: string   // short class name, e.g. "PermissionService"
+  serviceFqcn:  string   // FQCN, e.g. "App\Modules\Access\Services\PermissionService"
+  method:       string   // called method, e.g. "hasPermission"
+  args:         string[] // string literal args extracted from the call site
+}
+
 export interface ControllerL1 {
   useMap:        Map<string, string>   // shortName → FQCN from use statements
   formRequests:  FormRequestParam[]
   authorizeCalls: AuthorizeCall[]
+  serviceCalls:  ServiceCall[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -49,13 +58,16 @@ export function parseControllerMethod(
 
   const methodNode = findMethod(root, methodName)
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [] }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [] }
   }
+
+  const injections = extractConstructorInjections(root, useMap)
 
   return {
     useMap,
     formRequests:   extractFormRequests(methodNode, useMap),
     authorizeCalls: extractAuthorizeCalls(methodNode),
+    serviceCalls:   extractServiceCalls(methodNode, injections, useMap),
   }
 }
 
@@ -197,4 +209,114 @@ function resolveStringNode(node: Parser.SyntaxNode): string {
     return content?.text ?? node.text.slice(1, -1)
   }
   return node.text
+}
+
+// ---- Constructor injection extraction --------------------------------
+
+/**
+ * Parse __construct parameters to build propertyName → FQCN map.
+ * Handles PHP 8 constructor promotion (private/public/protected modifiers).
+ */
+function extractConstructorInjections(
+  root: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): Map<string, string> {
+  const constructNode = findMethod(root, "__construct")
+  if (!constructNode) return new Map()
+
+  const paramsNode = constructNode.childForFieldName("parameters")
+  if (!paramsNode) return new Map()
+
+  const map = new Map<string, string>()
+
+  for (const param of paramsNode.children as Parser.SyntaxNode[]) {
+    // Works for simple_parameter and property_promotion_parameter
+    const typeNode = param.childForFieldName("type")
+    const varNode  = (param.children as Parser.SyntaxNode[]).find(
+      (c) => c.type === "variable_name"
+    )
+    if (!typeNode || !varNode) continue
+
+    const typeName = typeNode.text.trim()
+
+    // Skip primitive and framework base types
+    if (!typeName || typeName[0] === typeName[0].toLowerCase()) continue
+    if (["Request", "Closure", "Response"].includes(typeName)) continue
+
+    const fqcn    = useMap.get(typeName) ?? typeName
+    const varName = varNode.text.replace(/^\$/, "")
+    map.set(varName, fqcn)
+  }
+
+  return map
+}
+
+// ---- Service call extraction -----------------------------------------
+
+function extractServiceCalls(
+  methodNode: Parser.SyntaxNode,
+  injections: Map<string, string>,
+  _useMap: Map<string, string>
+): ServiceCall[] {
+  const results: ServiceCall[] = []
+  const body = methodNode.childForFieldName("body")
+  if (!body) return results
+  gatherServiceCalls(body, injections, results)
+  return results
+}
+
+function gatherServiceCalls(
+  node: Parser.SyntaxNode,
+  injections: Map<string, string>,
+  results: ServiceCall[]
+): void {
+  // Pattern: $this->propertyName->method(args)
+  if (node.type === "member_call_expression") {
+    const objNode  = node.childForFieldName("object")
+    const nameNode = node.childForFieldName("name")
+
+    if (objNode?.type === "member_access_expression" && nameNode) {
+      const innerObj = objNode.childForFieldName("object")
+      const propNode = objNode.childForFieldName("name")
+
+      if (innerObj?.text === "$this" && propNode) {
+        const prop = propNode.text
+        const fqcn = injections.get(prop)
+
+        if (fqcn) {
+          const shortName = fqcn.split("\\").pop() ?? fqcn
+          const argsNode  = node.childForFieldName("arguments")
+          const stringArgs = argsNode ? extractStringCallArgs(argsNode) : []
+
+          results.push({
+            propertyName: prop,
+            serviceClass: shortName,
+            serviceFqcn:  fqcn,
+            method:       nameNode.text,
+            args:         stringArgs,
+          })
+        }
+      }
+    }
+  }
+
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    gatherServiceCalls(child, injections, results)
+  }
+}
+
+function extractStringCallArgs(argsNode: Parser.SyntaxNode): string[] {
+  return (argsNode.children as Parser.SyntaxNode[])
+    .filter((c) => c.type === "argument")
+    .flatMap((c) => {
+      const val = c.firstNamedChild
+      if (!val) return []
+      if (val.type === "string") {
+        const content = (val.children as Parser.SyntaxNode[]).find(
+          (sc) => sc.type === "string_content"
+        )
+        return content?.text ? [content.text] : []
+      }
+      return []
+    })
 }

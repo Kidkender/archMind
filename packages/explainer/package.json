@@ -1,5 +1,5 @@
 {
-  "name": "@archmind/retrieval",
+  "name": "@archmind/explainer",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,11 +9,10 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
   },
   "dependencies": {
-    "@archmind/protocol": "*",
-    "@archmind/scorer": "*",
-    "@archmind/laravel-parser": "*"
+    "@archmind/protocol": "*"
   },
   "devDependencies": {
+    "@archmind/laravel-parser": "*",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "jest": "^29.0.0",

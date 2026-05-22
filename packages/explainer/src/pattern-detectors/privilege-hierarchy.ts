@@ -1,0 +1,145 @@
+import type { SemanticFact } from "../fact-extraction/types.js"
+import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import type { Finding, ReasoningStep, Evidence } from "../findings/types.js"
+
+const FINDING_TYPE = "privilege_hierarchy_present"
+
+let _counter = 0
+
+function makeId(): string {
+  return `${FINDING_TYPE}-${++_counter}`
+}
+
+interface PrivilegeHierarchyGroup {
+  policyNodeId: string
+  policySymbol: string
+  basicPermIds: string[]
+  elevatedPermIds: string[]
+}
+
+function detectHierarchyGroups(
+  graph: IntermediateExecutionGraph
+): PrivilegeHierarchyGroup[] {
+  const groups: PrivilegeHierarchyGroup[] = []
+
+  const hierarchyEdges = graph.edges.filter((e) => e.relation === "privilege_hierarchy")
+  if (hierarchyEdges.length === 0) return groups
+
+  // Find policy nodes that check permissions involved in hierarchy edges
+  const hierarchyNodeIds = new Set<string>()
+  for (const e of hierarchyEdges) {
+    hierarchyNodeIds.add(e.from)
+    hierarchyNodeIds.add(e.to)
+  }
+
+  const policyNodes = graph.nodes.filter((n) => n.type.toLowerCase() === "policy")
+
+  for (const policy of policyNodes) {
+    const permEdges = graph.edges.filter(
+      (e) =>
+        e.from === policy.id &&
+        (e.relation === "checks_permission" || e.relation === "uses_permission") &&
+        hierarchyNodeIds.has(e.to)
+    )
+
+    if (permEdges.length < 2) continue
+
+    const checkedPermIds = permEdges.map((e) => e.to)
+
+    // Classify basic vs elevated using hierarchy edges
+    const elevatedIds: string[] = []
+    const basicIds: string[] = []
+
+    for (const id of checkedPermIds) {
+      const isElevated = hierarchyEdges.some((e) => e.from === id)
+      if (isElevated) elevatedIds.push(id)
+      else basicIds.push(id)
+    }
+
+    groups.push({
+      policyNodeId: policy.id,
+      policySymbol: policy.symbol,
+      basicPermIds: basicIds,
+      elevatedPermIds: elevatedIds,
+    })
+  }
+
+  return groups
+}
+
+export function detectPrivilegeHierarchy(
+  _facts: SemanticFact[],
+  graph: IntermediateExecutionGraph
+): Finding[] {
+  const groups = detectHierarchyGroups(graph)
+  const findings: Finding[] = []
+
+  for (const group of groups) {
+    const allPermIds = [...group.basicPermIds, ...group.elevatedPermIds]
+
+    const reasoning: ReasoningStep[] = [
+      {
+        type: "policy_checks_multiple_permissions",
+        node: group.policyNodeId,
+        symbol: group.policySymbol,
+        permissionCount: allPermIds.length,
+      },
+      {
+        type: "privilege_hierarchy_edge_present",
+        elevated: group.elevatedPermIds,
+        basic: group.basicPermIds,
+      },
+      {
+        type: "condition_logic_unverifiable",
+        description:
+          "Graph encodes structure but not boolean direction — elevated tier may be accidentally more restrictive",
+      },
+    ]
+
+    const elevatedNodes = group.elevatedPermIds
+      .map((id) => graph.nodes.find((n) => n.id === id))
+      .filter(Boolean)
+
+    const basicNodes = group.basicPermIds
+      .map((id) => graph.nodes.find((n) => n.id === id))
+      .filter(Boolean)
+
+    const evidence: Evidence[] = [
+      {
+        nodeId: group.policyNodeId,
+        description: `Policy checks ${allPermIds.length} permission tier(s)`,
+      },
+      ...elevatedNodes.map((n) => ({
+        nodeId: n!.id,
+        description: `Elevated permission tier — should grant MORE access than basic`,
+        detail: n!.symbol,
+      })),
+      ...basicNodes.map((n) => ({
+        nodeId: n!.id,
+        description: `Basic permission tier`,
+        detail: n!.symbol,
+      })),
+    ]
+
+    findings.push({
+      id: makeId(),
+      type: FINDING_TYPE,
+      severity: "INFO",
+      confidence: "MEDIUM",
+      primitives: ["PrivilegeHierarchy"],
+      involvedNodes: [group.policyNodeId, ...allPermIds],
+      summary: `${group.policySymbol} handles a privilege hierarchy — verify that elevated permission grants MORE access than basic`,
+      reasoning,
+      evidence,
+      uncertainty: [
+        "Condition direction (hasPermission vs !hasPermission) is not encoded in the execution graph",
+      ],
+      recommendations: [
+        `Confirm that hasPermission(${group.elevatedPermIds.join(", ")}) → allow (not deny)`,
+        `Common bug: inverted condition causes elevated users to be MORE restricted`,
+      ],
+    })
+  }
+
+  return findings
+}

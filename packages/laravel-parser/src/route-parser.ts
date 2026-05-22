@@ -8,9 +8,10 @@ import type {
   ExecutionNode,
   ExecutionEdge,
 } from "@archmind/protocol"
-import { middlewareToNode } from "./middleware-mapper.js"
+import { middlewareToNode, resolvedMiddlewareToNode } from "./middleware-mapper.js"
 import type { ConstantMap } from "./constant-resolver.js"
 import { extractUseMap } from "./controller-parser.js"
+import type { AliasMap } from "./kernel-parser.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -19,6 +20,7 @@ _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
 
 export interface ParseOptions {
   constants?: ConstantMap    // pre-resolved PHP class constants
+  aliasMap?:  AliasMap       // Kernel.php alias → FQCN map for alias resolution
   projectRoot?: string
 }
 
@@ -171,7 +173,7 @@ function handleRouteExpression(
   const method = routeVerb.name.toUpperCase()
   const { controller, action } = extractControllerAction(routeVerb.args[1])
 
-  out.push(buildGraph(method, fullPath, [...ctx.middleware, ...inlineMiddleware], controller, action, useMap))
+  out.push(buildGraph(method, fullPath, [...ctx.middleware, ...inlineMiddleware], controller, action, useMap, opts))
 }
 
 // ---- Graph construction -----------------------------------------------
@@ -182,13 +184,19 @@ function buildGraph(
   middlewareStack: string[],
   controller: string,
   action: string,
-  useMap: Map<string, string>
+  useMap: Map<string, string>,
+  opts: ParseOptions = {}
 ): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   const edges: ExecutionEdge[] = []
 
   middlewareStack.forEach((raw, i) => {
-    nodes.push(middlewareToNode(raw, i))
+    const resolved = opts.aliasMap ? resolveAlias(raw, opts.aliasMap) : null
+    if (resolved) {
+      nodes.push(resolvedMiddlewareToNode(raw, resolved.fqcn, resolved.args, i))
+    } else {
+      nodes.push(middlewareToNode(raw, i))
+    }
   })
 
   // Resolve controller short name → FQCN → relative file path
@@ -412,4 +420,30 @@ function findLastIndex<T>(arr: T[], pred: (item: T) => boolean): number {
     if (pred(arr[i])) return i
   }
   return -1
+}
+
+// ---- Alias resolution -------------------------------------------------
+
+// Built-in middleware patterns already handled by middlewareToNode — skip these.
+const BUILTIN_PREFIXES = /^(auth|permission|throttle):/
+const BUILTIN_NAMES    = new Set(["signed", "verified"])
+
+/**
+ * Resolve a raw middleware string against the kernel alias map.
+ * Returns null if the string should be handled by middlewareToNode directly.
+ */
+function resolveAlias(
+  raw: string,
+  aliasMap: AliasMap
+): { fqcn: string; args: string[] } | null {
+  if (BUILTIN_PREFIXES.test(raw) || BUILTIN_NAMES.has(raw)) return null
+
+  const colonIdx = raw.indexOf(":")
+  const key    = colonIdx >= 0 ? raw.slice(0, colonIdx) : raw
+  const argStr = colonIdx >= 0 ? raw.slice(colonIdx + 1) : ""
+
+  const fqcn = aliasMap[key]
+  if (!fqcn) return null
+
+  return { fqcn, args: argStr ? argStr.split(",") : [] }
 }

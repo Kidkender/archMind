@@ -1,0 +1,59 @@
+id: ADV-NESTED-001
+entrypoint: "PUT /api/projects/{project}"
+framework: laravel
+category: adversarial
+adversarial_type: nested_route_group_middleware
+
+retrieval:
+  query: "What middleware chain executes before ProjectController::update?"
+
+nodes:
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: project_controller_update
+    type: controller_action
+    symbol: ProjectController::update
+    file: app/Http/Controllers/ProjectController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: sanctum
+    to: resolve_tenant
+    relation: next_middleware
+    inherited_from: outer_group
+
+  - from: resolve_tenant
+    to: project_controller_update
+    relation: next_middleware
+
+expected_failure:
+  type: incomplete_middleware_inheritance
+  severity: MEDIUM
+  acceptable: true
+  description: >
+    Engine currently processes innermost route group only.
+    auth:sanctum lives in the outer group and is silently dropped,
+    leaving the authentication_gate node missing from the graph.
+    Fix requires recursive ancestor group middleware merging.
+  current_behavior:
+    r0_recall_estimate: 0.33
+    missing_nodes: [sanctum]
+  target_behavior:
+    r0_recall_estimate: 1.0
+    required_capability: recursive_group_middleware_merge

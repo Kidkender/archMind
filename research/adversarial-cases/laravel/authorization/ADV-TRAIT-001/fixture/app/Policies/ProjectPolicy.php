@@ -1,0 +1,15 @@
+<?php
+
+namespace App\Policies;
+
+use App\Models\Project;
+use App\Models\User;
+
+class ProjectPolicy
+{
+    public function update(User $user, Project $project): bool
+    {
+        return $user->hasPermissionTo('project.update')
+            && $project->tenant_id === $user->tenant_id;
+    }
+}

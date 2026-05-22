@@ -1,0 +1,57 @@
+version: "1.0"
+updated: "2026-05-21"
+
+# Explicit registry of Laravel semantics ArchMind does NOT currently model.
+# This creates trust, benchmark honesty, and a clear evolution frontier.
+#
+# Severity: HIGH = silently wrong result, MEDIUM = partial result, LOW = missing node only
+# Planned: true = on roadmap, false = out of scope
+
+unsupported:
+  - id: macro_routing
+    description: "Route::macro() and custom macro-defined routes"
+    severity: HIGH
+    planned: false
+    reason: "Runtime-only resolution; no static analysis path"
+
+  - id: magic_call_dispatch
+    description: "__call() and __callStatic() method dispatch"
+    severity: HIGH
+    planned: false
+    reason: "Dynamic dispatch — impossible to resolve statically without execution"
+
+  - id: facade_deep_resolution
+    description: "Facade::method() resolved to concrete binding via IoC"
+    severity: MEDIUM
+    planned: true
+    reason: "Requires IoC container binding map; tractable but deferred"
+
+  - id: runtime_eval
+    description: "eval(), call_user_func(), variable class/method invocation"
+    severity: HIGH
+    planned: false
+    reason: "Undecidable in general; out of scope"
+
+  - id: reflection_routing
+    description: "Routing via PHP Reflection or attribute-based discovery"
+    severity: MEDIUM
+    planned: true
+    reason: "Attribute routing is tractable; deferred to P4"
+
+  - id: eloquent_global_scopes
+    description: "Eloquent global scopes injected via booted()"
+    severity: MEDIUM
+    planned: true
+    reason: "Implicit query mutation; affects runtime semantics"
+
+  - id: dynamic_middleware_groups
+    description: "Middleware groups constructed programmatically at runtime"
+    severity: HIGH
+    planned: false
+    reason: "Requires runtime execution context"
+
+  - id: service_provider_bindings
+    description: "IoC bindings registered in ServiceProviders (bind, singleton, extend)"
+    severity: MEDIUM
+    planned: true
+    reason: "Needed for full service_call resolution; deferred to P3"

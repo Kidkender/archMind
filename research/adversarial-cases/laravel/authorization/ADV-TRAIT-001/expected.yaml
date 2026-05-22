@@ -1,0 +1,84 @@
+id: ADV-TRAIT-001
+entrypoint: "PUT /projects/{project}"
+framework: laravel
+category: adversarial
+adversarial_type: trait_injected_authorization
+
+retrieval:
+  query: "What authorization checks run before ProjectController::update modifies data?"
+
+nodes:
+  - id: project_controller_update
+    type: controller_action
+    symbol: ProjectController::update
+    file: app/Http/Controllers/ProjectController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: ownership_check
+    type: authorization_check
+    symbol: HasProjectScope::authorize
+    file: app/Traits/HasProjectScope.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: project_policy_update
+    type: policy
+    symbol: ProjectPolicy::update
+    file: app/Policies/ProjectPolicy.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: update_project_request
+    type: form_request
+    symbol: UpdateProjectRequest::authorize
+    file: app/Http/Requests/UpdateProjectRequest.php
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+edges:
+  - from: project_controller_update
+    to: ownership_check
+    relation: trait_dispatch
+    traceability: semantic
+    mechanism: "$this->authorize() intercepted by HasProjectScope trait"
+
+  - from: ownership_check
+    to: project_policy_update
+    relation: policy_check
+    traceability: semantic
+
+  - from: project_controller_update
+    to: update_project_request
+    relation: form_request
+    traceability: static
+
+annotations:
+  - type: hidden_gate
+    nodes: [ownership_check]
+    description: >
+      HasProjectScope::authorize() adds an ownership check (owner_id === auth()->id())
+      that is invisible to static call-graph analysis.
+      Engine sees $this->authorize('update', $project) and emits direct policy edge,
+      missing the intermediate ownership_check entirely.
+
+expected_failure:
+  type: unresolved_trait_dispatch
+  severity: MEDIUM
+  acceptable: true
+  description: >
+    Engine emits direct policy_check edge from controller to ProjectPolicy::update,
+    missing the HasProjectScope::authorize() interception node entirely.
+    Requires trait method resolution: detect trait usage, check for authorize() override,
+    emit intermediate authorization_check node.
+  current_behavior:
+    r0_recall_estimate: 0.25
+    missing_nodes: [ownership_check]
+    wrong_edges: ["project_controller_update → project_policy_update (should go via ownership_check)"]
+  target_behavior:
+    r0_recall_estimate: 1.0
+    required_capability: trait_method_override_detection

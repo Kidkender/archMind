@@ -19,6 +19,15 @@ class TaskController
         return response()->json($newTask);
     }
 
+    public function destroy($id)
+    {
+        $tenant = app('tenant');
+        $task = $this->taskService->getTask($tenant->id, $id);
+        $this->authorize('delete', $task);
+        $this->taskService->deleteTask($task);
+        return response()->json(null, 204);
+    }
+
     public function index()
     {
         $this->authorize('viewAny', Task::class);
