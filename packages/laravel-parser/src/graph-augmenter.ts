@@ -8,6 +8,8 @@ import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
 import { parseConstantClass } from "./constant-resolver.js"
 import { extractPermissionNodes } from "./permission-extractor/constants.js"
 import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
+import { parseTransactions } from "./transaction-parser.js"
+import { parseIsolation } from "./isolation-parser.js"
 
 // ---- Public API -------------------------------------------------------
 
@@ -124,6 +126,24 @@ export function augmentGraph(
     newEdges.push(...permEdges)
   }
 
+  // ---- Transaction pass ------------------------------------------------
+  const ctrlNodeForTxn = graph.nodes.find((n) => n.type === "controller_action")
+  if (ctrlNodeForTxn?.file) {
+    const filePath = join(opts.projectRoot, ctrlNodeForTxn.file)
+    const txnResult = parseTransactions(filePath)
+    if (txnResult.hasTransaction) {
+      addTransactionNodes(newNodes, newEdges, ctrlNodeForTxn.id, txnResult.blocks)
+    }
+  }
+
+  // ---- Isolation pass --------------------------------------------------
+  const ctrlNodeForIso = graph.nodes.find((n) => n.type === "controller_action")
+  if (ctrlNodeForIso?.file) {
+    const filePath = join(opts.projectRoot, ctrlNodeForIso.file)
+    const isoResult = parseIsolation(filePath)
+    addIsolationNodes(newNodes, newEdges, ctrlNodeForIso.id, isoResult)
+  }
+
   return { ...graph, nodes: newNodes, edges: newEdges }
 }
 
@@ -183,4 +203,125 @@ function addServiceCallNodes(
 
   // suppress unused import warning — projectRoot used for future extension
   void projectRoot
+}
+
+/**
+ * Add transaction_boundary, transactional_write, and transaction_escape nodes
+ * for each DB::transaction() block found in the controller file.
+ */
+function addTransactionNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  callerNodeId: string,
+  blocks: import("./transaction-parser.js").TransactionBlock[]
+): void {
+  blocks.forEach((block, blockIdx) => {
+    const txnId = `txn_${callerNodeId}_${blockIdx}`
+
+    nodes.push({
+      id:     txnId,
+      type:   "transaction_boundary",
+      symbol: "DB::transaction",
+      role:   "atomicity",
+    })
+    edges.push({
+      from:         callerNodeId,
+      to:           txnId,
+      relation:     "opens_transaction",
+      traceability: "static",
+    })
+
+    // Transactional writes
+    block.writes.forEach((w, wIdx) => {
+      const writeId = `txn_write_${callerNodeId}_${blockIdx}_${wIdx}`
+      nodes.push({
+        id:     writeId,
+        type:   "transactional_write",
+        symbol: `${w.className}::${w.operation}`,
+        role:   "persistence",
+      })
+      edges.push({
+        from:         txnId,
+        to:           writeId,
+        relation:     "within_transaction",
+        traceability: "static",
+      })
+    })
+
+    // Transaction escapes (dispatches — fire before commit)
+    block.dispatches.forEach((d, dIdx) => {
+      const escapeId = `txn_escape_${callerNodeId}_${blockIdx}_${dIdx}`
+      nodes.push({
+        id:     escapeId,
+        type:   "transaction_escape",
+        symbol: `${d.className}::dispatch`,
+        role:   "side_effect",
+      })
+      edges.push({
+        from:         txnId,
+        to:           escapeId,
+        relation:     "within_transaction",
+        traceability: "static",
+      })
+      edges.push({
+        from:         escapeId,
+        to:           txnId,
+        relation:     "escapes_transaction",
+        traceability: "static",
+      })
+    })
+  })
+}
+
+/**
+ * Add unscoped_query / tenant_scoped_query nodes for each model query found
+ * in the controller file, plus missing_tenant_scope edges for unscoped ones.
+ */
+function addIsolationNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  callerNodeId: string,
+  isoResult: import("./isolation-parser.js").IsolationParseResult
+): void {
+  // Emit a runtime_injection node if tenant is read from container
+  if (isoResult.readsTenantFromContainer) {
+    const injId = `tenant_injection_${callerNodeId}`
+    if (!nodes.some((n) => n.id === injId)) {
+      nodes.push({
+        id:     injId,
+        type:   "runtime_injection",
+        symbol: "app()->instance('tenant', $tenant)",
+        role:   "runtime",
+      })
+    }
+  }
+
+  isoResult.modelQueries.forEach((q, idx) => {
+    const nodeType = q.hastenantConstraint ? "tenant_scoped_query" : "unscoped_query"
+    const id = `iso_query_${callerNodeId}_${idx}`
+
+    nodes.push({
+      id,
+      type:   nodeType,
+      symbol: `${q.model}::${q.operation}`,
+      role:   "data_access",
+    })
+    edges.push({
+      from:         callerNodeId,
+      to:           id,
+      relation:     "calls",
+      traceability: "static",
+    })
+
+    // Unscoped queries in a tenant-aware controller are a boundary violation
+    if (!q.hastenantConstraint && isoResult.readsTenantFromContainer) {
+      const injId = `tenant_injection_${callerNodeId}`
+      edges.push({
+        from:         id,
+        to:           injId,
+        relation:     "missing_tenant_scope",
+        traceability: "semantic",
+      })
+    }
+  })
 }

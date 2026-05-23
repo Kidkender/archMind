@@ -1,0 +1,127 @@
+id: LARAVEL-TXN-001
+entrypoint: "POST /tasks"
+framework: laravel
+source_project: tenant-workspace-api
+
+retrieval:
+  query: "Why does a task creation sometimes send a notification email but the task doesn't appear in the database?"
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: task_controller_store
+    type: controller_action
+    symbol: TaskController::store
+    file: app/Modules/Task/Http/Controllers/TaskController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: txn_boundary
+    type: transaction_boundary
+    symbol: DB::transaction
+    role: atomicity
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: task_create
+    type: transactional_write
+    symbol: Task::create
+    file: app/Modules/Task/Models/Task.php
+    role: persistence
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: task_created_dispatch
+    type: transaction_escape
+    symbol: TaskCreated::dispatch
+    file: app/Events/TaskCreated.php
+    role: side_effect
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: send_notification
+    type: service_call
+    symbol: SendTaskCreatedNotification::handle
+    file: app/Listeners/SendTaskCreatedNotification.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: audit_log
+    type: transactional_write
+    symbol: AuditService::log
+    file: app/Services/AuditService.php
+    role: persistence
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: sanctum
+    to: resolve_tenant
+    relation: next_middleware
+
+  - from: resolve_tenant
+    to: task_controller_store
+    relation: next_middleware
+
+  - from: task_controller_store
+    to: txn_boundary
+    relation: opens_transaction
+
+  - from: txn_boundary
+    to: task_create
+    relation: within_transaction
+
+  - from: txn_boundary
+    to: task_created_dispatch
+    relation: within_transaction
+
+  - from: task_created_dispatch
+    to: send_notification
+    relation: calls
+
+  - from: task_created_dispatch
+    to: txn_boundary
+    relation: escapes_transaction
+
+  - from: txn_boundary
+    to: audit_log
+    relation: within_transaction
+
+expected_findings:
+  - type: event_before_commit
+    required_nodes: [txn_boundary, task_created_dispatch, send_notification]
+
+expected_top_finding: event_before_commit
+
+annotations:
+  - type: bug
+    location: task_created_dispatch
+    severity: high
+    description: >
+      TaskCreated::dispatch() is called inside DB::transaction() before the transaction commits.
+      If AuditService::log() throws (e.g., tenant constraint violation), the transaction rolls back
+      and Task::create() is undone — but SendTaskCreatedNotification has already been queued.
+      The listener will execute and send an email for a task that no longer exists in the database.
+    fix: >
+      Option A: Implement ShouldHandleEventsAfterCommit on SendTaskCreatedNotification.
+      Option B: Move TaskCreated::dispatch() outside the DB::transaction() block.
+      Option C: Use DB::afterCommit(fn() => TaskCreated::dispatch($task)) inside the closure.

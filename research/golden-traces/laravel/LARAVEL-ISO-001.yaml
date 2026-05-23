@@ -1,0 +1,120 @@
+id: LARAVEL-ISO-001
+entrypoint: "GET /tasks/{id}"
+framework: laravel
+source_project: tenant-workspace-api
+
+retrieval:
+  query: "Why can a user from one tenant access another tenant's task by guessing the task ID?"
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: resolve_tenant
+    type: middleware
+    symbol: ResolveTenant::handle
+    file: app/Http/Middleware/ResolveTenant.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: tenant_injection
+    type: runtime_injection
+    symbol: app()->instance('tenant', $tenant)
+    role: runtime
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: check_permission
+    type: authorization_check
+    symbol: CheckPermission::handle
+    file: app/Http/Middleware/CheckPermission.php
+    args: [task.view]
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: task_controller_show
+    type: controller_action
+    symbol: TaskController::show
+    file: app/Modules/Task/Http/Controllers/TaskController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: task_find_unscoped
+    type: unscoped_query
+    symbol: Task::find
+    file: app/Modules/Task/Models/Task.php
+    role: data_access
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: task_policy_view
+    type: policy
+    symbol: TaskPolicy::view
+    file: app/Policies/TaskPolicy.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: sanctum
+    to: resolve_tenant
+    relation: next_middleware
+
+  - from: resolve_tenant
+    to: tenant_injection
+    relation: injects
+
+  - from: resolve_tenant
+    to: check_permission
+    relation: next_middleware
+
+  - from: check_permission
+    to: task_controller_show
+    relation: next_middleware
+
+  - from: task_controller_show
+    to: task_find_unscoped
+    relation: calls
+
+  - from: task_find_unscoped
+    to: tenant_injection
+    relation: missing_tenant_scope
+
+  - from: task_controller_show
+    to: task_policy_view
+    relation: policy_check
+    via: $this->authorize('view', $task)
+
+expected_findings:
+  - type: missing_tenant_scope
+    required_nodes: [tenant_injection, task_find_unscoped]
+
+expected_top_finding: missing_tenant_scope
+
+annotations:
+  - type: bug
+    location: task_find_unscoped
+    severity: critical
+    description: >
+      Task::find($id) resolves a task by raw ID with no tenant constraint.
+      Any authenticated user in any tenant can access another tenant's task
+      by guessing or enumerating IDs. Authorization (TaskPolicy::view) only
+      checks the user's permission — not whether the task belongs to their tenant.
+    fix: >
+      Option A: Task::where('tenant_id', app('tenant')->id)->findOrFail($id)
+      Option B: Add global TenantScope to Task model booted() method
+      Option C: Use scoped route model binding in AppServiceProvider
+    uncertainty: >
+      If Task model has a registered global TenantScope, Task::find($id) is
+      automatically scoped and this bug does not exist. Global scopes are
+      defined in the model's booted() method or AppServiceProvider and are
+      not visible at the call site — static analysis cannot confirm their presence.

@@ -8,15 +8,17 @@ import type {
 
 export type RetrievalRelevance = "HIGH" | "MEDIUM" | "LOW"
 
-export type RetrievalFocus = "auth" | "validation" | "runtime" | "all"
+export type RetrievalFocus = "auth" | "validation" | "runtime" | "transaction" | "isolation" | "all"
 
 // Focus → minimum relevance level for each semantic section.
 // Nodes below threshold are pruned; the rest are kept intact.
 const FOCUS_THRESHOLD: Record<RetrievalFocus, RetrievalRelevance> = {
-  auth:       "HIGH",    // only auth-critical nodes
-  validation: "MEDIUM",  // validation + auth context
-  runtime:    "MEDIUM",  // runtime injection + middleware
-  all:        "LOW",     // everything (R0 behaviour)
+  auth:        "HIGH",    // only auth-critical nodes
+  validation:  "MEDIUM",  // validation + auth context
+  runtime:     "MEDIUM",  // runtime injection + middleware
+  transaction: "HIGH",    // transaction boundary + escapes only
+  isolation:   "HIGH",    // unscoped query + tenant injection only
+  all:         "LOW",     // everything (R0 behaviour)
 }
 
 // ---- Public API -------------------------------------------------------
@@ -69,18 +71,27 @@ export function prune(
 
 const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   // Always semantically critical
-  policy:              "HIGH",
-  permission:          "HIGH",
-  authentication_gate: "HIGH",
-  authorization_check: "HIGH",
-  runtime_injection:   "HIGH",
-  service_call:        "HIGH",
+  policy:               "HIGH",
+  permission:           "HIGH",
+  authentication_gate:  "HIGH",
+  authorization_check:  "HIGH",
+  runtime_injection:    "HIGH",
+  service_call:         "HIGH",
+
+  // Transaction semantics — all HIGH (boundary + escape are the danger zone)
+  transaction_boundary: "HIGH",
+  transactional_write:  "HIGH",
+  transaction_escape:   "HIGH",
+
+  // Isolation semantics — unscoped query is the critical signal
+  unscoped_query:       "HIGH",
+  tenant_scoped_query:  "MEDIUM",
 
   // Important context — carry structural meaning
-  form_request:        "MEDIUM",
-  controller_action:   "MEDIUM",
-  controller:          "MEDIUM",
-  middleware:          "MEDIUM",
+  form_request:         "MEDIUM",
+  controller_action:    "MEDIUM",
+  controller:           "MEDIUM",
+  middleware:           "MEDIUM",
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {

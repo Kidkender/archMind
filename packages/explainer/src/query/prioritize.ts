@@ -8,8 +8,10 @@ const FOCUS_FINDING_TYPES: Partial<Record<Exclude<QueryFocus, "all">, ReadonlySe
     FINDING_TYPES.MISSING_AUTHORIZATION,
     FINDING_TYPES.PRIVILEGE_HIERARCHY_PRESENT,
   ]),
-  validation: new Set([FINDING_TYPES.DELEGATED_VALIDATION]),
-  runtime: new Set([FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY]),
+  validation:   new Set([FINDING_TYPES.DELEGATED_VALIDATION]),
+  runtime:      new Set([FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY]),
+  transaction:  new Set([FINDING_TYPES.EVENT_BEFORE_COMMIT]),
+  isolation:    new Set([FINDING_TYPES.MISSING_TENANT_SCOPE]),
 }
 
 export function prioritizeByFocus(findings: Finding[], focus: QueryFocus): Finding[] {

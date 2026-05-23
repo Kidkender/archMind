@@ -5,6 +5,8 @@ import { detectDuplicateAuthorization } from "./duplicate-authorization.js"
 import { detectDelegatedValidation } from "./delegated-validation.js"
 import { detectHiddenRuntimeDependency } from "./hidden-runtime-dependency.js"
 import { detectPrivilegeHierarchy } from "./privilege-hierarchy.js"
+import { detectEventBeforeCommit } from "./event-before-commit.js"
+import { detectMissingTenantScope } from "./missing-tenant-scope.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -23,5 +25,7 @@ export function detect(
     ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),
     ...detectPrivilegeHierarchy(facts, graph),
+    ...detectEventBeforeCommit(facts, graph),
+    ...detectMissingTenantScope(facts, graph),
   ]
 }

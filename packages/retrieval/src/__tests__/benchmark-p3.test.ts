@@ -57,6 +57,34 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
     ],
     annotations: [],
   },
+  "LARAVEL-TXN-001": {
+    entrypoint: "POST /tasks",
+    method: "POST", path: "/tasks",
+    nodes: [
+      { id: "mw_0", type: "middleware",        symbol: "auth:sanctum",            role: "authentication" },
+      { id: "mw_1", type: "middleware",         symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
+      { id: "ctrl", type: "controller_action", symbol: "TaskController::store",   role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
+    ],
+    edges: [
+      { from: "mw_0", to: "mw_1", relation: "next_middleware", traceability: "static" },
+      { from: "mw_1", to: "ctrl", relation: "next_middleware", traceability: "static" },
+    ],
+    annotations: [],
+  },
+  "LARAVEL-ISO-001": {
+    entrypoint: "GET /tasks/{id}",
+    method: "GET", path: "/tasks/{id}",
+    nodes: [
+      { id: "mw_1", type: "middleware",          symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
+      { id: "mw_2", type: "authorization_check", symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php", args: ["task.view"] },
+      { id: "ctrl", type: "controller_action",   symbol: "TaskController::show",    role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
+    ],
+    edges: [
+      { from: "mw_1", to: "mw_2", relation: "next_middleware", traceability: "static" },
+      { from: "mw_2", to: "ctrl", relation: "next_middleware", traceability: "static" },
+    ],
+    annotations: [],
+  },
 }
 
 function buildAugmentedGraphs(): Record<string, IntermediateExecutionGraph[]> {
@@ -85,8 +113,8 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
     })
   })
 
-  test("snapshot covers all 4 traces", () => {
-    expect(snapshot.summary.total_traces).toBe(4)
+  test("snapshot covers all 6 traces", () => {
+    expect(snapshot.summary.total_traces).toBe(6)
   })
 
   test("AUTH-001 recall holds >= P2.7 level (>= 0.71)", () => {
@@ -109,6 +137,14 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
     expect(snapshot.traces["LARAVEL-RUNTIME-001"]!.recall_gap_reason).toBe("cross_cutting")
   })
 
+  test("TXN-001 recall captures transaction_boundary + escapes (>= 0.70)", () => {
+    expect(snapshot.traces["LARAVEL-TXN-001"]!.r0_recall).toBeGreaterThanOrEqual(0.70)
+  })
+
+  test("ISO-001 recall covers all high nodes — unscoped_query + tenant_injection (>= 0.80)", () => {
+    expect(snapshot.traces["LARAVEL-ISO-001"]!.r0_recall).toBeGreaterThanOrEqual(0.80)
+  })
+
   test("avg recall improves over P2.7 baseline (was ~0.83)", () => {
     expect(snapshot.summary.avg_r0_recall).toBeGreaterThanOrEqual(0.83)
   })
@@ -128,9 +164,11 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
     console.log("  " + "─".repeat(92))
 
     const baseline: Record<string, number> = {
-      "LARAVEL-AUTH-001":      0.71,
-      "LARAVEL-AUTH-002":      0.50,
-      "LARAVEL-VALIDATION-001": 1.0,
+      "LARAVEL-AUTH-001":       0.71,
+      "LARAVEL-AUTH-002":       0.50,
+      "LARAVEL-VALIDATION-001": 1.00,
+      "LARAVEL-TXN-001":        0,
+      "LARAVEL-ISO-001":        0,
     }
 
     for (const [id, t] of Object.entries(snapshot.traces)) {

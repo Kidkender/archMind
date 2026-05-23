@@ -45,4 +45,6 @@ export const FINDING_TYPES = {
   DELEGATED_VALIDATION: "delegated_validation",
   HIDDEN_RUNTIME_DEPENDENCY: "hidden_runtime_dependency",
   PRIVILEGE_HIERARCHY_PRESENT: "privilege_hierarchy_present",
+  EVENT_BEFORE_COMMIT: "event_before_commit",
+  MISSING_TENANT_SCOPE: "missing_tenant_scope",
 } as const
