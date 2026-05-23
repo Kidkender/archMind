@@ -16,7 +16,8 @@ export function explain(graph: IntermediateExecutionGraph, query?: string): Find
   return prioritizeByFocus(ranked, ctx.focus)
 }
 
-export { extractFacts, detect, renderMarkdown, rankFindings }
+export { extractFacts, detect, renderMarkdown, rankFindings, classifyQuery, prioritizeByFocus }
 export type { SemanticFact, Finding }
 export * from "./fact-extraction/types.js"
 export * from "./findings/types.js"
+export * from "./query/classify.js"
