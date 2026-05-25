@@ -47,4 +47,6 @@ export const FINDING_TYPES = {
   PRIVILEGE_HIERARCHY_PRESENT: "privilege_hierarchy_present",
   EVENT_BEFORE_COMMIT: "event_before_commit",
   MISSING_TENANT_SCOPE: "missing_tenant_scope",
+  DOUBLE_PERMISSION_CHECK: "double_permission_check",
+  RUNTIME_CONSUMER_TRACE: "runtime_consumer_trace",
 } as const

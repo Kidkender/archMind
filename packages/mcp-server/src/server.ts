@@ -3,7 +3,8 @@ import { z } from "zod"
 import { getGraphs, invalidate } from "./cache.js"
 import { retrieve } from "@archmind/retrieval"
 import { explain } from "@archmind/explainer"
-import type { RetrievalFocus } from "@archmind/retrieval"
+import type { RetrievalFocus } from "@archmind/protocol"
+import { PROTOCOL_VERSION } from "@archmind/protocol"
 import { ingestOtlpFile } from "@archmind/runtime-ingest"
 import { correlateSession, detectNPlusOne, detectSlowQuery } from "@archmind/runtime-correlator"
 
@@ -76,13 +77,15 @@ export function createServer(): McpServer {
       const retrieved = retrieve({ entrypoint, focus: resolvedFocus }, graphs)
 
       const result = retrieved ?? {
-        entrypoint: graph.entrypoint,
-        nodes: graph.nodes,
-        edges: graph.edges,
-        token_estimate: Math.ceil(
+        entrypoint:       graph.entrypoint,
+        nodes:            graph.nodes,
+        edges:            graph.edges,
+        token_estimate:   Math.ceil(
           JSON.stringify({ nodes: graph.nodes, edges: graph.edges }).length / 4
         ),
-        pruned: false,
+        pruned:           false,
+        focus:            resolvedFocus,
+        protocol_version: PROTOCOL_VERSION,
       }
 
       return {

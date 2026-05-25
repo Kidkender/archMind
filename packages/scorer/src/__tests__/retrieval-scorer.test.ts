@@ -15,16 +15,18 @@ function goldenFile(id: string): string {
 
 // Skeleton-only retrieval result (no L1 nodes)
 const SKELETON_RESULT: RetrievalResult = {
-  entrypoint:     "PUT /tasks/{task}",
+  entrypoint:       "PUT /tasks/{task}",
   nodes: [
     { id: "mw_0", type: "authentication_gate", symbol: "auth:sanctum",           role: "authentication" },
     { id: "mw_1", type: "middleware",          symbol: "ResolveTenant",           role: "middleware" },
     { id: "mw_2", type: "authorization_check", symbol: "CheckPermission::handle", role: "authorization" },
     { id: "ctrl", type: "controller_action",   symbol: "TaskController::update",  role: "handler" },
   ],
-  edges: [],
-  token_estimate: 200,
-  pruned: false,
+  edges:            [],
+  token_estimate:   200,
+  pruned:           false,
+  focus:            "all",
+  protocol_version: "1.0.0",
 }
 
 // Augmented retrieval result (skeleton + L1 nodes)

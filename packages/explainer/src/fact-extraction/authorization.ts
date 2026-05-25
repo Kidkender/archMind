@@ -1,19 +1,28 @@
 import type { IntermediateExecutionGraph, ExecutionNode } from "@archmind/protocol"
 import type { AuthorizationCheckFact } from "./types.js"
 
-// Normalize "task.update", "TASK_UPDATE", "TASK_UPDATE_ANY", "update" → "update"
-// SCREAMING_SNAKE_CASE: use segment index 1 to avoid "any" suffix collapsing wrong
+// Normalize to a short ability token:
+//   "task.update"           → "update"
+//   "TASK_UPDATE"           → "update"
+//   "Permission::TASK_UPDATE" → "update"   (strip class prefix first)
+//   "update"               → "update"
 export function normalizeAbility(raw: string): string {
   const s = raw.trim()
 
+  // "ClassName::CONSTANT" — normalize just the constant part recursively
+  if (s.includes("::")) {
+    const constant = s.split("::").pop()!
+    return normalizeAbility(constant)
+  }
+
   if (s.includes(".")) {
     const parts = s.split(".")
-    return parts[parts.length - 1].toLowerCase()
+    return parts[parts.length - 1]!.toLowerCase()
   }
 
   if (/^[A-Z][A-Z0-9_]+$/.test(s)) {
     const parts = s.split("_")
-    return (parts[1] ?? parts[0]).toLowerCase()
+    return (parts[1] ?? parts[0])!.toLowerCase()
   }
 
   return s.toLowerCase()

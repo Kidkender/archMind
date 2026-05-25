@@ -74,7 +74,7 @@ export function detectDuplicateAuthorization(
     findings.push({
       id: `${FINDING_TYPES.DUPLICATE_AUTHORIZATION}-${stableHash([...nodeIds, ability])}`,
       type: FINDING_TYPES.DUPLICATE_AUTHORIZATION,
-      severity: "MEDIUM",
+      severity: "LOW",
       confidence: group.every((f) => f.confidence === "HIGH") ? "HIGH" : "MEDIUM",
       provenance: {
         detector: FINDING_TYPES.DUPLICATE_AUTHORIZATION,

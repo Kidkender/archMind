@@ -4,11 +4,14 @@ import type {
   ExecutionEdge,
   RetrievalRequest,
   RetrievalResult,
+  RetrievalFocus,
 } from "@archmind/protocol"
+import { PROTOCOL_VERSION } from "@archmind/protocol"
 
 export type RetrievalRelevance = "HIGH" | "MEDIUM" | "LOW"
 
-export type RetrievalFocus = "auth" | "validation" | "runtime" | "transaction" | "isolation" | "all"
+// Re-export so existing consumers don't break
+export type { RetrievalFocus }
 
 // Focus → minimum relevance level for each semantic section.
 // Nodes below threshold are pruned; the rest are kept intact.
@@ -24,21 +27,24 @@ const FOCUS_THRESHOLD: Record<RetrievalFocus, RetrievalRelevance> = {
 // ---- Public API -------------------------------------------------------
 
 export function retrieve(
-  request: RetrievalRequest & { focus?: RetrievalFocus },
+  request: RetrievalRequest,
   graphs: IntermediateExecutionGraph[]
 ): RetrievalResult | null {
   const graph = findGraph(request.entrypoint, graphs)
   if (!graph) return null
 
+  const focus: RetrievalFocus = request.focus ?? "all"
+
   const r0: RetrievalResult = {
-    entrypoint:     graph.entrypoint,
-    nodes:          graph.nodes,
-    edges:          graph.edges,
-    token_estimate: estimateTokens(graph.nodes, graph.edges),
-    pruned:         false,
+    entrypoint:       graph.entrypoint,
+    nodes:            graph.nodes,
+    edges:            graph.edges,
+    token_estimate:   estimateTokens(graph.nodes, graph.edges),
+    pruned:           false,
+    focus,
+    protocol_version: PROTOCOL_VERSION,
   }
 
-  const focus = request.focus ?? "all"
   if (focus === "all") return r0
   return prune(r0, FOCUS_THRESHOLD[focus])
 }
@@ -58,11 +64,13 @@ export function prune(
   )
 
   return {
-    entrypoint:     result.entrypoint,
-    nodes:          keptNodes,
-    edges:          keptEdges,
-    token_estimate: estimateTokens(keptNodes, keptEdges),
-    pruned:         true,
+    entrypoint:       result.entrypoint,
+    nodes:            keptNodes,
+    edges:            keptEdges,
+    token_estimate:   estimateTokens(keptNodes, keptEdges),
+    pruned:           true,
+    focus:            result.focus,
+    protocol_version: result.protocol_version,
   }
 }
 
