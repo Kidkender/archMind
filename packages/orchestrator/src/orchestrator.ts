@@ -1,4 +1,5 @@
-import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import type { IntermediateExecutionGraph, ConversationContext, ConversationTurn, QueryMode } from "@archmind/protocol"
+import { MAX_CONVERSATION_TURNS } from "@archmind/protocol"
 import { explain } from "@archmind/explainer"
 import { retrieve } from "@archmind/retrieval"
 import { classifyQuery } from "@archmind/explainer"
@@ -16,6 +17,14 @@ const FOCUS_MAP: Record<string, "auth" | "validation" | "runtime" | "transaction
   all: "all",
 }
 
+function normalizeEntrypoint(ep: string): string {
+  return ep.replace(/\{[^}]+\}/g, "{*}")
+}
+
+function trimHistory(turns: ConversationTurn[]): ConversationTurn[] {
+  return turns.slice(-MAX_CONVERSATION_TURNS)
+}
+
 export class Orchestrator {
   private readonly graphs: IntermediateExecutionGraph[]
   private readonly llmClient: LLMClient
@@ -25,21 +34,29 @@ export class Orchestrator {
     this.llmClient = opts.llmClient
   }
 
-  async query(entrypoint: string, userQuery: string): Promise<QueryResult> {
-    const graph = this.graphs.find((g) => g.entrypoint === entrypoint)
+  async query(
+    entrypoint: string,
+    userQuery: string,
+    context?: ConversationContext,
+    mode?: QueryMode
+  ): Promise<QueryResult> {
+    const graph = this.graphs.find(
+      (g) => normalizeEntrypoint(g.entrypoint) === normalizeEntrypoint(entrypoint)
+    )
     if (!graph) throw new Error(`No graph found for entrypoint: ${entrypoint}`)
 
     const queryCtx = classifyQuery(userQuery)
     const focus = FOCUS_MAP[queryCtx.focus] ?? "all"
 
-    const retrieved = retrieve({ entrypoint, focus }, this.graphs)
+    const retrieved = retrieve({ entrypoint: graph.entrypoint, focus }, this.graphs)
     const retrievedGraph: IntermediateExecutionGraph = retrieved
       ? { ...graph, nodes: retrieved.nodes, edges: retrieved.edges }
       : graph
 
     const findings = explain(graph, userQuery || undefined)
+    const history = context ? trimHistory(context.turns) : []
 
-    const prompt = buildPrompt({ query: userQuery, graph: retrievedGraph, findings })
+    const prompt = buildPrompt({ query: userQuery, graph: retrievedGraph, findings, history, mode })
 
     let response: LLMResponse
     let explanation_failed = false
@@ -64,13 +81,20 @@ export class Orchestrator {
       response = this.fallbackResponse(findings)
     }
 
+    const newTurn: ConversationTurn = { query: userQuery, response }
+    const updatedContext: ConversationContext = {
+      entrypoint: graph.entrypoint,
+      turns: [...(context?.turns ?? []), newTurn],
+    }
+
     return {
       query: userQuery,
-      entrypoint,
+      entrypoint: graph.entrypoint,
       response,
       explanation_failed,
       findings_count: findings.length,
       token_estimate: retrieved?.token_estimate ?? estimateTokens(graph),
+      conversation: updatedContext,
     }
   }
 

@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@archmind/prompt-builder": "*"
+    "@archmind/prompt-builder": "*",
+    "openai": "^4.104.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

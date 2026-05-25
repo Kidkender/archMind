@@ -1,0 +1,17 @@
+id: LARAVEL-ISO-001
+golden_trace_id: LARAVEL-ISO-001
+entrypoint: "GET /tasks/{id}"
+query: "Why can a user from one tenant access another tenant's task by guessing the task ID?"
+
+expected_response:
+  finding_type: hidden_runtime_dependency
+  severity: HIGH
+  key_nodes:
+    - app()->instance('tenant', $tenant)
+
+  explanation_must_contain:
+    - tenant
+    - runtime
+
+  recommendations_must_contain:
+    - - tenant

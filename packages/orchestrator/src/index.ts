@@ -1,2 +1,7 @@
 export { Orchestrator } from "./orchestrator.js"
-export type { OrchestratorOptions, QueryResult } from "./types.js"
+export type { OrchestratorOptions, QueryResult, ConversationTurn, ConversationContext, QueryMode } from "./types.js"
+export { MAX_CONVERSATION_TURNS } from "./types.js"
+export { runAnswerBenchmark } from "./answer-benchmark.js"
+export type { AnswerBenchmarkSnapshot, AnswerBenchmarkTrace } from "./answer-benchmark.js"
+export { runConversationBenchmark } from "./conversation-benchmark.js"
+export type { ConvBenchmarkSnapshot, ConvBenchmarkEntry } from "./conversation-benchmark.js"

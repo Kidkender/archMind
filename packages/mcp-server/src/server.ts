@@ -1,0 +1,191 @@
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { z } from "zod"
+import { getGraphs, invalidate } from "./cache.js"
+import { retrieve } from "@archmind/retrieval"
+import { explain } from "@archmind/explainer"
+import type { RetrievalFocus } from "@archmind/retrieval"
+
+const FOCUS_VALUES = ["auth", "validation", "runtime", "transaction", "isolation", "all"] as const
+
+export function createServer(): McpServer {
+  const server = new McpServer({
+    name: "archmind",
+    version: "0.1.0",
+  })
+
+  server.registerTool(
+    "archmind_list_entrypoints",
+    {
+      description: "List all HTTP entrypoints (routes) in a Laravel project, with method, path, and node count.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Laravel project root"),
+      },
+    },
+    async ({ project_root }) => {
+      const graphs = getGraphs(project_root)
+      const entrypoints = graphs.map((g) => ({
+        entrypoint: g.entrypoint,
+        method: g.method,
+        path: g.path,
+        node_count: g.nodes.length,
+        edge_count: g.edges.length,
+      }))
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ project_root, entrypoints, total: entrypoints.length }, null, 2),
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_get_execution_graph",
+    {
+      description:
+        "Return the semantic execution graph for a specific entrypoint. Use `focus` to narrow to a concern (auth, validation, runtime, transaction, isolation, all).",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}"'),
+        focus: z
+          .enum(FOCUS_VALUES)
+          .optional()
+          .describe("Semantic focus to prune the graph. Defaults to 'all' (full graph)."),
+      },
+    },
+    async ({ project_root, entrypoint, focus }) => {
+      const graphs = getGraphs(project_root)
+      const graph = graphs.find((g) => g.entrypoint === entrypoint)
+      if (!graph) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ error: `No graph found for entrypoint: ${entrypoint}` }),
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      const resolvedFocus: RetrievalFocus = (focus as RetrievalFocus) ?? "all"
+      const retrieved = retrieve({ entrypoint, focus: resolvedFocus }, graphs)
+
+      const result = retrieved ?? {
+        entrypoint: graph.entrypoint,
+        nodes: graph.nodes,
+        edges: graph.edges,
+        token_estimate: Math.ceil(
+          JSON.stringify({ nodes: graph.nodes, edges: graph.edges }).length / 4
+        ),
+        pruned: false,
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                entrypoint: result.entrypoint,
+                focus: resolvedFocus,
+                pruned: result.pruned,
+                token_estimate: result.token_estimate,
+                nodes: result.nodes,
+                edges: result.edges,
+                annotations: graph.annotations,
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_get_findings",
+    {
+      description:
+        "Run static pattern detectors on the execution graph and return semantic findings (no LLM call). Findings include security issues, authorization gaps, transaction anomalies, and isolation violations.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}"'),
+        query: z
+          .string()
+          .optional()
+          .describe("Optional question to prioritize findings by relevance to the query."),
+      },
+    },
+    async ({ project_root, entrypoint, query }) => {
+      const graphs = getGraphs(project_root)
+      const graph = graphs.find((g) => g.entrypoint === entrypoint)
+      if (!graph) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ error: `No graph found for entrypoint: ${entrypoint}` }),
+            },
+          ],
+          isError: true,
+        }
+      }
+
+      const findings = explain(graph, query)
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              {
+                entrypoint,
+                total: findings.length,
+                findings: findings.map((f) => ({
+                  id: f.id,
+                  type: f.type,
+                  severity: f.severity,
+                  confidence: f.confidence,
+                  summary: f.summary,
+                  evidence: f.evidence,
+                  recommendations: f.recommendations ?? [],
+                  uncertainty: f.uncertainty ?? [],
+                })),
+              },
+              null,
+              2
+            ),
+          },
+        ],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_invalidate_cache",
+    {
+      description:
+        "Invalidate the cached parse result for a project root, forcing a fresh parse on the next call. Use when the project's PHP files have changed.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Laravel project root"),
+      },
+    },
+    async ({ project_root }) => {
+      invalidate(project_root)
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ invalidated: true, project_root }),
+          },
+        ],
+      }
+    }
+  )
+
+  return server
+}

@@ -1,0 +1,20 @@
+id: LARAVEL-AUTH-002
+golden_trace_id: LARAVEL-AUTH-002
+entrypoint: "DELETE /tasks/{id}"
+query: "Why are elevated-privilege users blocked from deleting tasks they should be able to delete?"
+
+expected_response:
+  finding_type: duplicate_authorization
+  severity: MEDIUM
+  key_nodes:
+    - TaskPolicy::delete
+    - PermissionService::hasPermission
+
+  explanation_must_contain:
+    - permission
+    - middleware
+    - policy
+
+  recommendations_must_contain:
+    - - middleware
+    - - policy

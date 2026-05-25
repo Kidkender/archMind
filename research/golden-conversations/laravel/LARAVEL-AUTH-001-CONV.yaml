@@ -1,0 +1,29 @@
+id: LARAVEL-AUTH-001-CONV
+entrypoint: "PUT /tasks/{id}"
+description: "3-turn conversation about duplicate authorization on task update"
+
+turns:
+  - query: "Why is permission checked twice for the same user and task?"
+    expected:
+      finding_type: duplicate_authorization
+      severity: MEDIUM
+      explanation_must_contain:
+        - middleware
+        - policy
+        - permission
+      recommendations_must_contain:
+        - - middleware
+        - - policy
+
+  - query: "Which layer should own the authorization check?"
+    expected:
+      explanation_must_contain:
+        - policy
+      recommendations_must_contain:
+        - - policy
+
+  - query: "What happens if I remove the middleware check but keep the policy?"
+    expected:
+      explanation_must_contain:
+        - policy
+        - authorize

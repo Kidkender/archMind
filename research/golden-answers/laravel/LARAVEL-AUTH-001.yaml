@@ -1,0 +1,20 @@
+id: LARAVEL-AUTH-001
+golden_trace_id: LARAVEL-AUTH-001
+entrypoint: "PUT /tasks/{id}"
+query: "Why is permission checked twice for the same user and task?"
+
+expected_response:
+  finding_type: duplicate_authorization
+  severity: MEDIUM
+  key_nodes:
+    - TaskPolicy::update
+    - PermissionService::hasPermission
+
+  explanation_must_contain:
+    - permission
+    - middleware
+    - policy
+
+  recommendations_must_contain:
+    - - middleware
+    - - policy

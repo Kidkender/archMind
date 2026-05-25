@@ -2,4 +2,6 @@ export type { LLMResponse, LLMCallResult, LLMClient, ValidationError, Validation
 export { MockLLMClient } from "./mock-client.js"
 export { ClaudeLLMClient } from "./claude-client.js"
 export type { ClaudeLLMClientOptions } from "./claude-client.js"
+export { OpenAILLMClient } from "./openai-client.js"
+export type { OpenAILLMClientOptions } from "./openai-client.js"
 export { validateLLMResponse } from "./validate-response.js"

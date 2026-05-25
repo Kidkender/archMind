@@ -1,21 +1,21 @@
 {
-  "name": "@archmind/cli",
+  "name": "@archmind/mcp-server",
   "version": "0.1.0",
   "type": "module",
+  "main": "dist/index.js",
   "bin": {
-    "archmind": "./dist/index.js"
+    "archmind-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
-    "start": "node dist/index.js"
+    "dev": "node --loader ts-node/esm src/index.ts"
   },
   "dependencies": {
     "@archmind/laravel-parser": "*",
-    "@archmind/llm-client": "*",
-    "@archmind/orchestrator": "*",
+    "@archmind/retrieval": "*",
+    "@archmind/explainer": "*",
     "@archmind/protocol": "*",
-    "@archmind/scorer": "*"
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
