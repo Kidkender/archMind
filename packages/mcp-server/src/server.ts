@@ -4,6 +4,8 @@ import { getGraphs, invalidate } from "./cache.js"
 import { retrieve } from "@archmind/retrieval"
 import { explain } from "@archmind/explainer"
 import type { RetrievalFocus } from "@archmind/retrieval"
+import { ingestOtlpFile } from "@archmind/runtime-ingest"
+import { correlateSession, detectNPlusOne, detectSlowQuery } from "@archmind/runtime-correlator"
 
 const FOCUS_VALUES = ["auth", "validation", "runtime", "transaction", "isolation", "all"] as const
 
@@ -110,7 +112,7 @@ export function createServer(): McpServer {
     "archmind_get_findings",
     {
       description:
-        "Run static pattern detectors on the execution graph and return semantic findings (no LLM call). Findings include security issues, authorization gaps, transaction anomalies, and isolation violations.",
+        "Run static and optional runtime pattern detectors on the execution graph and return semantic findings (no LLM call). Findings include security issues, authorization gaps, transaction anomalies, isolation violations, and — when a trace session is provided — runtime findings like N+1 queries and slow queries.",
       inputSchema: {
         project_root: z.string().describe("Absolute path to the Laravel project root"),
         entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}"'),
@@ -118,9 +120,13 @@ export function createServer(): McpServer {
           .string()
           .optional()
           .describe("Optional question to prioritize findings by relevance to the query."),
+        trace_session_path: z
+          .string()
+          .optional()
+          .describe("Absolute path to an OTLP JSON export file. When provided, runtime findings (N+1, slow queries) are included alongside static findings."),
       },
     },
-    async ({ project_root, entrypoint, query }) => {
+    async ({ project_root, entrypoint, query, trace_session_path }) => {
       const graphs = getGraphs(project_root)
       const graph = graphs.find((g) => g.entrypoint === entrypoint)
       if (!graph) {
@@ -135,7 +141,31 @@ export function createServer(): McpServer {
         }
       }
 
-      const findings = explain(graph, query)
+      const staticFindings = explain(graph, query)
+
+      // Runtime findings (optional)
+      let runtimeFindings: Array<{ source: "runtime"; type: string; severity: string; evidence: string; nodeIds: string[]; count?: number }> = []
+      let correlationRate: number | undefined
+
+      if (trace_session_path) {
+        try {
+          const traceSession  = ingestOtlpFile(trace_session_path)
+          const correlated    = correlateSession(traceSession, graph)
+          correlationRate     = correlated.correlationRate
+          const n1            = detectNPlusOne(correlated)
+          const slow          = detectSlowQuery(correlated)
+          runtimeFindings     = [...n1, ...slow].map((f) => ({
+            source:   "runtime" as const,
+            type:     f.type,
+            severity: f.severity,
+            evidence: f.evidence,
+            nodeIds:  f.nodeIds,
+            ...(f.count !== undefined ? { count: f.count } : {}),
+          }))
+        } catch (err) {
+          runtimeFindings = []
+        }
+      }
 
       return {
         content: [
@@ -144,17 +174,28 @@ export function createServer(): McpServer {
             text: JSON.stringify(
               {
                 entrypoint,
-                total: findings.length,
-                findings: findings.map((f) => ({
-                  id: f.id,
-                  type: f.type,
-                  severity: f.severity,
-                  confidence: f.confidence,
-                  summary: f.summary,
-                  evidence: f.evidence,
-                  recommendations: f.recommendations ?? [],
-                  uncertainty: f.uncertainty ?? [],
-                })),
+                static_findings: {
+                  total: staticFindings.length,
+                  findings: staticFindings.map((f) => ({
+                    id:              f.id,
+                    type:            f.type,
+                    severity:        f.severity,
+                    confidence:      f.confidence,
+                    summary:         f.summary,
+                    evidence:        f.evidence,
+                    recommendations: f.recommendations ?? [],
+                    uncertainty:     f.uncertainty ?? [],
+                  })),
+                },
+                ...(trace_session_path
+                  ? {
+                      runtime_findings: {
+                        total:            runtimeFindings.length,
+                        correlation_rate: correlationRate,
+                        findings:         runtimeFindings,
+                      },
+                    }
+                  : {}),
               },
               null,
               2

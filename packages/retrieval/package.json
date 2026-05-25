@@ -11,10 +11,14 @@
   "dependencies": {
     "@archmind/protocol": "*",
     "@archmind/scorer": "*",
-    "@archmind/laravel-parser": "*"
+    "@archmind/laravel-parser": "*",
+    "@archmind/runtime-ingest": "*",
+    "@archmind/runtime-correlator": "*",
+    "js-yaml": "^4.1.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^20.0.0",
     "jest": "^29.0.0",
     "ts-jest": "^29.0.0",

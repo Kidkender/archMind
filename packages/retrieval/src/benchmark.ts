@@ -1,10 +1,41 @@
 import { join } from "path"
-import { readdirSync } from "fs"
+import { readdirSync, readFileSync } from "fs"
+import yaml from "js-yaml"
 import { loadGoldenTrace, scoreRetrieval } from "@archmind/scorer"
 import type { GoldenTrace } from "@archmind/scorer"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import { ingestOtlpFile } from "@archmind/runtime-ingest"
+import { correlateSession, detectNPlusOne, detectSlowQuery } from "@archmind/runtime-correlator"
 import { retrieve, prune } from "./retrieval-engine.js"
 import { naiveRag, compare } from "./naive-rag.js"
+
+// ---- Runtime golden session types ------------------------------------
+
+interface ExpectedRuntimeFinding {
+  type:              string
+  severity?:         string
+  min_count?:        number
+  evidence_contains?: string
+}
+
+interface RuntimeGoldenSession {
+  id:                string
+  entrypoint:        string
+  otlp_fixture:      string
+  expected_findings: ExpectedRuntimeFinding[]
+  correlation?: {
+    expected_rate_gte?: number
+  }
+}
+
+export interface RuntimeTraceSnapshot {
+  session_id:         string
+  entrypoint:         string
+  correlation_rate:   number
+  runtime_recall:     number
+  findings_found:     number
+  findings_expected:  number
+}
 
 // ---- Public API -------------------------------------------------------
 
@@ -26,24 +57,28 @@ export interface TraceSnapshot {
 }
 
 export interface BenchmarkSnapshot {
-  timestamp:  string
-  label:      string
-  traces:     Record<string, TraceSnapshot>
+  timestamp:       string
+  label:           string
+  traces:          Record<string, TraceSnapshot>
+  runtime_traces?: Record<string, RuntimeTraceSnapshot>
   summary: {
-    avg_r0_recall:       number
-    avg_compression_r0:  number
+    avg_r0_recall:        number
+    avg_compression_r0:   number
     avg_token_savings_r0: number
-    total_traces:        number
+    total_traces:         number
+    avg_runtime_recall?:  number
   }
 }
 
 export function runBenchmark(opts: {
-  goldenDir:   string
-  fixtureDir:  string
-  graphs:      Record<string, IntermediateExecutionGraph[]>  // golden_id → extracted graphs
-  label?:      string
+  goldenDir:          string
+  fixtureDir:         string
+  graphs:             Record<string, IntermediateExecutionGraph[]>  // golden_id → extracted graphs
+  label?:             string
+  runtimeGoldenDir?:  string   // dir containing runtime golden session YAMLs
+  workspaceRoot?:     string   // base path for resolving otlp_fixture paths
 }): BenchmarkSnapshot {
-  const { goldenDir, fixtureDir, graphs, label = "snapshot" } = opts
+  const { goldenDir, fixtureDir, graphs, label = "snapshot", runtimeGoldenDir, workspaceRoot } = opts
 
   const traceFiles = readdirSync(goldenDir).filter((f) => f.endsWith(".yaml"))
   const traces: Record<string, TraceSnapshot> = {}
@@ -104,17 +139,101 @@ export function runBenchmark(opts: {
   const scored = Object.values(traces).filter((t) => t.recall_gap_reason !== "cross_cutting")
   const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0
 
+  // Runtime scoring — optional
+  let runtimeTraces: Record<string, RuntimeTraceSnapshot> | undefined
+  if (runtimeGoldenDir && workspaceRoot) {
+    runtimeTraces = runRuntimeBenchmark(runtimeGoldenDir, workspaceRoot, graphs)
+  }
+
+  const runtimeRecalls = runtimeTraces
+    ? Object.values(runtimeTraces).map((t) => t.runtime_recall)
+    : undefined
+
   return {
     timestamp: new Date().toISOString(),
     label,
     traces,
+    ...(runtimeTraces ? { runtime_traces: runtimeTraces } : {}),
     summary: {
       avg_r0_recall:        parseFloat(avg(scored.map((t) => t.r0_recall)).toFixed(2)),
       avg_compression_r0:   parseFloat(avg(scored.map((t) => t.compression_r0)).toFixed(2)),
       avg_token_savings_r0: parseFloat(avg(scored.map((t) => t.token_savings_r0)).toFixed(1)),
       total_traces:         Object.keys(traces).length,
+      ...(runtimeRecalls ? { avg_runtime_recall: parseFloat(avg(runtimeRecalls).toFixed(2)) } : {}),
     },
   }
+}
+
+// ---- Runtime benchmark ------------------------------------------------
+
+function scoreRuntimeFindings(
+  detected: ReturnType<typeof detectNPlusOne>,
+  expected: ExpectedRuntimeFinding[],
+): number {
+  if (expected.length === 0) return 1
+  const satisfied = expected.filter((ef) =>
+    detected.some((df) => {
+      if (df.type !== ef.type) return false
+      if (ef.evidence_contains && !df.evidence.includes(ef.evidence_contains)) return false
+      if (ef.min_count !== undefined && (df.count ?? 0) < ef.min_count) return false
+      return true
+    }),
+  )
+  return satisfied.length / expected.length
+}
+
+function flattenAllGraphs(
+  graphs: Record<string, IntermediateExecutionGraph[]>,
+): IntermediateExecutionGraph[] {
+  return Object.values(graphs).flat()
+}
+
+function runRuntimeBenchmark(
+  runtimeGoldenDir: string,
+  workspaceRoot: string,
+  graphs: Record<string, IntermediateExecutionGraph[]>,
+): Record<string, RuntimeTraceSnapshot> {
+  const snapshots: Record<string, RuntimeTraceSnapshot> = {}
+  const allGraphs = flattenAllGraphs(graphs)
+  const files = readdirSync(runtimeGoldenDir).filter((f) => f.endsWith(".yaml"))
+
+  for (const file of files) {
+    const raw = readFileSync(join(runtimeGoldenDir, file), "utf-8")
+    const session = yaml.load(raw) as RuntimeGoldenSession
+
+    const fixturePath = join(workspaceRoot, session.otlp_fixture)
+    let traceSession
+    try {
+      traceSession = ingestOtlpFile(fixturePath)
+    } catch {
+      continue
+    }
+
+    const graph = allGraphs.find((g) => {
+      const norm = (ep: string) => ep.replace(/\{[^}]+\}/g, "{*}")
+      return norm(g.entrypoint) === norm(session.entrypoint)
+    })
+    if (!graph) continue
+
+    const correlated = correlateSession(traceSession, graph)
+
+    const n1Findings    = detectNPlusOne(correlated)
+    const slowFindings  = detectSlowQuery(correlated)
+    const allFindings   = [...n1Findings, ...slowFindings]
+
+    const runtimeRecall = scoreRuntimeFindings(allFindings, session.expected_findings ?? [])
+
+    snapshots[session.id] = {
+      session_id:        session.id,
+      entrypoint:        session.entrypoint,
+      correlation_rate:  parseFloat(correlated.correlationRate.toFixed(2)),
+      runtime_recall:    parseFloat(runtimeRecall.toFixed(2)),
+      findings_found:    allFindings.length,
+      findings_expected: (session.expected_findings ?? []).length,
+    }
+  }
+
+  return snapshots
 }
 
 // ---- Helpers ----------------------------------------------------------
