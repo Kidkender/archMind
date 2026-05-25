@@ -1,0 +1,22 @@
+id: LARAVEL-SLOW-001
+entrypoint: "PUT /tasks/{id}"
+framework: laravel
+description: >
+  TaskPolicy::update fires PermissionService logic that runs a slow JOIN query
+  across permissions and roles tables without a covering index. Query takes 750ms,
+  blocking the full request. Demonstrates slow_query detection on a second endpoint.
+
+otlp_fixture: spike/sessions/put-tasks-slow.json
+
+expected_findings:
+  - type: slow_query
+    severity: medium
+    evidence_contains: "permissions"
+
+correlation:
+  expected_rate_gte: 0.6
+  expected_matches:
+    - span_name: "TaskController::update"
+      node_type: controller_action
+    - span_name: "TaskPolicy::update"
+      node_type: policy

@@ -1,0 +1,25 @@
+id: LARAVEL-N1-001
+entrypoint: "GET /tasks"
+framework: laravel
+description: >
+  TaskController::index loads a list of tasks, then for each task calls
+  TaskService::getAssignee() in a loop — classic N+1 query pattern.
+  12 SELECT FROM users triggered for 12 tasks returned.
+
+otlp_fixture: spike/sessions/get-tasks-n1.json
+
+expected_findings:
+  - type: n_plus_one
+    severity: high
+    min_count: 10
+    evidence_contains: "users"
+    metadata:
+      table: users
+
+correlation:
+  expected_rate_gte: 0.8
+  expected_matches:
+    - span_name: "TaskController::index"
+      node_type: controller
+    - span_name: "TaskService::getAssignee"
+      node_type: service_call
