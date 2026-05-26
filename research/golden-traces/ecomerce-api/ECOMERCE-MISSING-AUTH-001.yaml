@@ -1,0 +1,44 @@
+id: ECOMERCE-MISSING-AUTH-001
+entrypoint: "DELETE /products/{product}"
+framework: laravel
+source_project: ecomerce-api
+
+retrieval:
+  query: "Who is allowed to delete a product, and where is that enforced?"
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: product_controller_destroy
+    type: controller
+    symbol: ProductController::destroy
+    file: app/Http/Controllers/Api/ProductController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: sanctum
+    to: product_controller_destroy
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [sanctum, product_controller_destroy]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: gap
+    nodes: [product_controller_destroy]
+    description: >
+      auth:sanctum only verifies the user is logged in; it does not check
+      whether the caller owns the product or has an admin role.
+      ProductController::destroy executes $product->delete() with no
+      policy check, so any authenticated user can delete any product.

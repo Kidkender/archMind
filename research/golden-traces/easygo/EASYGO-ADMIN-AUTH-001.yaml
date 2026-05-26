@@ -1,0 +1,68 @@
+id: EASYGO-ADMIN-AUTH-001
+entrypoint: "PUT /v1/admin/orders/{id}/status"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "Who can update order status, and is the authorization check sufficient?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: admin_middleware
+    type: middleware
+    symbol: AdminMiddleware
+    file: app/Http/Middleware/AdminMiddleware.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: update_status
+    type: controller_action
+    symbol: AdminOrderController::updateStatus
+    file: app/Http/Controllers/Api/V1/Admin/AdminOrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: throttle
+    to: sanctum
+    relation: next_middleware
+
+  - from: sanctum
+    to: admin_middleware
+    relation: next_middleware
+
+  - from: admin_middleware
+    to: update_status
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [admin_middleware, update_status]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: coarse_role_check
+    nodes: [admin_middleware]
+    description: >
+      AdminMiddleware checks isAdmin() — any admin can update any order's status.
+      AdminOrderController::updateStatus has no $this->authorize() call and no Policy
+      consultation. There is no per-resource ownership check: an admin managing
+      their own orders cannot be distinguished from one accessing all orders.

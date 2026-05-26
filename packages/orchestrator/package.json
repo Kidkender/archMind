@@ -13,7 +13,8 @@
     "@archmind/explainer": "*",
     "@archmind/retrieval": "*",
     "@archmind/prompt-builder": "*",
-    "@archmind/llm-client": "*"
+    "@archmind/llm-client": "*",
+    "@archmind/scorer": "*"
   },
   "devDependencies": {
     "@archmind/laravel-parser": "*",

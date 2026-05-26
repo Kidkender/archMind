@@ -1,0 +1,20 @@
+id: EASYGO-ORDER-CANCEL-001-ANSWER
+golden_trace_id: EASYGO-ORDER-CANCEL-001
+entrypoint: "POST /v1/orders/{number}/cancel"
+query: "Can a user cancel another user's order? Where is the ownership check enforced?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: MEDIUM
+  key_nodes:
+    - OrderController::cancel
+
+  explanation_must_contain:
+    - ownership
+    - policy
+    - scope
+
+  recommendations_must_contain:
+    - - OrderPolicy
+      - "$this->authorize"
+      - policy

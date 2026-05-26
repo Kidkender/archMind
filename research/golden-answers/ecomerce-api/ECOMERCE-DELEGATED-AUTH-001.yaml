@@ -1,0 +1,20 @@
+id: ECOMERCE-DELEGATED-AUTH-001-ANSWER
+golden_trace_id: ECOMERCE-DELEGATED-AUTH-001
+entrypoint: "PUT /products/{product}"
+query: "Is the authorization check on product updates sufficient — who can update a product?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: HIGH
+  key_nodes:
+    - ProductController::update
+    - UpdateProductRequest::authorize
+
+  explanation_must_contain:
+    - authorization
+    - FormRequest
+
+  recommendations_must_contain:
+    - - ProductPolicy
+      - "$this->authorize"
+      - policy

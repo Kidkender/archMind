@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk"
 import type { BuiltPrompt } from "@archmind/prompt-builder"
-import type { LLMClient, LLMCallResult, LLMResponse } from "./types.js"
+import type { LLMClient, LLMCallResult, LLMResponse, JudgeClient } from "./types.js"
 
 export interface AnthropicMessagesCreate {
   create(params: {
@@ -37,7 +37,7 @@ function extractJson(text: string): string {
   return text.trim()
 }
 
-export class ClaudeLLMClient implements LLMClient {
+export class ClaudeLLMClient implements LLMClient, JudgeClient {
   private readonly messages: AnthropicMessagesCreate
   private readonly model: string
   private readonly maxTokens: number
@@ -46,6 +46,17 @@ export class ClaudeLLMClient implements LLMClient {
     this.messages = opts.messagesAdapter ?? (new Anthropic({ apiKey: opts.apiKey }).messages as unknown as AnthropicMessagesCreate)
     this.model = opts.model ?? DEFAULT_MODEL
     this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS
+  }
+
+  async judge(system: string, user: string): Promise<string> {
+    const message = await this.messages.create({
+      model: this.model,
+      max_tokens: 256,
+      system,
+      messages: [{ role: "user", content: user }],
+    })
+    const textBlock = message.content.find((b) => b.type === "text" && b.text !== undefined)
+    return textBlock?.text ?? ""
   }
 
   async call(prompt: BuiltPrompt): Promise<LLMCallResult> {

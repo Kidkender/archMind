@@ -8,6 +8,7 @@ export { MAX_CONVERSATION_TURNS } from "@archmind/protocol"
 export interface OrchestratorOptions {
   graphs: IntermediateExecutionGraph[]
   llmClient: LLMClient
+  projectRoot?: string
 }
 
 export interface QueryResult {

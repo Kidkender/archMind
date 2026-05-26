@@ -1,0 +1,20 @@
+id: ECOMERCE-MISSING-AUTH-001-ANSWER
+golden_trace_id: ECOMERCE-MISSING-AUTH-001
+entrypoint: "DELETE /products/{product}"
+query: "Who is allowed to delete a product, and where is that enforced?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: HIGH
+  key_nodes:
+    - ProductController::destroy
+
+  explanation_must_contain:
+    - delete
+    - policy
+    - auth
+
+  recommendations_must_contain:
+    - - policy
+      - "$this->authorize"
+      - ProductPolicy

@@ -1,0 +1,59 @@
+id: ECOMERCE-DELEGATED-AUTH-001
+entrypoint: "PUT /products/{product}"
+framework: laravel
+source_project: ecomerce-api
+
+retrieval:
+  query: "Is the authorization check on product updates sufficient — who can update a product?"
+
+nodes:
+  - id: sanctum
+    type: middleware
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: product_controller_update
+    type: controller
+    symbol: ProductController::update
+    file: app/Http/Controllers/Api/ProductController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: update_product_request
+    type: form_request
+    symbol: UpdateProductRequest::authorize
+    file: app/Http/Requests/UpdateProductRequest.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: sanctum
+    to: product_controller_update
+    relation: next_middleware
+
+  - from: product_controller_update
+    to: update_product_request
+    relation: form_request
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [sanctum, product_controller_update]
+  - type: delegated_validation
+    required_nodes: [update_product_request]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: delegated_auth
+    nodes: [update_product_request]
+    description: >
+      UpdateProductRequest::authorize() returns $this->user()?->isAdmin() — the
+      authorization decision is delegated to an inline role check inside the
+      FormRequest rather than a Policy. ProductPolicy::update exists but is
+      never consulted; the controller never calls $this->authorize().
+      This means policy-level logic (ownership, resource scoping) is bypassed.

@@ -1,0 +1,66 @@
+id: EASYGO-ORDER-TXN-001
+entrypoint: "POST /v1/orders"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "What happens when an order is placed — is the stock update safe, and who is authorized to place orders?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: order_store
+    type: controller_action
+    symbol: OrderController::store
+    file: app/Http/Controllers/Api/V1/OrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: throttle
+    to: sanctum
+    relation: next_middleware
+
+  - from: sanctum
+    to: order_store
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [sanctum, order_store]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: transaction_semantics
+    nodes: [order_store]
+    description: >
+      OrderController::store wraps stock decrement and order creation in DB::transaction()
+      with Product::lockForUpdate() — this is correct for concurrency safety.
+      However, there is no Policy or $this->authorize() call: any authenticated user
+      can place orders for any product with no ownership or quota check.
+      Inline validation (no FormRequest) — delivery_address and notes only.
+      Cart state is session-based (not DB-backed), so cart manipulation between
+      session write and order creation is not atomic from the application layer.
+
+  - type: missing_authorization
+    nodes: [order_store]
+    description: >
+      auth:sanctum only verifies the user is authenticated.
+      No Policy determines whether this user can place orders at this time
+      (e.g. account suspended, fraud flag, order limit).

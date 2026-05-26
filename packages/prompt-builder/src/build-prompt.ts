@@ -10,6 +10,7 @@ export interface PromptInput {
   findings: Finding[]
   history?: ConversationTurn[]
   mode?: QueryMode
+  projectRoot?: string
 }
 
 export interface BuiltPrompt {
@@ -42,7 +43,7 @@ const OUTPUT_INSTRUCTIONS_BY_MODE: Record<QueryMode, string> = {
   review: `Respond with a JSON object matching this schema exactly:
 
 {
-  "finding_type": "<must be the type string of one of the findings listed above, e.g. DUPLICATE_AUTHORIZATION>",
+  "finding_type": "<string describing the issue type — e.g. missing_authorization, race_condition, transaction_leak, stale_cache, or any type that accurately names the problem>",
   "severity": "<CRITICAL | HIGH | MEDIUM | LOW>",
   "confidence": "<HIGH | MEDIUM | LOW>",
   "explanation": "<markdown string — 2-4 paragraphs, developer-audience>",
@@ -52,18 +53,18 @@ const OUTPUT_INSTRUCTIONS_BY_MODE: Record<QueryMode, string> = {
 }
 
 Rules:
-- "finding_type" MUST be exactly one of the types listed in the Semantic findings section above. Do not invent new finding types.
-- "key_nodes" must be symbols taken from the Execution path section.
+- "finding_type" should name the real issue found — do NOT invent vague types, but DO name types the detector list above missed if you see them in the code.
+- "key_nodes" must be the exact identifier shown first on each node line in the Execution path section (e.g. "auth:sanctum", "OrderController::store" — not the bracketed type label).
 - Write explanation for a senior developer reading a PR review.
 - First paragraph: what the finding is and where it occurs.
 - Second paragraph: why it matters.
 - Third paragraph (optional): when it is acceptable.
-- Do NOT reference implementation details not in the provided nodes/edges.`,
+- If source code snippets are shown, reason about the actual implementation — not just the graph structure.`,
 
   teach: `Respond with a JSON object matching this schema exactly:
 
 {
-  "finding_type": "<must be the type string of one of the findings listed above>",
+  "finding_type": "<string describing the issue type — e.g. missing_authorization, race_condition, or any type that accurately names the problem>",
   "severity": "<CRITICAL | HIGH | MEDIUM | LOW>",
   "confidence": "<HIGH | MEDIUM | LOW>",
   "explanation": "<markdown string — 3-5 paragraphs, teaching style with step-by-step breakdown>",
@@ -73,16 +74,16 @@ Rules:
 }
 
 Rules:
-- "finding_type" MUST be exactly one of the types listed in the Semantic findings section above.
-- "key_nodes" must be symbols taken from the Execution path section.
+- "finding_type" should name the real issue — go beyond the detector list if the code shows something else.
+- "key_nodes" must be the exact identifier shown first on each node line in the Execution path section (e.g. "auth:sanctum", "OrderController::store" — not the bracketed type label).
 - Write for a junior developer — explain what each node does before explaining the problem.
 - Use numbered steps or analogies to clarify execution order.
-- Do NOT reference implementation details not in the provided nodes/edges.`,
+- If source code snippets are shown, walk through the actual code.`,
 
   debug: `Respond with a JSON object matching this schema exactly:
 
 {
-  "finding_type": "<must be the type string of one of the findings listed above>",
+  "finding_type": "<string describing the issue type — e.g. missing_authorization, race_condition, or any type that accurately names the problem>",
   "severity": "<CRITICAL | HIGH | MEDIUM | LOW>",
   "confidence": "<HIGH | MEDIUM | LOW>",
   "explanation": "<markdown string — 1-2 paragraphs max, direct and terse>",
@@ -92,10 +93,10 @@ Rules:
 }
 
 Rules:
-- "finding_type" MUST be exactly one of the types listed in the Semantic findings section above.
-- "key_nodes" must be symbols taken from the Execution path section.
+- "finding_type" should name the real issue — be specific.
+- "key_nodes" must be the exact identifier shown first on each node line in the Execution path section (e.g. "auth:sanctum", "OrderController::store" — not the bracketed type label).
 - Be terse: state the root cause, name the node, state the fix. Nothing more.
-- Do NOT reference implementation details not in the provided nodes/edges.`,
+- If source code snippets are shown, cite exact line or pattern that's wrong.`,
 }
 
 function serializeConversationHistory(history: ConversationTurn[]): string {
@@ -118,9 +119,9 @@ function serializeUncertainty(findings: Finding[]): string {
 }
 
 export function buildPrompt(input: PromptInput): BuiltPrompt {
-  const { query, graph, findings, history, mode = "review" } = input
+  const { query, graph, findings, history, mode = "review", projectRoot } = input
 
-  const executionSection = serializeExecutionPath(graph)
+  const executionSection = serializeExecutionPath(graph, projectRoot)
   const findingsSection = serializeFindings(findings)
   const uncertaintySection = serializeUncertainty(findings)
   const historySection = history && history.length > 0 ? serializeConversationHistory(history) : ""

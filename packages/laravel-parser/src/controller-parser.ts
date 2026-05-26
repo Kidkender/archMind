@@ -79,24 +79,37 @@ export function extractUseMap(root: Parser.SyntaxNode): Map<string, string> {
   return map
 }
 
+function registerUseClause(clause: Parser.SyntaxNode, prefix: string, map: Map<string, string>): void {
+  const qualName  = (clause.children as Parser.SyntaxNode[]).find(
+    (c) => c.type === "qualified_name" || c.type === "name"
+  )
+  const aliasNode = (clause.children as Parser.SyntaxNode[]).find(
+    (c) => c.type === "alias_clause"
+  )
+  if (!qualName) return
+  const raw  = qualName.text.trim()
+  if (!raw)  return
+  const fqcn = prefix ? `${prefix}\\${raw}` : raw
+  const shortName = aliasNode
+    ? ((aliasNode.children as Parser.SyntaxNode[]).find((c) => c.type === "name")?.text ?? lastSegment(fqcn))
+    : lastSegment(fqcn)
+  map.set(shortName, fqcn)
+}
+
 function gatherUseDecls(node: Parser.SyntaxNode, map: Map<string, string>): void {
   for (const child of node.children as Parser.SyntaxNode[]) {
     if (child.type === "namespace_use_declaration") {
-      for (const sub of child.children as Parser.SyntaxNode[]) {
-        if (sub.type === "namespace_use_clause") {
-          const qualName  = (sub.children as Parser.SyntaxNode[]).find(
-            (c) => c.type === "qualified_name" || c.type === "name"
-          )
-          const aliasNode = (sub.children as Parser.SyntaxNode[]).find(
-            (c) => c.type === "alias_clause"
-          )
-          if (qualName) {
-            const fqcn      = qualName.text
-            const shortName = aliasNode
-              ? ((aliasNode.children as Parser.SyntaxNode[]).find((c) => c.type === "name")?.text ?? lastSegment(fqcn))
-              : lastSegment(fqcn)
-            map.set(shortName, fqcn)
-          }
+      // Detect PHP 7+ grouped use: `use Ns\{A, B, C};`
+      const group  = (child.children as Parser.SyntaxNode[]).find((c) => c.type === "namespace_use_group")
+      const prefix = (child.children as Parser.SyntaxNode[]).find((c) => c.type === "namespace_name")?.text ?? ""
+
+      if (group) {
+        for (const sub of group.children as Parser.SyntaxNode[]) {
+          if (sub.type === "namespace_use_clause") registerUseClause(sub, prefix, map)
+        }
+      } else {
+        for (const sub of child.children as Parser.SyntaxNode[]) {
+          if (sub.type === "namespace_use_clause") registerUseClause(sub, "", map)
         }
       }
     } else {

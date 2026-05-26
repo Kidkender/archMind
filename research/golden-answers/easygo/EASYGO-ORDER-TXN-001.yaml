@@ -1,0 +1,20 @@
+id: EASYGO-ORDER-TXN-001-ANSWER
+golden_trace_id: EASYGO-ORDER-TXN-001
+entrypoint: "POST /v1/orders"
+query: "What happens when an order is placed — is the stock update safe, and who is authorized to place orders?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: HIGH
+  key_nodes:
+    - auth:sanctum
+    - OrderController::store
+
+  explanation_must_contain:
+    - authentication
+    - authorization
+
+  recommendations_must_contain:
+    - - OrderPolicy
+      - "$this->authorize"
+      - authorization

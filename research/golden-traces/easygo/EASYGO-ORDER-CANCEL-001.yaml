@@ -1,0 +1,60 @@
+id: EASYGO-ORDER-CANCEL-001
+entrypoint: "POST /v1/orders/{number}/cancel"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "Can a user cancel another user's order? Where is the ownership check enforced?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: order_cancel
+    type: controller_action
+    symbol: OrderController::cancel
+    file: app/Http/Controllers/Api/V1/OrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: throttle
+    to: sanctum
+    relation: next_middleware
+
+  - from: sanctum
+    to: order_cancel
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [sanctum, order_cancel]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: implicit_ownership
+    nodes: [order_cancel]
+    description: >
+      Ownership is enforced implicitly via Eloquent query scope:
+      $request->user()->orders()->where('order_number', $number)->firstOrFail()
+      This prevents cross-user access at the DB query level — not via Policy or
+      $this->authorize(). The pattern works correctly but is opaque to static
+      analysis and bypasses Laravel's authorization layer entirely.
+      No OrderPolicy::cancel() is consulted; there is no way to add
+      role-based override (e.g. admin cancelling on behalf of user) without
+      touching the controller logic directly.

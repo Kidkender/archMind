@@ -1,4 +1,4 @@
-import { parseRouteFile, augmentGraph, loadProjectConfig } from "@archmind/laravel-parser"
+import { parseRouteFile, augmentGraph, loadProjectConfig, resolveAliasMap } from "@archmind/laravel-parser"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
 import { join } from "path"
 
@@ -10,11 +10,13 @@ export function getGraphs(projectRoot: string): IntermediateExecutionGraph[] {
   }
 
   const config = loadProjectConfig(projectRoot)
+  const { aliasMap, routeFiles } = resolveAliasMap(projectRoot, config)
+
   const graphs: IntermediateExecutionGraph[] = []
 
-  for (const relRouteFile of config.routeFiles) {
+  for (const relRouteFile of routeFiles) {
     const routesFile = join(projectRoot, relRouteFile)
-    const skeletons = parseRouteFile(routesFile, {})
+    const skeletons = parseRouteFile(routesFile, { aliasMap })
     for (const g of skeletons) {
       graphs.push(augmentGraph(g, { projectRoot, config }))
     }

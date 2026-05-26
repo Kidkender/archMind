@@ -11,7 +11,7 @@ import { extractPermissionNodes } from "./permission-extractor/constants.js"
 import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
 import { parseTransactions } from "./transaction-parser.js"
 import { parseIsolation } from "./isolation-parser.js"
-import { DEFAULT_PROJECT_CONFIG, fqcnToPath } from "./project-config.js"
+import { DEFAULT_PROJECT_CONFIG, fqcnToPath, resolvePolicyFile } from "./project-config.js"
 
 // ---- Public API -------------------------------------------------------
 
@@ -83,8 +83,7 @@ export function augmentGraph(
         const addedPolicyNodes: ExecutionNode[] = []
         for (const auth of l1.authorizeCalls) {
           const policyClass = inferPolicyClass(ctrlClass ?? "")
-          const policyDir   = config.policyPaths[0] ?? "app/Policies"
-          const policyFile  = `${policyDir}/${policyClass}.php`
+          const policyFile  = resolvePolicyFile(opts.projectRoot, policyClass, config.policyPaths)
           const id = `policy_${policyClass.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${auth.ability}`
           const policyNode: ExecutionNode = {
             id,

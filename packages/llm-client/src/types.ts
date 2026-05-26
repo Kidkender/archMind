@@ -31,3 +31,7 @@ export interface ValidationResult {
   valid: boolean
   errors: ValidationError[]
 }
+
+export interface JudgeClient {
+  judge(system: string, user: string): Promise<string>
+}

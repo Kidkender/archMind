@@ -29,9 +29,12 @@ export class Orchestrator {
   private readonly graphs: IntermediateExecutionGraph[]
   private readonly llmClient: LLMClient
 
+  private readonly projectRoot?: string
+
   constructor(opts: OrchestratorOptions) {
     this.graphs = opts.graphs
     this.llmClient = opts.llmClient
+    this.projectRoot = opts.projectRoot
   }
 
   async query(
@@ -56,7 +59,7 @@ export class Orchestrator {
     const findings = explain(graph, userQuery || undefined)
     const history = context ? trimHistory(context.turns) : []
 
-    const prompt = buildPrompt({ query: userQuery, graph: retrievedGraph, findings, history, mode })
+    const prompt = buildPrompt({ query: userQuery, graph: retrievedGraph, findings, history, mode, projectRoot: this.projectRoot })
 
     let response: LLMResponse
     let explanation_failed = false

@@ -1,0 +1,20 @@
+id: EASYGO-ADMIN-AUTH-001-ANSWER
+golden_trace_id: EASYGO-ADMIN-AUTH-001
+entrypoint: "PUT /v1/admin/orders/{id}/status"
+query: "Who can update order status, and is the authorization check sufficient?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: HIGH
+  key_nodes:
+    - AdminMiddleware
+    - AdminOrderController::updateStatus
+
+  explanation_must_contain:
+    - AdminMiddleware
+    - authorization
+
+  recommendations_must_contain:
+    - - OrderPolicy
+      - "$this->authorize"
+      - authorization

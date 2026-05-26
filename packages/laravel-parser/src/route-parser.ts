@@ -150,7 +150,20 @@ function handleRouteExpression(
       // name(), scopeBindings(), where() — ignored
     }
 
-    const closureNode = methods[groupIdx].args[0]
+    // Route::group() supports two call forms:
+    //   1. Fluent:   Route::middleware('x')->prefix('y')->group(closure)
+    //   2. Options:  Route::group(['middleware' => [...], 'prefix' => '...'], closure)
+    // In form 2, args[0] is the options array and args[1] is the closure.
+    const groupArgs = methods[groupIdx].args
+    let closureNode: Parser.SyntaxNode | undefined
+    if (groupArgs[0]?.type === "array_creation_expression") {
+      // Form 2 — extract middleware and prefix from the options array
+      extractGroupOptions(groupArgs[0], newMiddleware, opts, (seg) => { newPrefix = joinPath(newPrefix, seg) })
+      closureNode = groupArgs[1]
+    } else {
+      closureNode = groupArgs[0]
+    }
+
     if (closureNode) {
       const body = getFunctionBody(closureNode)
       if (body) {
@@ -199,8 +212,12 @@ function buildGraph(
     }
   })
 
-  // Resolve controller short name → FQCN → relative file path
-  const fqcn = useMap.get(controller) ?? controller
+  // Resolve controller short name → FQCN → relative file path.
+  // For Laravel ≤8 string routes ('Controller@method'), useMap is typically empty since
+  // web.php has no use statements. Fall back to the conventional Controllers namespace.
+  const fqcnFromMap = useMap.get(controller)
+  const fqcn = fqcnFromMap
+    ?? (controller.includes("\\") ? controller : `App\\Http\\Controllers\\${controller}`)
   const file = fqcn.includes("\\")
     ? fqcn.replace(/^App\\/, "app/").replace(/\\/g, "/") + ".php"
     : undefined
@@ -278,6 +295,35 @@ function getFunctionBody(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
   return null
 }
 
+/**
+ * Extract `middleware` and `prefix` from a Route::group() options array.
+ * Handles: ['middleware' => 'auth', 'prefix' => 'api', 'middleware' => ['auth','verified']]
+ */
+function extractGroupOptions(
+  optionsNode: Parser.SyntaxNode,
+  middlewareOut: string[],
+  opts: ParseOptions,
+  onPrefix: (seg: string) => void
+): void {
+  for (const child of optionsNode.children) {
+    if (child.type !== "array_element_initializer") continue
+    const named = child.namedChildren
+    if (named.length < 2) continue
+    const key = named[0]?.type === "string"
+      ? (named[0].children.find((c) => c.type === "string_content")?.text ?? "")
+      : named[0]?.text ?? ""
+    const value = named[1]
+    if (!value) continue
+
+    if (key === "middleware") {
+      middlewareOut.push(...resolveMiddlewareArgs([value], opts.constants))
+    } else if (key === "prefix") {
+      const seg = resolveString(value, opts.constants)
+      if (seg) onPrefix(seg)
+    }
+  }
+}
+
 // Resolve a middleware argument list into string values
 function resolveMiddlewareArgs(args: Parser.SyntaxNode[], constants?: ConstantMap): string[] {
   const result: string[] = []
@@ -348,6 +394,18 @@ function extractControllerAction(node: Parser.SyntaxNode | undefined): {
     const controller = classEl  ? resolveValue(classEl)[0]  ?? "UnknownController" : "UnknownController"
     const action     = actionEl ? resolveValue(actionEl)[0] ?? "unknown"           : "unknown"
     return { controller, action }
+  }
+
+  // Laravel ≤8 string syntax: 'ProductsController@index'
+  if (node.type === "string" || node.type === "encapsed_string") {
+    const content = node.children.find((c) => c.type === "string_content")?.text ?? ""
+    const atIdx = content.indexOf("@")
+    if (atIdx > 0) {
+      return {
+        controller: content.slice(0, atIdx),
+        action:     content.slice(atIdx + 1) || "unknown",
+      }
+    }
   }
 
   return { controller: "Closure", action: "invoke" }

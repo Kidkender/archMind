@@ -10,4 +10,5 @@ export {
 } from "./controller-parser.js"
 export { augmentGraph, fqcnToRelativePath, type AugmentOptions } from "./graph-augmenter.js"
 export { parseKernel, type AliasMap } from "./kernel-parser.js"
-export { loadProjectConfig, DEFAULT_PROJECT_CONFIG, fqcnToPath } from "./project-config.js"
+export { loadProjectConfig, inferProjectConfig, DEFAULT_PROJECT_CONFIG, fqcnToPath, resolveAliasMap, expandRouteFiles, expandRouteGlob, resolvePolicyFile } from "./project-config.js"
+export { parseBootstrap, type BootstrapParseResult } from "./bootstrap-parser.js"

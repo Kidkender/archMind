@@ -3,5 +3,6 @@ export { scoreTrace, findMatchingGraph, type ScoreReport, type NodeMatch, type T
 export { scoreRetrieval, type RetrievalScoreReport } from "./retrieval-scorer.js"
 export { loadGoldenAnswer, type GoldenAnswer, type GoldenAnswerExpected } from "./golden-answer.js"
 export { scoreAnswer, type AnswerScore, type FieldScore, type KeynodeScore, type KeyphraseScore, type RecommendationScore } from "./answer-scorer.js"
+export { scoreAnswerWithJudge } from "./llm-judge-scorer.js"
 export { loadGoldenConversation, type GoldenConversation, type GoldenConvTurn, type GoldenConvTurnExpected } from "./golden-conversation.js"
 export { scoreConversation, type ConversationScore, type ConvTurnScore } from "./conversation-scorer.js"

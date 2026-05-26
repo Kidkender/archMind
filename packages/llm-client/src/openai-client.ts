@@ -1,6 +1,6 @@
 import OpenAI from "openai"
 import type { BuiltPrompt } from "@archmind/prompt-builder"
-import type { LLMClient, LLMCallResult, LLMResponse } from "./types.js"
+import type { LLMClient, LLMCallResult, LLMResponse, JudgeClient } from "./types.js"
 
 export interface OpenAIChatCreate {
   create(params: {
@@ -37,7 +37,7 @@ function extractJson(text: string): string {
   return text.trim()
 }
 
-export class OpenAILLMClient implements LLMClient {
+export class OpenAILLMClient implements LLMClient, JudgeClient {
   private readonly chat: OpenAIChatCreate
   private readonly model: string
   private readonly maxTokens: number
@@ -48,6 +48,18 @@ export class OpenAILLMClient implements LLMClient {
       (new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL }).chat.completions as unknown as OpenAIChatCreate)
     this.model = opts.model ?? DEFAULT_MODEL
     this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS
+  }
+
+  async judge(system: string, user: string): Promise<string> {
+    const completion = await this.chat.create({
+      model: this.model,
+      max_tokens: 256,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    })
+    return completion.choices[0]?.message.content ?? ""
   }
 
   async call(prompt: BuiltPrompt): Promise<LLMCallResult> {
