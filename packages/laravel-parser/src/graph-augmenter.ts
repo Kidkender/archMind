@@ -3,6 +3,7 @@ import type {
   IntermediateExecutionGraph,
   ExecutionNode,
   ExecutionEdge,
+  ProjectConfig,
 } from "@archmind/protocol"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
 import { parseConstantClass } from "./constant-resolver.js"
@@ -10,12 +11,22 @@ import { extractPermissionNodes } from "./permission-extractor/constants.js"
 import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
 import { parseTransactions } from "./transaction-parser.js"
 import { parseIsolation } from "./isolation-parser.js"
+import { DEFAULT_PROJECT_CONFIG, fqcnToPath } from "./project-config.js"
 
 // ---- Public API -------------------------------------------------------
 
 export interface AugmentOptions {
   projectRoot: string
-  /** Relative paths (from projectRoot) to PHP permission constant class files. */
+  /**
+   * Optional project configuration. When provided, overrides the default
+   * hardcoded assumptions (PSR-4 namespaces, policy paths, permission files, etc.).
+   * Falls back to DEFAULT_PROJECT_CONFIG when omitted.
+   */
+  config?: ProjectConfig
+  /**
+   * @deprecated Use config.permissionConstantFiles instead.
+   * Still accepted for backwards compatibility — merged with config if both present.
+   */
   permissionConstantFiles?: string[]
 }
 
@@ -33,6 +44,13 @@ export function augmentGraph(
   graph: IntermediateExecutionGraph,
   opts: AugmentOptions
 ): IntermediateExecutionGraph {
+  const config = opts.config ?? DEFAULT_PROJECT_CONFIG
+  // Merge legacy permissionConstantFiles with config (backwards compat)
+  const permFiles = [
+    ...config.permissionConstantFiles,
+    ...(opts.permissionConstantFiles ?? []),
+  ]
+
   const newNodes: ExecutionNode[] = [...graph.nodes]
   const newEdges: ExecutionEdge[]  = [...graph.edges]
 
@@ -65,7 +83,8 @@ export function augmentGraph(
         const addedPolicyNodes: ExecutionNode[] = []
         for (const auth of l1.authorizeCalls) {
           const policyClass = inferPolicyClass(ctrlClass ?? "")
-          const policyFile  = `app/Policies/${policyClass}.php`
+          const policyDir   = config.policyPaths[0] ?? "app/Policies"
+          const policyFile  = `${policyDir}/${policyClass}.php`
           const id = `policy_${policyClass.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${auth.ability}`
           const policyNode: ExecutionNode = {
             id,
@@ -86,7 +105,7 @@ export function augmentGraph(
         }
 
         // Service calls from controller action
-        addServiceCallNodes(newNodes, newEdges, ctrlNode.id, l1.serviceCalls, opts.projectRoot)
+        addServiceCallNodes(newNodes, newEdges, ctrlNode.id, l1.serviceCalls, config.namespaces)
 
         // Service calls from policy methods
         for (const policyNode of addedPolicyNodes) {
@@ -98,7 +117,7 @@ export function augmentGraph(
             policyMethod
           )
           if (policyL1) {
-            addServiceCallNodes(newNodes, newEdges, policyNode.id, policyL1.serviceCalls, opts.projectRoot)
+            addServiceCallNodes(newNodes, newEdges, policyNode.id, policyL1.serviceCalls, config.namespaces)
           }
         }
       }
@@ -112,12 +131,12 @@ export function augmentGraph(
     const filePath = join(opts.projectRoot, mwNode.file)
     const l1 = parseControllerMethod(filePath, "handle")
     if (l1) {
-      addServiceCallNodes(newNodes, newEdges, mwNode.id, l1.serviceCalls, opts.projectRoot)
+      addServiceCallNodes(newNodes, newEdges, mwNode.id, l1.serviceCalls, config.namespaces)
     }
   }
 
   // ---- Permission constant pass ----------------------------------------
-  for (const relFile of (opts.permissionConstantFiles ?? [])) {
+  for (const relFile of permFiles) {
     const absPath = join(opts.projectRoot, relFile)
     const map = parseConstantClass(absPath)
     const permNodes = extractPermissionNodes(map, relFile)
@@ -140,7 +159,10 @@ export function augmentGraph(
   const ctrlNodeForIso = graph.nodes.find((n) => n.type === "controller_action")
   if (ctrlNodeForIso?.file) {
     const filePath = join(opts.projectRoot, ctrlNodeForIso.file)
-    const isoResult = parseIsolation(filePath)
+    const isoResult = parseIsolation(filePath, {
+      tenantSignals:      config.conventions.tenantSignals,
+      tenantContainerKeys: config.conventions.tenantContainerKeys,
+    })
     addIsolationNodes(newNodes, newEdges, ctrlNodeForIso.id, isoResult)
   }
 
@@ -149,8 +171,12 @@ export function augmentGraph(
 
 // ---- PSR-4 helpers ----------------------------------------------------
 
+/**
+ * @deprecated Use fqcnToPath from project-config.ts with an explicit namespace map.
+ * Kept for backwards compatibility with external callers.
+ */
 export function fqcnToRelativePath(fqcn: string): string {
-  return fqcn.replace(/^App\\/, "app/").replace(/\\/g, "/") + ".php"
+  return fqcnToPath(fqcn, DEFAULT_PROJECT_CONFIG.namespaces) ?? fqcn.replace(/\\/g, "/") + ".php"
 }
 
 // ---- Helpers ----------------------------------------------------------
@@ -170,7 +196,7 @@ function addServiceCallNodes(
   edges: ExecutionEdge[],
   callerNodeId: string,
   serviceCalls: ServiceCall[],
-  projectRoot: string
+  namespaces: Record<string, string>
 ): void {
   const seen = new Set<string>()
 
@@ -182,7 +208,7 @@ function addServiceCallNodes(
     if (seen.has(id)) continue
     seen.add(id)
 
-    const file = sc.serviceFqcn.includes("\\") ? fqcnToRelativePath(sc.serviceFqcn) : undefined
+    const file = sc.serviceFqcn.includes("\\") ? (fqcnToPath(sc.serviceFqcn, namespaces) ?? undefined) : undefined
 
     nodes.push({
       id,
@@ -201,8 +227,6 @@ function addServiceCallNodes(
     })
   }
 
-  // suppress unused import warning — projectRoot used for future extension
-  void projectRoot
 }
 
 /**

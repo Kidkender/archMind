@@ -1,4 +1,5 @@
 import type { ExecutionNode } from "@archmind/protocol"
+import { DEFAULT_PROJECT_CONFIG, fqcnToPath } from "./project-config.js"
 
 // Maps raw Laravel middleware strings → semantic ExecutionNodes.
 // This is the bridge between framework syntax and ontology primitives.
@@ -42,7 +43,7 @@ export function resolvedMiddlewareToNode(
   const mapping  = classifyFqcn(fqcn)
   const short    = fqcn.split("\\").pop() ?? fqcn
   const file     = fqcn.includes("\\")
-    ? fqcn.replace(/^App\\/, "app/").replace(/\\/g, "/") + ".php"
+    ? (fqcnToPath(fqcn, DEFAULT_PROJECT_CONFIG.namespaces) ?? undefined)
     : undefined
   const idBase   = raw.toLowerCase().replace(/[^a-z0-9]/g, "_")
 

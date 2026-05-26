@@ -130,7 +130,8 @@ describe("augmentGraph — service_call extraction", () => {
   })
 
   test("service_call edges have relation 'calls' and traceability semantic", () => {
-    const scEdges = augmented.edges.filter(e => e.relation === "calls")
+    const serviceCallIds = new Set(augmented.nodes.filter(n => n.type === "service_call").map(n => n.id))
+    const scEdges = augmented.edges.filter(e => e.relation === "calls" && serviceCallIds.has(e.to))
     expect(scEdges.length).toBeGreaterThanOrEqual(2)
     expect(scEdges.every(e => e.traceability === "semantic")).toBe(true)
   })

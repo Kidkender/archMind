@@ -42,7 +42,7 @@ function extractPermissionFromMechanism(mechanism: string | undefined): string |
 
 function classifyLayer(node: ExecutionNode): AuthorizationCheckFact["layer"] {
   const t = node.type.toLowerCase()
-  if (t === "middleware" || t === "authorization_check") return "middleware"
+  if (t === "middleware" || t === "authorization_check" || t === "authentication_gate") return "middleware"
   if (t === "policy") return "policy"
   if (t === "service_call") return "service"
   if (t === "permission") return "constant"
@@ -57,6 +57,7 @@ function inferConfidence(node: ExecutionNode, permission: string | null): Author
 
 const AUTH_NODE_TYPES = new Set([
   "authorization_check",
+  "authentication_gate",
   "middleware",
   "policy",
   "service_call",

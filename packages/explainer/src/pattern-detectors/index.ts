@@ -9,6 +9,7 @@ import { detectEventBeforeCommit } from "./event-before-commit.js"
 import { detectMissingTenantScope } from "./missing-tenant-scope.js"
 import { detectDoublePermissionCheck } from "./double-permission-check.js"
 import { detectRuntimeConsumerTrace } from "./runtime-consumer-trace.js"
+import { detectMissingAuthorization } from "./missing-authorization.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -23,6 +24,7 @@ export function detect(
   const authNodeIds = getAuthNodeIds(facts)
 
   return [
+    ...detectMissingAuthorization(facts, graph),
     ...detectDuplicateAuthorization(facts, graph),
     ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),

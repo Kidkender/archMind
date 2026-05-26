@@ -1,5 +1,6 @@
-import { parseRouteFile, augmentGraph } from "@archmind/laravel-parser"
+import { parseRouteFile, augmentGraph, loadProjectConfig } from "@archmind/laravel-parser"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import { join } from "path"
 
 const cache = new Map<string, IntermediateExecutionGraph[]>()
 
@@ -8,11 +9,16 @@ export function getGraphs(projectRoot: string): IntermediateExecutionGraph[] {
     return cache.get(projectRoot)!
   }
 
-  const routesFile = `${projectRoot}/routes/api.php`
-  const skeletons = parseRouteFile(routesFile, {})
-  const graphs = skeletons.map((g) =>
-    augmentGraph(g, { projectRoot, permissionConstantFiles: [] })
-  )
+  const config = loadProjectConfig(projectRoot)
+  const graphs: IntermediateExecutionGraph[] = []
+
+  for (const relRouteFile of config.routeFiles) {
+    const routesFile = join(projectRoot, relRouteFile)
+    const skeletons = parseRouteFile(routesFile, {})
+    for (const g of skeletons) {
+      graphs.push(augmentGraph(g, { projectRoot, config }))
+    }
+  }
 
   cache.set(projectRoot, graphs)
   return graphs

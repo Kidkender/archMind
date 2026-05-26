@@ -27,8 +27,11 @@ function detectsDelegation(
 function hasRealAuthLayers(graph: IntermediateExecutionGraph): boolean {
   return graph.nodes.some((n) => {
     const t = n.type.toLowerCase()
-    return t === "policy" || t === "authorization_check" || t === "middleware" && (
-      n.args && n.args.length > 0
+    return (
+      t === "policy" ||
+      t === "authorization_check" ||
+      t === "authentication_gate" ||
+      (t === "middleware" && n.args && n.args.length > 0)
     )
   })
 }

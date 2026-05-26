@@ -58,7 +58,9 @@ export function detectDelegatedValidation(
     const evidence: Evidence[] = [
       {
         nodeId: gate.nodeId,
-        description: `${gate.symbol} returns true — performs no authorization check`,
+        description: authNodeIds.length > 0
+          ? `${gate.symbol} delegates authorization to upstream auth layer(s)`
+          : `${gate.symbol} has no outgoing auth edges and no upstream auth layers detected`,
       },
       ...authNodeIds.map((id) => ({
         nodeId: id,

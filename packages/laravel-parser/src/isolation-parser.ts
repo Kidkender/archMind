@@ -25,16 +25,24 @@ export interface IsolationParseResult {
   readsTenantFromContainer: boolean
 }
 
-// Tenant-related field names / method names that indicate scoping
-const TENANT_SIGNALS = new Set([
+export interface IsolationOptions {
+  tenantSignals?: string[]
+  tenantContainerKeys?: string[]
+}
+
+const DEFAULT_TENANT_SIGNALS = [
   "tenant_id", "tenantId", "tenant",
   "organization_id", "organizationId",
   "whereTenant", "whereTenantId", "forTenant",
   "whereOrganization", "whereOrganizationId",
-])
+]
 
+const DEFAULT_TENANT_CONTAINER_KEYS = ["tenant", "organization"]
 
-export function parseIsolation(filePath: string): IsolationParseResult {
+export function parseIsolation(filePath: string, opts: IsolationOptions = {}): IsolationParseResult {
+  const tenantSignals = new Set(opts.tenantSignals ?? DEFAULT_TENANT_SIGNALS)
+  const tenantContainerKeys = opts.tenantContainerKeys ?? DEFAULT_TENANT_CONTAINER_KEYS
+
   let source: string
   try {
     source = readFileSync(filePath, "utf-8")
@@ -46,9 +54,9 @@ export function parseIsolation(filePath: string): IsolationParseResult {
   const root  = tree.rootNode
 
   const modelQueries: ModelQueryCall[]    = []
-  const readsTenantFromContainer          = detectTenantContainerRead(root)
+  const readsTenantFromContainer          = detectTenantContainerRead(root, tenantContainerKeys)
 
-  gatherModelQueries(root, modelQueries)
+  gatherModelQueries(root, modelQueries, tenantSignals)
 
   return { modelQueries, readsTenantFromContainer }
 }
@@ -56,7 +64,7 @@ export function parseIsolation(filePath: string): IsolationParseResult {
 // ---- Container read detection -----------------------------------------
 
 // Detects: app('tenant') / app()->make('tenant') / resolve('tenant')
-function detectTenantContainerRead(root: Parser.SyntaxNode): boolean {
+function detectTenantContainerRead(root: Parser.SyntaxNode, containerKeys: string[]): boolean {
   return containsPattern(root, (node) => {
     if (node.type === "function_call_expression") {
       const fn = node.childForFieldName("function")
@@ -64,7 +72,7 @@ function detectTenantContainerRead(root: Parser.SyntaxNode): boolean {
         const args = node.childForFieldName("arguments")
         if (args) {
           const text = args.text.toLowerCase()
-          if (text.includes("tenant") || text.includes("organization")) return true
+          if (containerKeys.some((k) => text.includes(k.toLowerCase()))) return true
         }
       }
     }
@@ -76,7 +84,8 @@ function detectTenantContainerRead(root: Parser.SyntaxNode): boolean {
 
 function gatherModelQueries(
   node: Parser.SyntaxNode,
-  results: ModelQueryCall[]
+  results: ModelQueryCall[],
+  tenantSignals: Set<string>
 ): void {
   // member_call_expression: handles Model::where(...)->find() / Model::whereTenantId()->find()
   // Capture at the outermost read-op in a chain — prevents double-counting inner scoped_call.
@@ -88,13 +97,13 @@ function gatherModelQueries(
         results.push({
           model:               rootModel,
           operation:           name.text,
-          hastenantConstraint: chainHasTenantConstraint(node),
+          hastenantConstraint: chainHasTenantConstraint(node, tenantSignals),
           callText:            node.text.slice(0, 120),
         })
         return // captured — don't descend into inner scoped_call_expression
       }
     }
-    descend(node, results)
+    descend(node, results, tenantSignals)
     return
   }
 
@@ -108,7 +117,7 @@ function gatherModelQueries(
         results.push({
           model:               clsText,
           operation:           name.text,
-          hastenantConstraint: chainHasTenantConstraint(node),
+          hastenantConstraint: chainHasTenantConstraint(node, tenantSignals),
           callText:            node.text.slice(0, 120),
         })
         return
@@ -116,12 +125,12 @@ function gatherModelQueries(
     }
   }
 
-  descend(node, results)
+  descend(node, results, tenantSignals)
 }
 
-function descend(node: Parser.SyntaxNode, results: ModelQueryCall[]): void {
+function descend(node: Parser.SyntaxNode, results: ModelQueryCall[], tenantSignals: Set<string>): void {
   for (const child of node.children as Parser.SyntaxNode[]) {
-    gatherModelQueries(child, results)
+    gatherModelQueries(child, results, tenantSignals)
   }
 }
 
@@ -141,9 +150,9 @@ function extractRootModel(node: Parser.SyntaxNode): string | null {
 
 // Walk the full method chain to find tenant signal
 // e.g. Task::where('tenant_id', $id)->find($id) → has constraint
-function chainHasTenantConstraint(node: Parser.SyntaxNode): boolean {
+function chainHasTenantConstraint(node: Parser.SyntaxNode, tenantSignals: Set<string>): boolean {
   const text = node.text
-  for (const signal of TENANT_SIGNALS) {
+  for (const signal of tenantSignals) {
     if (text.includes(signal)) return true
   }
   return false

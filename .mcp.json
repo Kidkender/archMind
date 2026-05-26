@@ -1,5 +1,13 @@
 {
   "mcpServers": {
+    "archmind": {
+      "command": "node",
+      "args": [
+        "C:/Users/Admin/Desktop/DuckCode/Project/archMind/packages/mcp-server/dist/index.js"
+      ],
+      "type": "stdio",
+      "description": "ArchMind semantic execution graph — list entrypoints, get graphs, run static findings"
+    },
     "code-review-graph": {
       "command": "code-review-graph",
       "args": [
