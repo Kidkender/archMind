@@ -25,6 +25,23 @@ export interface OpenAILLMClientOptions {
 
 const DEFAULT_MODEL = "gpt-4o"
 const DEFAULT_MAX_TOKENS = 1024
+const MAX_RETRIES = 3
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await fn()
+    } catch (err: unknown) {
+      lastErr = err
+      const msg = err instanceof Error ? err.message : String(err)
+      const isRetryable = /connection|network|econnreset|etimedout|socket/i.test(msg)
+      if (!isRetryable) throw err
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
+    }
+  }
+  throw lastErr
+}
 
 function extractJson(text: string): string {
   const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/)
@@ -45,34 +62,34 @@ export class OpenAILLMClient implements LLMClient, JudgeClient {
   constructor(opts: OpenAILLMClientOptions) {
     this.chat =
       opts.chatAdapter ??
-      (new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL }).chat.completions as unknown as OpenAIChatCreate)
+      (new OpenAI({ apiKey: opts.apiKey?.trim(), baseURL: opts.baseURL }).chat.completions as unknown as OpenAIChatCreate)
     this.model = opts.model ?? DEFAULT_MODEL
     this.maxTokens = opts.maxTokens ?? DEFAULT_MAX_TOKENS
   }
 
   async judge(system: string, user: string): Promise<string> {
-    const completion = await this.chat.create({
+    const completion = await withRetry(() => this.chat.create({
       model: this.model,
       max_tokens: 256,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
-    })
+    }))
     return completion.choices[0]?.message.content ?? ""
   }
 
   async call(prompt: BuiltPrompt): Promise<LLMCallResult> {
     const userContent = `${prompt.user}\n\n${prompt.output_instructions}`
 
-    const completion = await this.chat.create({
+    const completion = await withRetry(() => this.chat.create({
       model: this.model,
       max_tokens: this.maxTokens,
       messages: [
         { role: "system", content: prompt.system },
         { role: "user", content: userContent },
       ],
-    })
+    }))
 
     const text = completion.choices[0]?.message.content
     if (!text) {

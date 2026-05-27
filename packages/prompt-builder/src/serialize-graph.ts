@@ -23,6 +23,9 @@ function loadCodeSlice(node: ExecutionNode, projectRoot: string): string | null 
   }
 }
 
+// Skip code snippets when graph is large to stay within prompt budget
+const SNIPPET_NODE_THRESHOLD = 20
+
 function serializeNode(node: ExecutionNode, projectRoot?: string): string {
   const argsStr = node.args?.length ? `(${node.args.join(", ")})` : ""
   const header = `  ${node.symbol}${argsStr} [${node.type}]`
@@ -43,7 +46,9 @@ function serializeEdge(edge: ExecutionEdge, symbolById: Map<string, string>): st
 export function serializeExecutionPath(graph: IntermediateExecutionGraph, projectRoot?: string): string {
   const symbolById = new Map(graph.nodes.map((n) => [n.id, n.symbol]))
   const header = `Execution path: ${graph.entrypoint}\n`
-  const nodes = "Nodes:\n" + graph.nodes.map((n) => serializeNode(n, projectRoot)).join("\n")
+  // Suppress code snippets for large graphs to keep prompt size manageable
+  const effectiveRoot = graph.nodes.length <= SNIPPET_NODE_THRESHOLD ? projectRoot : undefined
+  const nodes = "Nodes:\n" + graph.nodes.map((n) => serializeNode(n, effectiveRoot)).join("\n")
   const edges = "Edges:\n" + graph.edges.map((e) => serializeEdge(e, symbolById)).join("\n")
   return `${header}\n${nodes}\n\n${edges}`
 }
