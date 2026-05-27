@@ -1,5 +1,6 @@
-import { retrieve, prune, classifyNode } from "../retrieval-engine.js"
-import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import { retrieve, prune, classifyNode, deduplicate } from "../retrieval-engine.js"
+import type { IntermediateExecutionGraph, RetrievalResult } from "@archmind/protocol"
+import { PROTOCOL_VERSION } from "@archmind/protocol"
 
 const AUTH_001_GRAPH: IntermediateExecutionGraph = {
   entrypoint: "PUT /tasks/{task}",
@@ -95,8 +96,8 @@ describe("prune — HIGH threshold", () => {
     expect(types).toContain("authentication_gate")   // HIGH
     expect(types).toContain("authorization_check")   // HIGH
     expect(types).toContain("policy")                // HIGH
+    expect(types).toContain("form_request")          // HIGH (auth gate) — kept
     expect(types).not.toContain("middleware")         // MEDIUM — pruned
-    expect(types).not.toContain("form_request")       // MEDIUM — pruned
     expect(types).not.toContain("controller_action")  // MEDIUM — pruned
   })
 
@@ -130,8 +131,8 @@ describe("classifyNode", () => {
   test("policy → HIGH", () => {
     expect(classifyNode({ id: "x", type: "policy", symbol: "S", role: "r" })).toBe("HIGH")
   })
-  test("form_request → MEDIUM", () => {
-    expect(classifyNode({ id: "x", type: "form_request", symbol: "S", role: "r" })).toBe("MEDIUM")
+  test("form_request → HIGH", () => {
+    expect(classifyNode({ id: "x", type: "form_request", symbol: "S", role: "r" })).toBe("HIGH")
   })
   test("unknown type → LOW", () => {
     expect(classifyNode({ id: "x", type: "unknown_type", symbol: "S", role: "r" })).toBe("LOW")
@@ -153,5 +154,125 @@ describe("retrieve — selects correct graph from multiple", () => {
   test("returns the matching graph when multiple graphs present", () => {
     const result = retrieve({ entrypoint: "DELETE /tasks/{task}" }, [AUTH_001_GRAPH, DELETE_GRAPH])
     expect(result!.nodes[0].symbol).toBe("TaskController::destroy")
+  })
+})
+
+// ---- deduplicate --------------------------------------------------------
+
+const OBSIDIAN_STYLE_RESULT: RetrievalResult = {
+  entrypoint: "POST /orders",
+  nodes: [
+    // Non-dedup types — must survive as distinct nodes
+    { id: "svc_A_check_ctrl",   type: "service_call",        symbol: "IdempotencyService::check" },
+    { id: "svc_A_check_mw",     type: "service_call",        symbol: "IdempotencyService::check" },
+    { id: "policy_1",           type: "policy",              symbol: "OrderPolicy::create" },
+    // Dedup targets — these should be merged
+    { id: "txn_1",  type: "transaction_boundary", symbol: "DB::transaction" },
+    { id: "txn_2",  type: "transaction_boundary", symbol: "DB::transaction" },
+    { id: "txn_3",  type: "transaction_boundary", symbol: "DB::transaction" },
+    { id: "txn_4",  type: "transaction_boundary", symbol: "DB::transaction" },
+    { id: "uq_1",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_2",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_3",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_4",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_5",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_6",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_7",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_8",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_9",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "uq_10",  type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    // Different args — must NOT be merged with each other
+    { id: "tw_a",   type: "transactional_write",  symbol: "Order::save", args: ["status=pending"] },
+    { id: "tw_b",   type: "transactional_write",  symbol: "Order::save", args: ["status=confirmed"] },
+  ],
+  edges: [
+    // Edges that should remap to canonical nodes
+    { from: "txn_1", to: "uq_1",  relation: "transaction_wrap",  traceability: "static" },
+    { from: "txn_2", to: "uq_5",  relation: "transaction_wrap",  traceability: "static" },
+    { from: "txn_3", to: "tw_a",  relation: "writes",            traceability: "static" },
+    // Edge between two non-dedup nodes — must pass through unchanged
+    { from: "svc_A_check_ctrl", to: "policy_1", relation: "calls", traceability: "semantic" },
+    // Duplicate edge that should be removed after remap
+    { from: "txn_2", to: "uq_2",  relation: "transaction_wrap",  traceability: "static" },
+  ],
+  token_estimate: 1200,
+  pruned:         false,
+  focus:          "all",
+  protocol_version: PROTOCOL_VERSION,
+}
+
+describe("deduplicate — type-aware graph deduplication", () => {
+  let deduped: RetrievalResult
+
+  beforeAll(() => {
+    deduped = deduplicate(OBSIDIAN_STYLE_RESULT)
+  })
+
+  test("service_call nodes are NOT merged (caller-scoped invariant)", () => {
+    const svcNodes = deduped.nodes.filter((n) => n.type === "service_call")
+    expect(svcNodes).toHaveLength(2)
+  })
+
+  test("policy nodes are NOT merged", () => {
+    const policyNodes = deduped.nodes.filter((n) => n.type === "policy")
+    expect(policyNodes).toHaveLength(1)
+  })
+
+  test("transaction_boundary nodes with same symbol are merged to one", () => {
+    const txnNodes = deduped.nodes.filter((n) => n.type === "transaction_boundary")
+    expect(txnNodes).toHaveLength(1)
+  })
+
+  test("occurrenceCount reflects merged count for transaction_boundary", () => {
+    const txnNode = deduped.nodes.find((n) => n.type === "transaction_boundary")!
+    expect(txnNode.occurrenceCount).toBe(4)
+  })
+
+  test("unscoped_query ×10 merges to one node with occurrenceCount=10", () => {
+    const uqNodes = deduped.nodes.filter((n) => n.type === "unscoped_query")
+    expect(uqNodes).toHaveLength(1)
+    expect(uqNodes[0].occurrenceCount).toBe(10)
+  })
+
+  test("transactional_write with different args are NOT merged", () => {
+    const twNodes = deduped.nodes.filter((n) => n.type === "transactional_write")
+    expect(twNodes).toHaveLength(2)
+  })
+
+  test("total node count is significantly reduced", () => {
+    expect(deduped.nodes.length).toBeLessThan(OBSIDIAN_STYLE_RESULT.nodes.length)
+    // 2 service_call + 1 policy + 1 txn_boundary + 1 unscoped_query + 2 transactional_write = 7
+    expect(deduped.nodes.length).toBe(7)
+  })
+
+  test("edges remap to canonical node IDs and duplicates are removed", () => {
+    const canonicalIds = new Set(deduped.nodes.map((n) => n.id))
+    for (const e of deduped.edges) {
+      expect(canonicalIds.has(e.from)).toBe(true)
+      expect(canonicalIds.has(e.to)).toBe(true)
+    }
+  })
+
+  test("duplicate edges after remap are removed", () => {
+    // txn_1→uq_1 and txn_2→uq_5 both remap to canonical_txn→canonical_uq
+    // only one should survive
+    const txnToUq = deduped.edges.filter(
+      (e) => e.relation === "transaction_wrap"
+    )
+    // Both edges had same canonical from/to after remap — deduped to 1
+    const uniqueEdgeKeys = new Set(txnToUq.map((e) => `${e.from}|${e.to}|${e.relation}`))
+    expect(uniqueEdgeKeys.size).toBe(txnToUq.length)
+  })
+
+  test("non-dedup node edges survive unchanged", () => {
+    const callsEdge = deduped.edges.find((e) => e.relation === "calls")
+    expect(callsEdge).toBeDefined()
+    expect(callsEdge!.from).toBe("svc_A_check_ctrl")
+    expect(callsEdge!.to).toBe("policy_1")
+  })
+
+  test("nodes without occurrenceCount set have it as undefined or 1", () => {
+    const policyNode = deduped.nodes.find((n) => n.type === "policy")!
+    expect(policyNode.occurrenceCount === undefined || policyNode.occurrenceCount === 1).toBe(true)
   })
 })

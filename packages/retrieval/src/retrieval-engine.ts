@@ -24,6 +24,20 @@ const FOCUS_THRESHOLD: Record<RetrievalFocus, RetrievalRelevance> = {
   all:         "LOW",     // everything (R0 behaviour)
 }
 
+// Node types where repeated occurrences carry no additional semantic meaning
+// and are safe to merge. Caller-scoped types (service_call, policy, permission,
+// form_request, etc.) must NOT be deduplicated.
+const DEDUP_TYPES = new Set([
+  "transaction_boundary",
+  "transactional_write",
+  "transaction_escape",
+  "unscoped_query",
+  "tenant_scoped_query",
+])
+
+// Rough token budget: if graph exceeds this after dedup, prune by relevance.
+const TOKEN_BUDGET = 2500
+
 // ---- Public API -------------------------------------------------------
 
 export function retrieve(
@@ -35,7 +49,7 @@ export function retrieve(
 
   const focus: RetrievalFocus = request.focus ?? "all"
 
-  const r0: RetrievalResult = {
+  let result: RetrievalResult = {
     entrypoint:       graph.entrypoint,
     nodes:            graph.nodes,
     edges:            graph.edges,
@@ -45,8 +59,66 @@ export function retrieve(
     protocol_version: PROTOCOL_VERSION,
   }
 
-  if (focus === "all") return r0
-  return prune(r0, FOCUS_THRESHOLD[focus])
+  result = deduplicate(result)
+
+  if (focus !== "all") {
+    result = prune(result, FOCUS_THRESHOLD[focus])
+  }
+
+  if (result.token_estimate > TOKEN_BUDGET && !result.pruned) {
+    result = prune(result, "MEDIUM")
+  }
+
+  return result
+}
+
+export function deduplicate(result: RetrievalResult): RetrievalResult {
+  // Map from original node ID → canonical node ID (for edge remapping)
+  const idToCanonical = new Map<string, string>()
+  // Map from dedup key → canonical node (first seen)
+  const canonicalByKey = new Map<string, ExecutionNode>()
+  const deduped: ExecutionNode[] = []
+
+  for (const node of result.nodes) {
+    if (!DEDUP_TYPES.has(node.type)) {
+      idToCanonical.set(node.id, node.id)
+      deduped.push(node)
+      continue
+    }
+
+    const key = `${node.type}|${node.symbol}|${(node.args ?? []).join(",")}`
+    const existing = canonicalByKey.get(key)
+
+    if (!existing) {
+      const canonical: ExecutionNode = { ...node, occurrenceCount: 1 }
+      canonicalByKey.set(key, canonical)
+      deduped.push(canonical)
+      idToCanonical.set(node.id, node.id)
+    } else {
+      existing.occurrenceCount = (existing.occurrenceCount ?? 1) + 1
+      idToCanonical.set(node.id, existing.id)
+    }
+  }
+
+  // Remap edges to canonical IDs and deduplicate identical edges
+  const seenEdgeKeys = new Set<string>()
+  const remappedEdges: ExecutionEdge[] = []
+
+  for (const edge of result.edges) {
+    const from = idToCanonical.get(edge.from) ?? edge.from
+    const to   = idToCanonical.get(edge.to)   ?? edge.to
+    const edgeKey = `${from}|${to}|${edge.relation}`
+    if (seenEdgeKeys.has(edgeKey)) continue
+    seenEdgeKeys.add(edgeKey)
+    remappedEdges.push({ ...edge, from, to })
+  }
+
+  return {
+    ...result,
+    nodes:          deduped,
+    edges:          remappedEdges,
+    token_estimate: estimateTokens(deduped, remappedEdges),
+  }
 }
 
 export function prune(
@@ -95,11 +167,16 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   unscoped_query:       "HIGH",
   tenant_scoped_query:  "MEDIUM",
 
-  // Important context — carry structural meaning
-  form_request:         "MEDIUM",
+  // FormRequest::authorize is an authorization gate — HIGH for auth focus
+  form_request:         "HIGH",
   controller_action:    "MEDIUM",
   controller:           "MEDIUM",
   middleware:           "MEDIUM",
+
+  // Service-layer expansion nodes (Phase 4)
+  service_method:       "HIGH",   // service entry point when expanded
+  repository_call:      "HIGH",   // explicit repository class calls
+  model_operation:      "MEDIUM", // direct Eloquent model calls in service context
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {

@@ -1,0 +1,20 @@
+id: OBSIDIAN-ROLE-LEVEL-001-ANSWER
+golden_trace_id: OBSIDIAN-ROLE-LEVEL-001
+entrypoint: "POST /$toVersionedPath($version, 'role')/"
+query: "Can a user create a role with a higher level number than their own? What business rule enforces this?"
+
+expected_response:
+  finding_type: role_level_guard
+  severity: LOW
+  key_nodes:
+    - RoleController::store
+
+  explanation_must_contain:
+    - level
+    - actorLevel
+    - lower
+
+  recommendations_must_contain:
+    - - level
+      - actorLevel
+      - isRequestedRoleLevelAllowed

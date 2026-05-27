@@ -20,6 +20,13 @@ export function serialize(result: RetrievalResult): string {
     lines.push("")
   }
 
+  // Append execution characteristics summary when nodes were deduplicated
+  const summary = buildExecutionSummary(result.nodes)
+  if (summary) {
+    lines.push(summary)
+    lines.push("")
+  }
+
   // Append notable edges (non-next_middleware)
   const notable = result.edges.filter((e) => e.relation !== "next_middleware")
   if (notable.length > 0) {
@@ -80,10 +87,26 @@ function groupBySemantic(nodes: ExecutionNode[]): Map<SectionName, ExecutionNode
   return map
 }
 
+// ---- Execution summary ------------------------------------------------
+
+function buildExecutionSummary(nodes: ExecutionNode[]): string | null {
+  const counts: Record<string, number> = {}
+  for (const node of nodes) {
+    if ((node.occurrenceCount ?? 1) > 1) {
+      counts[node.type] = (counts[node.type] ?? 0) + (node.occurrenceCount ?? 1)
+    }
+  }
+  const entries = Object.entries(counts)
+  if (entries.length === 0) return null
+  const parts = entries.map(([type, count]) => `${count}× ${type}`)
+  return `[EXECUTION CHARACTERISTICS]\n  ${parts.join(", ")}`
+}
+
 // ---- Node formatting --------------------------------------------------
 
 function formatNode(node: ExecutionNode): string {
-  const args   = node.args?.length ? ` [${node.args.join(", ")}]` : ""
-  const role   = node.role ? ` (${node.role})` : ""
-  return `  → ${node.symbol}${args}${role}`
+  const args  = node.args?.length ? ` [${node.args.join(", ")}]` : ""
+  const role  = node.role ? ` (${node.role})` : ""
+  const count = (node.occurrenceCount ?? 1) > 1 ? ` ×${node.occurrenceCount}` : ""
+  return `  → ${node.symbol}${args}${role}${count}`
 }

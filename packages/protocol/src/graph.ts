@@ -75,12 +75,13 @@ export type EdgeTraceability = "static" | "semantic" | "runtime" | "probabilisti
 export type RetrievalFocus = "auth" | "validation" | "runtime" | "transaction" | "isolation" | "all"
 
 export interface ExecutionNode {
-  id:        string
-  type:      string    // use KnownNodeType for known values
-  symbol:    string    // e.g. "ResolveTenant::handle", "auth:sanctum"
-  file?:     string    // relative path from project root
-  args?:     string[]  // e.g. ["task.update"] for CheckPermission
-  role?:     string    // semantic hint: "auth_layer_1", "tenant_resolver", etc.
+  id:               string
+  type:             string    // use KnownNodeType for known values
+  symbol:           string    // e.g. "ResolveTenant::handle", "auth:sanctum"
+  file?:            string    // relative path from project root
+  args?:            string[]  // e.g. ["task.update"] for CheckPermission
+  role?:            string    // semantic hint: "auth_layer_1", "tenant_resolver", etc.
+  occurrenceCount?: number    // set by deduplicate() when multiple nodes are merged into one
 }
 
 export interface ExecutionEdge {

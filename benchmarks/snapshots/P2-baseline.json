@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-26T03:58:39.442Z",
+  "timestamp": "2026-05-27T03:20:25.492Z",
   "label": "P2-baseline",
   "traces": {
     "LARAVEL-AUTH-001": {
@@ -8,12 +8,12 @@
       "naive_rag_files": 6,
       "r0_tokens": 323,
       "r0_recall": 0.7142857142857143,
-      "r1_tokens": 102,
+      "r1_tokens": 139,
       "r1_recall": 0.42857142857142855,
       "compression_r0": 5.18,
-      "compression_r1": 16.39,
+      "compression_r1": 12.03,
       "token_savings_r0": 80.7,
-      "token_savings_r1": 93.9,
+      "token_savings_r1": 91.7,
       "recall_gap": 0.29,
       "recall_gap_reason": "extraction_ceiling",
       "missing_high_nodes": [
@@ -94,12 +94,12 @@
       "naive_rag_files": 3,
       "r0_tokens": 157,
       "r0_recall": 1,
-      "r1_tokens": 52,
-      "r1_recall": 0.6666666666666666,
+      "r1_tokens": 75,
+      "r1_recall": 1,
       "compression_r0": 4.52,
-      "compression_r1": 13.65,
+      "compression_r1": 9.47,
       "token_savings_r0": 77.9,
-      "token_savings_r1": 92.7,
+      "token_savings_r1": 89.4,
       "recall_gap": 0,
       "recall_gap_reason": "ok",
       "missing_high_nodes": []
