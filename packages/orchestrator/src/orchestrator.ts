@@ -51,7 +51,7 @@ export class Orchestrator {
     const queryCtx = classifyQuery(userQuery)
     const focus = FOCUS_MAP[queryCtx.focus] ?? "all"
 
-    const retrieved = retrieve({ entrypoint: graph.entrypoint, focus }, this.graphs)
+    const retrieved = retrieve({ entrypoint: graph.entrypoint, focus, query: userQuery }, this.graphs)
     const retrievedGraph: IntermediateExecutionGraph = retrieved
       ? { ...graph, nodes: retrieved.nodes, edges: retrieved.edges }
       : graph

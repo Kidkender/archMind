@@ -1,4 +1,4 @@
-import { retrieve, prune, classifyNode, deduplicate } from "../retrieval-engine.js"
+import { retrieve, prune, classifyNode, deduplicate, rankByQuery } from "../retrieval-engine.js"
 import type { IntermediateExecutionGraph, RetrievalResult } from "@archmind/protocol"
 import { PROTOCOL_VERSION } from "@archmind/protocol"
 
@@ -274,5 +274,81 @@ describe("deduplicate — type-aware graph deduplication", () => {
   test("nodes without occurrenceCount set have it as undefined or 1", () => {
     const policyNode = deduped.nodes.find((n) => n.type === "policy")!
     expect(policyNode.occurrenceCount === undefined || policyNode.occurrenceCount === 1).toBe(true)
+  })
+})
+
+// ---- rankByQuery --------------------------------------------------------
+
+const RANK_GRAPH: RetrievalResult = {
+  entrypoint: "POST /roles/assign",
+  nodes: [
+    { id: "ctrl",    type: "controller_action",   symbol: "RoleController::assign" },
+    { id: "policy",  type: "policy",              symbol: "RolePolicy::update" },
+    { id: "mw",      type: "middleware",           symbol: "ResolveTenant::handle" },
+    { id: "svc",     type: "service_call",         symbol: "RoleService::validateRoleLevel" },
+    { id: "perm",    type: "authorization_check",  symbol: "permission:role.assign" },
+  ],
+  edges: [],
+  token_estimate: 300,
+  pruned: false,
+  focus: "all",
+  protocol_version: PROTOCOL_VERSION,
+}
+
+describe("rankByQuery — keyword-based node ordering", () => {
+  test("query with 'role' puts role-related nodes first", () => {
+    const result = rankByQuery(RANK_GRAPH, "is the role level validation correct?")
+    const symbols = result.nodes.map((n) => n.symbol)
+    // RoleController, RolePolicy, RoleService all contain "role" → should lead
+    const roleIdx = symbols.findIndex((s) => s.toLowerCase().includes("role"))
+    const tenantIdx = symbols.findIndex((s) => s.includes("ResolveTenant"))
+    expect(roleIdx).toBeLessThan(tenantIdx)
+  })
+
+  test("query with 'permission' puts permission node first", () => {
+    const result = rankByQuery(RANK_GRAPH, "what permission check is here?")
+    const first = result.nodes[0]
+    expect(first.symbol.toLowerCase()).toContain("permission")
+  })
+
+  test("no query returns nodes in original order", () => {
+    const result = rankByQuery(RANK_GRAPH, undefined)
+    expect(result.nodes.map((n) => n.id)).toEqual(RANK_GRAPH.nodes.map((n) => n.id))
+  })
+
+  test("empty query returns nodes in original order", () => {
+    const result = rankByQuery(RANK_GRAPH, "")
+    expect(result.nodes.map((n) => n.id)).toEqual(RANK_GRAPH.nodes.map((n) => n.id))
+  })
+
+  test("structural (×N) nodes sort after non-structural", () => {
+    const withDedup: RetrievalResult = {
+      ...RANK_GRAPH,
+      nodes: [
+        { id: "txn", type: "transaction_boundary", symbol: "DB::transaction", occurrenceCount: 4 },
+        ...RANK_GRAPH.nodes,
+      ],
+    }
+    const result = rankByQuery(withDedup, "role permission check")
+    const lastNode = result.nodes[result.nodes.length - 1]
+    expect(lastNode.symbol).toBe("DB::transaction")
+  })
+
+  test("retrieve passes query through and produces sorted result", () => {
+    const graph: IntermediateExecutionGraph = {
+      entrypoint: "POST /roles/assign",
+      method: "POST",
+      path: "/roles/assign",
+      nodes: RANK_GRAPH.nodes,
+      edges: [],
+      annotations: [],
+    }
+    const result = retrieve({ entrypoint: "POST /roles/assign", query: "role level validation" }, [graph])
+    expect(result).not.toBeNull()
+    const symbols = result!.nodes.map((n) => n.symbol)
+    // All three role* symbols should appear before ResolveTenant
+    const firstRoleIdx = symbols.findIndex((s) => s.toLowerCase().includes("role"))
+    const tenantIdx    = symbols.findIndex((s) => s.includes("ResolveTenant"))
+    expect(firstRoleIdx).toBeLessThan(tenantIdx)
   })
 })

@@ -115,6 +115,7 @@ export interface IntermediateExecutionGraph {
 export interface RetrievalRequest {
   entrypoint: string              // e.g. "PUT /tasks/{id}"
   focus?:     RetrievalFocus      // omit for full graph (R0)
+  query?:     string              // user query for keyword-based node ranking
 }
 
 export interface RetrievalResult {

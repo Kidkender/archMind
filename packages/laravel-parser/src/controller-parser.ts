@@ -66,11 +66,35 @@ export function parseControllerMethod(
   // Merge: method params take precedence over constructor for same var name
   const allInjections = new Map([...injections, ...methodInjections])
 
+  const formRequests   = extractFormRequests(methodNode, useMap)
+  const authorizeCalls = extractAuthorizeCalls(methodNode)
+  const serviceCalls   = extractServiceCalls(methodNode, allInjections, useMap)
+
+  // Depth-1 private method traversal: follow $this->helper() calls into the
+  // same class, but do not recurse further to avoid graph blow-up.
+  const privateNames = extractPrivateMethodCallNames(methodNode)
+  for (const name of privateNames) {
+    const privateMethod = findMethod(root, name)
+    if (!privateMethod) continue
+    authorizeCalls.push(...extractAuthorizeCalls(privateMethod))
+    serviceCalls.push(...extractServiceCalls(privateMethod, allInjections, useMap))
+  }
+
+  // Deduplicate service calls by propertyName+method (same call site from two
+  // traversal paths should not produce two nodes).
+  const seenSvc = new Set<string>()
+  const uniqueServiceCalls = serviceCalls.filter((sc) => {
+    const key = `${sc.propertyName}::${sc.method}`
+    if (seenSvc.has(key)) return false
+    seenSvc.add(key)
+    return true
+  })
+
   return {
     useMap,
-    formRequests:   extractFormRequests(methodNode, useMap),
-    authorizeCalls: extractAuthorizeCalls(methodNode),
-    serviceCalls:   extractServiceCalls(methodNode, allInjections, useMap),
+    formRequests,
+    authorizeCalls,
+    serviceCalls: uniqueServiceCalls,
   }
 }
 
@@ -216,6 +240,32 @@ function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[])
 
   for (const child of node.children as Parser.SyntaxNode[]) {
     gatherAuthorizeCalls(child, results)
+  }
+}
+
+// ---- Private method call extraction ----------------------------------
+// Finds $this->methodName() calls (direct, not through a property chain).
+// These are candidates for depth-1 traversal into the same class.
+
+function extractPrivateMethodCallNames(methodNode: Parser.SyntaxNode): string[] {
+  const names = new Set<string>()
+  const body = methodNode.childForFieldName("body")
+  if (!body) return []
+  gatherPrivateMethodCallNames(body, names)
+  return Array.from(names)
+}
+
+function gatherPrivateMethodCallNames(node: Parser.SyntaxNode, names: Set<string>): void {
+  if (node.type === "member_call_expression") {
+    const objNode  = node.childForFieldName("object")
+    const nameNode = node.childForFieldName("name")
+    // $this->method() — object is "$this" directly (not a property chain)
+    if (objNode?.text === "$this" && nameNode) {
+      names.add(nameNode.text)
+    }
+  }
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    gatherPrivateMethodCallNames(child, names)
   }
 }
 

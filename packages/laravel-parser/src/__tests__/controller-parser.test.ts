@@ -90,6 +90,48 @@ describe("parseControllerMethod — file not found", () => {
   })
 })
 
+// ---- Phase 5C: private method traversal (depth 1) -----------------------
+
+const ROLE_CTRL = join(FIXTURES, "app/Modules/Role/Http/Controllers/RoleController.php")
+
+describe("parseControllerMethod — private method traversal (depth 1)", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(ROLE_CTRL, "assign")
+  })
+
+  test("returns non-null result", () => {
+    expect(result).not.toBeNull()
+  })
+
+  test("extracts authorize() from public method body", () => {
+    expect(result!.authorizeCalls.some((a) => a.ability === "assign")).toBe(true)
+  })
+
+  test("extracts service call from private helper validateRequestedRoleLevel", () => {
+    const svcSymbols = result!.serviceCalls.map((sc) => sc.serviceClass + "::" + sc.method)
+    expect(svcSymbols).toContain("PermissionService::checkRoleHierarchy")
+  })
+
+  test("extracts service call from public method body (roleService.assignRole)", () => {
+    const svcSymbols = result!.serviceCalls.map((sc) => sc.serviceClass + "::" + sc.method)
+    expect(svcSymbols).toContain("RoleService::assignRole")
+  })
+
+  test("does NOT traverse into ensureNotSelfAssign (not called from assign)", () => {
+    const svcSymbols = result!.serviceCalls.map((sc) => sc.method)
+    expect(svcSymbols).not.toContain("assertNotSelf")
+    expect(svcSymbols).not.toContain("lockForAssign")
+  })
+
+  test("service calls are deduplicated (no double-counting from depth-1)", () => {
+    const keys = result!.serviceCalls.map((sc) => `${sc.propertyName}::${sc.method}`)
+    const unique = new Set(keys)
+    expect(keys.length).toBe(unique.size)
+  })
+})
+
 // ---- extractUseMap -------------------------------------------------------
 
 describe("extractUseMap from controller file", () => {

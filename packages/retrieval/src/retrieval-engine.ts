@@ -60,6 +60,7 @@ export function retrieve(
   }
 
   result = deduplicate(result)
+  result = rankByQuery(result, request.query)
 
   if (focus !== "all") {
     result = prune(result, FOCUS_THRESHOLD[focus])
@@ -70,6 +71,54 @@ export function retrieve(
   }
 
   return result
+}
+
+// ---- Query-aware ranking ---------------------------------------------
+// Common English words that carry no code-search meaning.
+const STOP_WORDS = new Set([
+  "the", "is", "are", "for", "this", "that", "what", "how", "can",
+  "does", "will", "not", "any", "all", "and", "but", "with", "from",
+  "has", "have", "was", "were", "been", "get", "got", "use", "used",
+  "via", "its", "our", "there", "here", "also", "just", "should",
+  "would", "could", "when", "where", "which", "who", "why",
+])
+
+function extractKeywords(query: string | undefined): string[] {
+  if (!query?.trim()) return []
+  return query
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w))
+}
+
+function queryScore(node: ExecutionNode, keywords: string[]): number {
+  if (keywords.length === 0) return 0
+  const haystack = [node.symbol, ...(node.args ?? [])].join(" ").toLowerCase()
+  return keywords.filter((kw) => haystack.includes(kw)).length
+}
+
+export function rankByQuery(result: RetrievalResult, query: string | undefined): RetrievalResult {
+  const keywords = extractKeywords(query)
+  if (keywords.length === 0) return result
+
+  const typeRelevanceScore = (n: ExecutionNode) => RELEVANCE_ORDER[classifyNode(n)]
+  const isStructural = (n: ExecutionNode) => (n.occurrenceCount ?? 1) > 1
+
+  const sorted = [...result.nodes].sort((a, b) => {
+    // Structural summary nodes (deduplicated ×N) always go last
+    const aStr = isStructural(a) ? 1 : 0
+    const bStr = isStructural(b) ? 1 : 0
+    if (aStr !== bStr) return aStr - bStr
+
+    // Then by query keyword score descending
+    const scoreDiff = queryScore(b, keywords) - queryScore(a, keywords)
+    if (scoreDiff !== 0) return scoreDiff
+
+    // Tie-break by type relevance descending
+    return typeRelevanceScore(b) - typeRelevanceScore(a)
+  })
+
+  return { ...result, nodes: sorted }
 }
 
 export function deduplicate(result: RetrievalResult): RetrievalResult {
