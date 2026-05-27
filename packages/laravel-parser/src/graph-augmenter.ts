@@ -15,6 +15,16 @@ import { DEFAULT_PROJECT_CONFIG, fqcnToPath, resolvePolicyFile } from "./project
 
 // ---- Public API -------------------------------------------------------
 
+/**
+ * Controls which service branches to expand recursively.
+ *
+ * - "all"         — expand everything up to depth/budget limits (default)
+ * - "auth"        — only expand auth/permission/policy/guard services
+ * - "transaction" — only expand services that contain DB::transaction
+ * - "tenant"      — only expand tenant/scope/isolation services
+ */
+export type ExpansionFocus = "all" | "auth" | "transaction" | "tenant"
+
 export interface AugmentOptions {
   projectRoot: string
   /**
@@ -23,6 +33,12 @@ export interface AugmentOptions {
    * Falls back to DEFAULT_PROJECT_CONFIG when omitted.
    */
   config?: ProjectConfig
+  /**
+   * Optional expansion focus. When set, only service call nodes matching the
+   * focus domain are recursively expanded — all other service calls are kept as
+   * terminal nodes. Defaults to "all" (expand everything).
+   */
+  expansionFocus?: ExpansionFocus
   /**
    * @deprecated Use config.permissionConstantFiles instead.
    * Still accepted for backwards compatibility — merged with config if both present.
@@ -65,11 +81,13 @@ export function augmentGraph(
         // FormRequest nodes
         for (const fr of l1.formRequests) {
           const id = `fr_${fr.shortName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`
+          const frFile = fqcnToPath(fr.fqcn, config.namespaces) ?? undefined
           newNodes.push({
             id,
             type:   "form_request",
             symbol: `${fr.shortName}::authorize`,
             role:   "validation",
+            file:   frFile,
           })
           newEdges.push({
             from:         ctrlNode.id,
@@ -104,9 +122,10 @@ export function augmentGraph(
         }
 
         // Service calls from controller action
-        addServiceCallNodes(newNodes, newEdges, ctrlNode.id, l1.serviceCalls, config.namespaces)
+        const ctrlServiceNodes = addServiceCallNodes(newNodes, newEdges, ctrlNode.id, l1.serviceCalls, config.namespaces)
 
         // Service calls from policy methods
+        const policyServiceNodes: ExecutionNode[] = []
         for (const policyNode of addedPolicyNodes) {
           if (!policyNode.file) continue
           const [, policyMethod] = policyNode.symbol.split("::")
@@ -116,8 +135,28 @@ export function augmentGraph(
             policyMethod
           )
           if (policyL1) {
-            addServiceCallNodes(newNodes, newEdges, policyNode.id, policyL1.serviceCalls, config.namespaces)
+            const created = addServiceCallNodes(newNodes, newEdges, policyNode.id, policyL1.serviceCalls, config.namespaces)
+            policyServiceNodes.push(...created)
           }
+        }
+
+        // ---- Recursive service expansion (Phase 4) ----------------------
+        const expansionRoots = [
+          ...ctrlServiceNodes,
+          ...policyServiceNodes,
+        ].filter((n) => !!n.file && matchesExpansionFocus(n, opts.expansionFocus))
+
+        if (expansionRoots.length > 0) {
+          const visited = new Set<string>()
+          const budget  = { remaining: MAX_EXPANSION_NODES }
+          expandServiceCalls(
+            newNodes, newEdges,
+            expansionRoots,
+            opts.projectRoot, config,
+            MAX_SERVICE_DEPTH - 1,
+            visited, budget,
+            opts.expansionFocus
+          )
         }
       }
     }
@@ -130,7 +169,21 @@ export function augmentGraph(
     const filePath = join(opts.projectRoot, mwNode.file)
     const l1 = parseControllerMethod(filePath, "handle")
     if (l1) {
-      addServiceCallNodes(newNodes, newEdges, mwNode.id, l1.serviceCalls, config.namespaces)
+      const mwServiceNodes = addServiceCallNodes(newNodes, newEdges, mwNode.id, l1.serviceCalls, config.namespaces)
+      // Also expand service calls from middleware
+      const mwExpandRoots = mwServiceNodes.filter((n) => !!n.file && matchesExpansionFocus(n, opts.expansionFocus))
+      if (mwExpandRoots.length > 0) {
+        const visited = new Set<string>()
+        const budget  = { remaining: MAX_EXPANSION_NODES }
+        expandServiceCalls(
+          newNodes, newEdges,
+          mwExpandRoots,
+          opts.projectRoot, config,
+          MAX_SERVICE_DEPTH - 1,
+          visited, budget,
+          opts.expansionFocus
+        )
+      }
     }
   }
 
@@ -189,6 +242,7 @@ function inferPolicyClass(controllerClass: string): string {
  * Add service_call nodes and their edges from a parsed method's service calls.
  * Each node ID is scoped to the caller to allow the same service to be called
  * from multiple places (e.g. CheckPermission AND TaskPolicy both call hasPermission).
+ * Returns the newly created nodes so callers can recurse into them.
  */
 function addServiceCallNodes(
   nodes: ExecutionNode[],
@@ -196,8 +250,9 @@ function addServiceCallNodes(
   callerNodeId: string,
   serviceCalls: ServiceCall[],
   namespaces: Record<string, string>
-): void {
-  const seen = new Set<string>()
+): ExecutionNode[] {
+  const seen    = new Set<string>()
+  const created: ExecutionNode[] = []
 
   for (const sc of serviceCalls) {
     // Scope ID by caller so same service called from different nodes creates separate nodes
@@ -209,14 +264,17 @@ function addServiceCallNodes(
 
     const file = sc.serviceFqcn.includes("\\") ? (fqcnToPath(sc.serviceFqcn, namespaces) ?? undefined) : undefined
 
-    nodes.push({
+    const node: ExecutionNode = {
       id,
       type:   "service_call",
       symbol: `${sc.serviceClass}::${sc.method}`,
       role:   "service",
-      ...(file             ? { file }      : {}),
+      ...(file               ? { file }      : {}),
       ...(sc.args.length > 0 ? { args: sc.args } : {}),
-    })
+    }
+
+    nodes.push(node)
+    created.push(node)
 
     edges.push({
       from:         callerNodeId,
@@ -226,6 +284,117 @@ function addServiceCallNodes(
     })
   }
 
+  return created
+}
+
+const MAX_SERVICE_DEPTH  = 3
+const MAX_EXPANSION_NODES = 50
+
+/**
+ * Returns true if a service_call node should be recursively expanded given the focus.
+ * When focus is "all" (or undefined), every node is eligible.
+ */
+function matchesExpansionFocus(node: ExecutionNode, focus: ExpansionFocus | undefined): boolean {
+  if (!focus || focus === "all") return true
+  const sym = node.symbol.toLowerCase()
+  switch (focus) {
+    case "auth":
+      return /auth|permission|policy|guard|gate|authoriz|role/.test(sym)
+    case "transaction":
+      return /transaction|txn|order|payment|checkout|cart|store|create|update|delete/.test(sym)
+    case "tenant":
+      return /tenant|scope|isolat|organization|context/.test(sym)
+  }
+}
+
+/**
+ * Semantic priority score for a service_call node during budget-constrained expansion.
+ * Higher score = expanded first when budget is running low.
+ */
+function serviceSemanticWeight(node: ExecutionNode): number {
+  const sym = node.symbol.toLowerCase()
+  if (/auth|permission|policy|guard|gate|idempotenc|authoriz/.test(sym)) return 4
+  if (/tenant|scope|isolat/.test(sym)) return 3
+  if (/transaction|txn|audit|log/.test(sym)) return 2
+  if (/cache|notify|notification|event|dispatch/.test(sym)) return 1
+  return 0 // DTO, helper, builder, formatter — lowest priority
+}
+
+/**
+ * Recursively expand service_call nodes by parsing their method bodies.
+ * For each service node with a resolvable file:
+ *   - runs transaction detection
+ *   - runs isolation/query detection
+ *   - extracts further service calls (depth - 1)
+ *
+ * Bounded by maxDepth, a visited set (prevents cycles), and a node budget.
+ * When budget falls below 50%, nodes are sorted by semantic weight so
+ * auth/tenant/transaction services are expanded before low-value helpers.
+ */
+function expandServiceCalls(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  serviceNodes: ExecutionNode[],
+  projectRoot: string,
+  config: ProjectConfig,
+  depth: number,
+  visited: Set<string>,
+  budget: { remaining: number },
+  focus?: ExpansionFocus
+): void {
+  if (depth <= 0 || serviceNodes.length === 0 || budget.remaining <= 0) return
+
+  // When budget is scarce (< 50%), prioritize semantically important services
+  const ordered = budget.remaining < MAX_EXPANSION_NODES / 2
+    ? [...serviceNodes].sort((a, b) => serviceSemanticWeight(b) - serviceSemanticWeight(a))
+    : serviceNodes
+
+  const nextServiceNodes: ExecutionNode[] = []
+
+  for (const scNode of ordered) {
+    if (!scNode.file || budget.remaining <= 0) continue
+    const [, methodName] = scNode.symbol.split("::")
+    if (!methodName) continue
+
+    const visitKey = `${scNode.file}::${methodName}`
+    if (visited.has(visitKey)) continue
+    visited.add(visitKey)
+
+    const filePath = join(projectRoot, scNode.file)
+
+    // Transaction pass inside service method
+    try {
+      const txnResult = parseTransactions(filePath)
+      if (txnResult.hasTransaction) {
+        addTransactionNodes(nodes, edges, scNode.id, txnResult.blocks)
+        budget.remaining -= txnResult.blocks.length * 3
+      }
+    } catch { /* file unreadable or parse error — skip gracefully */ }
+
+    // Isolation/query pass inside service method
+    try {
+      const isoResult = parseIsolation(filePath, {
+        tenantSignals:       config.conventions.tenantSignals,
+        tenantContainerKeys: config.conventions.tenantContainerKeys,
+      })
+      addIsolationNodes(nodes, edges, scNode.id, isoResult)
+      budget.remaining -= isoResult.modelQueries.length
+    } catch { /* skip */ }
+
+    // Deeper service calls from this service method
+    try {
+      const l1 = parseControllerMethod(filePath, methodName)
+      if (l1 && l1.serviceCalls.length > 0) {
+        const newSvcNodes = addServiceCallNodes(nodes, edges, scNode.id, l1.serviceCalls, config.namespaces)
+        budget.remaining -= newSvcNodes.length
+        nextServiceNodes.push(
+          ...newSvcNodes.filter((n) => !!n.file && matchesExpansionFocus(n, focus))
+        )
+      }
+    } catch { /* skip */ }
+  }
+
+  expandServiceCalls(nodes, edges, nextServiceNodes, projectRoot, config, depth - 1, visited, budget, focus)
 }
 
 /**

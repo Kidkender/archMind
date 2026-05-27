@@ -1,0 +1,66 @@
+id: OBSIDIAN-TENANT-ISOLATION-001
+entrypoint: "GET /$toVersionedPath($version, 'role')/list"
+framework: laravel
+source_project: obsidian-admin-laravel
+
+retrieval:
+  query: "Can a tenant admin list roles belonging to a different tenant? How is cross-tenant data isolation enforced?"
+
+nodes:
+  - id: tenant_ctx
+    type: middleware
+    symbol: ResolveTenantContext
+    file: app/Http/Middleware/ResolveTenantContext.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: auth
+    type: authentication_gate
+    symbol: AuthenticateApiToken
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: authz
+    type: authorization_check
+    symbol: EnsureApiPermission
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: ctrl
+    type: controller_action
+    symbol: RoleController::list
+    file: app/Domains/Access/Http/Controllers/RoleController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: scope_svc
+    type: service_call
+    symbol: RoleScopeGuardService::applyRoleVisibilityScope
+    file: app/Domains/Access/Services/RoleScopeGuardService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: tenant_svc
+    type: service_call
+    symbol: TenantContextService::resolveRoleScope
+    file: app/Domains/Tenant/Services/TenantContextService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: tenant_isolation
+    nodes: [tenant_ctx, scope_svc, tenant_svc]
+    description: >
+      ResolveTenantContext middleware reads tenant context from the request.
+      TenantContextService::resolveRoleScope determines which tenant the actor can operate in.
+      RoleScopeGuardService::applyRoleVisibilityScope constrains the Role query to
+      the resolved tenant — super-admins can see global roles, tenant admins only see their tenant.
+      Cross-tenant role leakage is prevented by the applyRoleVisibilityScope WHERE clause.

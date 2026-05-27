@@ -1,0 +1,50 @@
+id: EASYGO-STOCK-CONCURRENCY-001
+entrypoint: "POST /v1/orders"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "If two users simultaneously try to buy the last unit of a product, what prevents overselling?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: order_store
+    type: controller_action
+    symbol: OrderController::store
+    file: app/Http/Controllers/Api/V1/OrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: txn
+    type: transaction_boundary
+    symbol: DB::transaction
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: concurrency_safety
+    nodes: [order_store, txn]
+    description: >
+      DB::transaction() + Product::lockForUpdate() prevents overselling.
+      lockForUpdate acquires a row-level exclusive lock, so concurrent transactions
+      queue behind each other and see the committed stock value.
+      Stock check (if $product->stock < $qty) + decrement are atomic within the transaction.
+      This is the correct pessimistic locking pattern for inventory depletion.

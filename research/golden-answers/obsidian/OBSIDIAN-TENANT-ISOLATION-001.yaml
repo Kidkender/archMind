@@ -1,0 +1,21 @@
+id: OBSIDIAN-TENANT-ISOLATION-001-ANSWER
+golden_trace_id: OBSIDIAN-TENANT-ISOLATION-001
+entrypoint: "GET /$toVersionedPath($version, 'role')/list"
+query: "Can a tenant admin list roles belonging to a different tenant? How is cross-tenant data isolation enforced?"
+
+expected_response:
+  finding_type: tenant_scoped_query
+  severity: LOW
+  key_nodes:
+    - RoleScopeGuardService::applyRoleVisibilityScope
+    - TenantContextService::resolveRoleScope
+
+  explanation_must_contain:
+    - tenant
+    - scope
+    - isolation
+
+  recommendations_must_contain:
+    - - tenant
+      - scope
+      - isolation

@@ -1,0 +1,22 @@
+id: OBSIDIAN-IDEMPOTENCY-001-ANSWER
+golden_trace_id: OBSIDIAN-IDEMPOTENCY-001
+entrypoint: "POST /$toVersionedPath($version, 'role')/"
+query: "If the same role creation request is submitted twice due to a network retry, will a duplicate role be created?"
+
+expected_response:
+  finding_type: idempotency_protected
+  severity: LOW
+  key_nodes:
+    - HandleIdempotentRequests
+    - IdempotencyService::begin
+    - IdempotencyService::complete
+
+  explanation_must_contain:
+    - idempoten
+    - duplicate
+    - Idempotency-Key
+
+  recommendations_must_contain:
+    - - Idempotency-Key
+      - header
+      - idempoten

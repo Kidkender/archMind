@@ -1,0 +1,115 @@
+id: OBSIDIAN-AUTH-001
+entrypoint: "POST /$toVersionedPath($version, 'role')/"
+framework: laravel
+source_project: obsidian-admin-laravel
+
+retrieval:
+  query: "Who can create a role, and is the authorization check complete?"
+
+nodes:
+  - id: mw_0_tenant_context
+    type: middleware
+    symbol: ResolveTenantContext
+    file: app/Http/Middleware/ResolveTenantContext.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: mw_1_api_auth
+    type: authentication_gate
+    symbol: AuthenticateApiToken
+    file: app/Http/Middleware/AuthenticateApiToken.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: mw_2_idempotent_request
+    type: middleware
+    symbol: HandleIdempotentRequests
+    file: app/Http/Middleware/HandleIdempotentRequests.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: mw_3_api_permission_role_manage
+    type: authorization_check
+    symbol: EnsureApiPermission
+    file: app/Http/Middleware/EnsureApiPermission.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: ctrl_rolecontroller_store
+    type: controller_action
+    symbol: RoleController::store
+    file: app/Domains/Access/Http/Controllers/RoleController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: svc_roleservice_create
+    type: service_call
+    symbol: RoleService::create
+    file: app/Domains/Access/Services/RoleService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: svc_idempotencyservice_begin
+    type: service_call
+    symbol: IdempotencyService::begin
+    file: app/Domains/Shared/Services/IdempotencyService.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: txn_roleservice_create
+    type: transaction_boundary
+    symbol: DB::transaction
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: svc_tenantcontextservice_resolvetenantcontext
+    type: service_call
+    symbol: TenantContextService::resolveTenantContext
+    file: app/Domains/Tenant/Services/TenantContextService.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: svc_auditlogservice_record
+    type: service_call
+    symbol: AuditLogService::record
+    file: app/Domains/System/Services/AuditLogService.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: mw_0_tenant_context
+    to: mw_1_api_auth
+    relation: next_middleware
+
+  - from: mw_1_api_auth
+    to: mw_2_idempotent_request
+    relation: next_middleware
+
+  - from: mw_2_idempotent_request
+    to: mw_3_api_permission_role_manage
+    relation: next_middleware
+
+  - from: mw_3_api_permission_role_manage
+    to: ctrl_rolecontroller_store
+    relation: next_middleware
+
+  - from: ctrl_rolecontroller_store
+    to: svc_roleservice_create
+    relation: calls
+
+expected_findings:
+  - type: authorization_present
+    required_nodes: [mw_1_api_auth, mw_3_api_permission_role_manage, ctrl_rolecontroller_store]
+
+expected_top_finding: authorization_present

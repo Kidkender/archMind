@@ -83,8 +83,9 @@ describe("serialize — pruned result", () => {
     const r0     = retrieve({ entrypoint: "PUT /tasks/{task}" }, [AUGMENTED_GRAPH])!
     const pruned = prune(r0, "HIGH")
     const output = serialize(pruned)
-    expect(output).not.toMatch(/UpdateTaskRequest/)  // form_request = MEDIUM
-    expect(output).not.toMatch(/ResolveTenant/)      // middleware = MEDIUM
+    expect(output).not.toMatch(/ResolveTenant/)      // middleware = MEDIUM — pruned
+    // form_request is HIGH (auth gate) — present after HIGH prune
+    expect(output).toMatch(/UpdateTaskRequest/)
   })
 })
 
@@ -94,7 +95,8 @@ describe("retrieve with focus", () => {
     expect(result.pruned).toBe(true)
     const types = result.nodes.map((n) => n.type)
     expect(types).toContain("policy")
-    expect(types).not.toContain("form_request")
+    expect(types).toContain("form_request")  // form_request is HIGH — kept at auth focus
+    expect(types).not.toContain("middleware") // middleware is MEDIUM — pruned
   })
 
   test("focus:all returns unpruned result", () => {

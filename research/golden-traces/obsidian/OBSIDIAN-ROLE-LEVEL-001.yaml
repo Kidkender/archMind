@@ -1,0 +1,51 @@
+id: OBSIDIAN-ROLE-LEVEL-001
+entrypoint: "POST /$toVersionedPath($version, 'role')/"
+framework: laravel
+source_project: obsidian-admin-laravel
+
+retrieval:
+  query: "Can a user create a role with a higher level number than their own? What business rule enforces this?"
+
+nodes:
+  - id: auth
+    type: authentication_gate
+    symbol: AuthenticateApiToken
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: authz
+    type: authorization_check
+    symbol: EnsureApiPermission
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: ctrl
+    type: controller_action
+    symbol: RoleController::store
+    file: app/Domains/Access/Http/Controllers/RoleController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: scope_svc
+    type: service_call
+    symbol: RoleScopeGuardService::isRequestedRoleLevelAllowed
+    file: app/Domains/Access/Services/RoleScopeGuardService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: role_level_guard
+    nodes: [ctrl, scope_svc]
+    description: >
+      RoleScopeGuardService::isRequestedRoleLevelAllowed enforces: requestedLevel < actorLevel.
+      A user with level 50 can only create roles with level < 50 (e.g. 1–49).
+      Level numbers are inverted — lower number = higher privilege.
+      This check is in a private method (validateRequestedRoleLevel) inside RoleController::store,
+      which calls isRequestedRoleLevelAllowed on RoleScopeGuardService.
+      ArchMind does not capture calls inside private controller methods as graph nodes.

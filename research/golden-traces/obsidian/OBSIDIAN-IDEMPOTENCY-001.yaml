@@ -1,0 +1,74 @@
+id: OBSIDIAN-IDEMPOTENCY-001
+entrypoint: "POST /$toVersionedPath($version, 'role')/"
+framework: laravel
+source_project: obsidian-admin-laravel
+
+retrieval:
+  query: "If the same role creation request is submitted twice due to a network retry, will a duplicate role be created?"
+
+nodes:
+  - id: tenant_ctx
+    type: middleware
+    symbol: ResolveTenantContext
+    file: app/Http/Middleware/ResolveTenantContext.php
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: auth
+    type: authentication_gate
+    symbol: AuthenticateApiToken
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: idempotent_mw
+    type: middleware
+    symbol: HandleIdempotentRequests
+    file: app/Http/Middleware/HandleIdempotentRequests.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: authz
+    type: authorization_check
+    symbol: EnsureApiPermission
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: ctrl
+    type: controller_action
+    symbol: RoleController::store
+    file: app/Domains/Access/Http/Controllers/RoleController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: idempotency_begin
+    type: service_call
+    symbol: IdempotencyService::begin
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: idempotency_complete
+    type: service_call
+    symbol: IdempotencyService::complete
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: idempotency_protection
+    nodes: [idempotent_mw, idempotency_begin, idempotency_complete]
+    description: >
+      HandleIdempotentRequests middleware intercepts requests with an Idempotency-Key header.
+      IdempotencyService::begin checks if the key was already used; if so, returns the cached response.
+      IdempotencyService::complete stores the response after success.
+      A duplicate request with the same key returns the original response without re-executing the handler.
+      Without the Idempotency-Key header, duplicate requests WILL create duplicate roles.

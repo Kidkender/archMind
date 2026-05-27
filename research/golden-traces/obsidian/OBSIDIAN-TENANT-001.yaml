@@ -1,0 +1,91 @@
+id: OBSIDIAN-TENANT-001
+entrypoint: "GET /$toVersionedPath($version, 'auth')/getUserInfo"
+framework: laravel
+source_project: obsidian-admin-laravel
+
+retrieval:
+  query: "How does tenant context propagate through this endpoint, and are there isolation risks?"
+
+nodes:
+  - id: mw_0_tenant_context
+    type: middleware
+    symbol: ResolveTenantContext
+    file: app/Http/Middleware/ResolveTenantContext.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: mw_1_api_auth
+    type: authentication_gate
+    symbol: AuthenticateApiToken
+    file: app/Http/Middleware/AuthenticateApiToken.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: ctrl_userprofilecontroller_getUserInfo
+    type: controller_action
+    symbol: UserProfileController::getUserInfo
+    file: app/Domains/Auth/Http/Controllers/UserProfileController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: svc_tenantcontextservice_resolvetenantcontext
+    type: service_call
+    symbol: TenantContextService::resolveTenantContext
+    file: app/Domains/Tenant/Services/TenantContextService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: svc_tenantcontextservice_resolverolescope
+    type: service_call
+    symbol: TenantContextService::resolveRoleScope
+    file: app/Domains/Tenant/Services/TenantContextService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: iso_tenant_get
+    type: unscoped_query
+    symbol: Tenant::get
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: iso_tenant_all
+    type: unscoped_query
+    symbol: Tenant::all
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: mw_0_tenant_context
+    to: mw_1_api_auth
+    relation: next_middleware
+
+  - from: mw_1_api_auth
+    to: ctrl_userprofilecontroller_getUserInfo
+    relation: next_middleware
+
+  - from: mw_0_tenant_context
+    to: svc_tenantcontextservice_resolvetenantcontext
+    relation: calls
+
+  - from: mw_0_tenant_context
+    to: svc_tenantcontextservice_resolverolescope
+    relation: calls
+
+  - from: svc_tenantcontextservice_resolvetenantcontext
+    to: iso_tenant_get
+    relation: calls
+
+expected_findings:
+  - type: unscoped_tenant_query
+    required_nodes: [mw_0_tenant_context, svc_tenantcontextservice_resolvetenantcontext, iso_tenant_get]
+
+expected_top_finding: unscoped_tenant_query

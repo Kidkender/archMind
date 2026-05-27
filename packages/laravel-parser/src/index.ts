@@ -8,7 +8,7 @@ export {
   type AuthorizeCall,
   type ControllerL1,
 } from "./controller-parser.js"
-export { augmentGraph, fqcnToRelativePath, type AugmentOptions } from "./graph-augmenter.js"
+export { augmentGraph, fqcnToRelativePath, type AugmentOptions, type ExpansionFocus } from "./graph-augmenter.js"
 export { parseKernel, type AliasMap } from "./kernel-parser.js"
-export { loadProjectConfig, inferProjectConfig, DEFAULT_PROJECT_CONFIG, fqcnToPath, resolveAliasMap, expandRouteFiles, expandRouteGlob, resolvePolicyFile } from "./project-config.js"
+export { loadProjectConfig, inferProjectConfig, DEFAULT_PROJECT_CONFIG, fqcnToPath, resolveAliasMap, expandRouteFiles, expandRouteGlob, flattenRouteIncludes, resolvePolicyFile } from "./project-config.js"
 export { parseBootstrap, type BootstrapParseResult } from "./bootstrap-parser.js"

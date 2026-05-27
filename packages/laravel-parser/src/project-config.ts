@@ -227,6 +227,46 @@ export function expandRouteFiles(projectRoot: string, patterns: string[]): strin
 }
 
 /**
+ * Scan route files for `require __DIR__.'/subpath.php'` includes and flatten them
+ * into the list. Handles one level of includes (no deep recursion).
+ *
+ * This supports projects that split routes across subdirectories:
+ *   routes/api.php  →  require __DIR__.'/api/auth.php'
+ *                      require __DIR__.'/api/orders.php'
+ */
+export function flattenRouteIncludes(projectRoot: string, routeFiles: string[]): string[] {
+  const seen = new Set<string>(routeFiles)
+  const result = [...routeFiles]
+
+  const includeRe = /require(?:_once)?\s+__DIR__\s*\.\s*['"]([^'"]+)['"]/g
+
+  for (const relFile of routeFiles) {
+    const absFile = join(projectRoot, relFile)
+    let source: string
+    try {
+      source = readFileSync(absFile, "utf-8")
+    } catch {
+      continue
+    }
+
+    let match: RegExpExecArray | null
+    includeRe.lastIndex = 0
+    while ((match = includeRe.exec(source)) !== null) {
+      const includedRel = match[1]  // e.g. "/api/auth.php"
+      const absIncluded = join(dirname(absFile), includedRel)
+      if (!existsSync(absIncluded)) continue
+      const rel = relative(projectRoot, absIncluded).replace(/\\/g, "/")
+      if (!seen.has(rel)) {
+        seen.add(rel)
+        result.push(rel)
+      }
+    }
+  }
+
+  return result
+}
+
+/**
  * Find the first policy directory in policyPaths that contains the given policy class file.
  * Falls back to policyPaths[0] (or "app/Policies") when no match is found.
  */
@@ -276,9 +316,10 @@ export function resolveAliasMap(projectRoot: string, config: ProjectConfig): Res
 
   if (existsSync(kernelPath)) {
     // Laravel ≤10 — Kernel-based middleware
+    const expanded = expandRouteFiles(projectRoot, config.routeFiles)
     return {
       aliasMap: parseKernel(kernelPath),
-      routeFiles: expandRouteFiles(projectRoot, config.routeFiles),
+      routeFiles: flattenRouteIncludes(projectRoot, expanded),
     }
   }
 
@@ -289,14 +330,16 @@ export function resolveAliasMap(projectRoot: string, config: ProjectConfig): Res
     // If the user set routeFiles in .archmind.json (even if it matches the default value),
     // their intent takes precedence over what bootstrap declares.
     const useDetected = detected.length > 0 && !archmindJsonHasRouteFiles(projectRoot)
+    const expanded = expandRouteFiles(projectRoot, useDetected ? detected : config.routeFiles)
     return {
       aliasMap,
-      routeFiles: expandRouteFiles(projectRoot, useDetected ? detected : config.routeFiles),
+      routeFiles: flattenRouteIncludes(projectRoot, expanded),
     }
   }
 
   // Unknown structure — expand patterns from config, no aliases
-  return { aliasMap: {}, routeFiles: expandRouteFiles(projectRoot, config.routeFiles) }
+  const expanded = expandRouteFiles(projectRoot, config.routeFiles)
+  return { aliasMap: {}, routeFiles: flattenRouteIncludes(projectRoot, expanded) }
 }
 
 /** Returns true when .archmind.json exists AND explicitly declares routeFiles. */

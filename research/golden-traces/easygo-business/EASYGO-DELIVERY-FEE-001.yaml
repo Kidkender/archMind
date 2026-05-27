@@ -1,0 +1,41 @@
+id: EASYGO-DELIVERY-FEE-001
+entrypoint: "POST /v1/orders"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "What is the formula for calculating the delivery fee? Under what conditions is delivery free?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: order_store
+    type: controller_action
+    symbol: OrderController::store
+    file: app/Http/Controllers/Api/V1/OrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: business_logic
+    nodes: [order_store]
+    description: >
+      Delivery fee = 0 when subtotal >= 500, else 50.
+      Formula: $fee = $subtotal >= 500 ? 0 : 50
+      This hardcoded threshold is in the store() method body ~41 lines in,
+      beyond ArchMind's 25-line source window for controller actions.

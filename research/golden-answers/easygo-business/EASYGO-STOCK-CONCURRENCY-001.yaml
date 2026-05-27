@@ -1,0 +1,21 @@
+id: EASYGO-STOCK-CONCURRENCY-001-ANSWER
+golden_trace_id: EASYGO-STOCK-CONCURRENCY-001
+entrypoint: "POST /v1/orders"
+query: "If two users simultaneously try to buy the last unit of a product, what prevents overselling?"
+
+expected_response:
+  finding_type: pessimistic_lock
+  severity: LOW
+  key_nodes:
+    - OrderController::store
+    - DB::transaction
+
+  explanation_must_contain:
+    - lockForUpdate
+    - transaction
+    - stock
+
+  recommendations_must_contain:
+    - - lockForUpdate
+      - transaction
+      - correct

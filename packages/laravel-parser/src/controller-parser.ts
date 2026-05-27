@@ -62,12 +62,15 @@ export function parseControllerMethod(
   }
 
   const injections = extractConstructorInjections(root, useMap)
+  const methodInjections = extractMethodParamInjections(methodNode, useMap)
+  // Merge: method params take precedence over constructor for same var name
+  const allInjections = new Map([...injections, ...methodInjections])
 
   return {
     useMap,
     formRequests:   extractFormRequests(methodNode, useMap),
     authorizeCalls: extractAuthorizeCalls(methodNode),
-    serviceCalls:   extractServiceCalls(methodNode, injections, useMap),
+    serviceCalls:   extractServiceCalls(methodNode, allInjections, useMap),
   }
 }
 
@@ -264,6 +267,40 @@ function extractConstructorInjections(
   return map
 }
 
+/**
+ * Extract typed non-primitive method parameters as varName → FQCN injections.
+ * Handles patterns like: public function store(OrderService $orderService, ...)
+ */
+function extractMethodParamInjections(
+  methodNode: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): Map<string, string> {
+  const map = new Map<string, string>()
+  const paramsNode = methodNode.childForFieldName("parameters")
+  if (!paramsNode) return map
+
+  for (const param of paramsNode.children as Parser.SyntaxNode[]) {
+    if (param.type !== "simple_parameter") continue
+    const typeNode = param.childForFieldName("type")
+    const varNode  = (param.children as Parser.SyntaxNode[]).find(
+      (c) => c.type === "variable_name"
+    )
+    if (!typeNode || !varNode) continue
+
+    const typeName = typeNode.text.trim()
+    if (!typeName || typeName[0] === typeName[0].toLowerCase()) continue
+    if (["Request", "Closure", "Response"].includes(typeName)) continue
+    // Skip FormRequest subclasses (already handled by extractFormRequests)
+    if (typeName.endsWith("Request")) continue
+
+    const fqcn    = useMap.get(typeName) ?? typeName
+    const varName = varNode.text.replace(/^\$/, "")
+    map.set(varName, fqcn)
+  }
+
+  return map
+}
+
 // ---- Service call extraction -----------------------------------------
 
 function extractServiceCalls(
@@ -283,26 +320,48 @@ function gatherServiceCalls(
   injections: Map<string, string>,
   results: ServiceCall[]
 ): void {
-  // Pattern: $this->propertyName->method(args)
   if (node.type === "member_call_expression") {
     const objNode  = node.childForFieldName("object")
     const nameNode = node.childForFieldName("name")
 
-    if (objNode?.type === "member_access_expression" && nameNode) {
-      const innerObj = objNode.childForFieldName("object")
-      const propNode = objNode.childForFieldName("name")
+    if (nameNode) {
+      // Pattern 1: $this->propertyName->method(args)
+      if (objNode?.type === "member_access_expression") {
+        const innerObj = objNode.childForFieldName("object")
+        const propNode = objNode.childForFieldName("name")
 
-      if (innerObj?.text === "$this" && propNode) {
-        const prop = propNode.text
-        const fqcn = injections.get(prop)
+        if (innerObj?.text === "$this" && propNode) {
+          const prop = propNode.text
+          const fqcn = injections.get(prop)
+
+          if (fqcn) {
+            const shortName  = fqcn.split("\\").pop() ?? fqcn
+            const argsNode   = node.childForFieldName("arguments")
+            const stringArgs = argsNode ? extractStringCallArgs(argsNode) : []
+
+            results.push({
+              propertyName: prop,
+              serviceClass: shortName,
+              serviceFqcn:  fqcn,
+              method:       nameNode.text,
+              args:         stringArgs,
+            })
+          }
+        }
+      }
+
+      // Pattern 2: $localVar->method(args) — method-injected service
+      if (objNode?.type === "variable_name") {
+        const varName = objNode.text.replace(/^\$/, "")
+        const fqcn    = injections.get(varName)
 
         if (fqcn) {
-          const shortName = fqcn.split("\\").pop() ?? fqcn
-          const argsNode  = node.childForFieldName("arguments")
+          const shortName  = fqcn.split("\\").pop() ?? fqcn
+          const argsNode   = node.childForFieldName("arguments")
           const stringArgs = argsNode ? extractStringCallArgs(argsNode) : []
 
           results.push({
-            propertyName: prop,
+            propertyName: varName,
             serviceClass: shortName,
             serviceFqcn:  fqcn,
             method:       nameNode.text,

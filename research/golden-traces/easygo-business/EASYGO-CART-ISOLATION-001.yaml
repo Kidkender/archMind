@@ -1,0 +1,42 @@
+id: EASYGO-CART-ISOLATION-001
+entrypoint: "GET /v1/cart/"
+framework: laravel
+source_project: easygo-shopping-laravel
+
+retrieval:
+  query: "Where is cart data stored? Can one user accidentally see another user's cart items?"
+
+nodes:
+  - id: throttle
+    type: rate_limiter
+    symbol: throttle:api
+    file: ~
+    retrieval:
+      relevance: LOW
+      compressible: true
+
+  - id: sanctum
+    type: authentication_gate
+    symbol: auth:sanctum
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: cart_index
+    type: controller_action
+    symbol: CartController::index
+    file: app/Http/Controllers/Api/V1/CartController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+annotations:
+  - type: session_isolation
+    nodes: [cart_index]
+    description: >
+      Cart is stored in PHP session keyed by user ID: session('cart.' . $user->id).
+      Cross-user leakage is prevented by the user-scoped session key.
+      However, cart data is server-side session only — not persisted to DB.
+      This means cart is lost on session expiry, and cannot sync across devices.
+      The isolation mechanism is implicit (session key namespacing) not explicit (Policy/Gate).
