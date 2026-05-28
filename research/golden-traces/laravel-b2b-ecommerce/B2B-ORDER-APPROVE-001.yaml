@@ -1,0 +1,57 @@
+id: B2B-ORDER-APPROVE-001
+entrypoint: "POST /orders/{order}/dealer-approve"
+framework: laravel
+source_project: laravel-b2b-ecommerce
+
+retrieval:
+  query: "Who can approve a dealer order, and is there any ownership check preventing a dealer from approving orders that don't belong to them?"
+
+nodes:
+  - id: dealer_approve_controller
+    type: controller_action
+    symbol: OrderController::dealerApprove
+    file: app/Http/Controllers/OrderController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: approve_action
+    type: service_call
+    symbol: ApproveDealerOrderAction::handle
+    file: app/Application/Order/Actions/ApproveDealerOrderAction.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: order_update
+    type: service_call
+    symbol: Order::update
+    file: app/Models/Order.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: dealer_approve_controller
+    to: approve_action
+    relation: calls
+  - from: approve_action
+    to: order_update
+    relation: calls
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [dealer_approve_controller, approve_action]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: gap
+    nodes: [dealer_approve_controller, approve_action]
+    description: >
+      The graph contains no authentication_gate, authorization_check, or policy node.
+      OrderController uses $this->middleware('auth:web,subdealer') in its constructor
+      (authentication only — not authorization). ApproveDealerOrderAction::handle checks
+      only that order->status === 'pending'; it does not verify that the authenticated
+      dealer is the owner or assigned dealer for the order. Any authenticated dealer can
+      approve any pending order belonging to another dealer.

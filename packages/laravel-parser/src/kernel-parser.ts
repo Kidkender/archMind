@@ -17,13 +17,13 @@ export type AliasMap = Record<string, string>
  */
 export function parseKernel(filePath: string): AliasMap {
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return {}
   }
-
-  const tree = _parser.parse(source)
   const out: AliasMap = {}
   findAliasProperty(tree.rootNode, out)
   return out

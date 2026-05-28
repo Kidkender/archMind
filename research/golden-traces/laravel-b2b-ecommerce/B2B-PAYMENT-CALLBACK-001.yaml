@@ -1,0 +1,119 @@
+id: B2B-PAYMENT-CALLBACK-001
+entrypoint: "POST /bank-integrations/payment/response"
+framework: laravel
+source_project: laravel-b2b-ecommerce
+
+retrieval:
+  query: "How is the payment callback from the bank authenticated, and what database operations are committed when a callback is received?"
+
+nodes:
+  - id: rate_limiter_callback
+    type: rate_limiter
+    symbol: throttle:payment-callback
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: rate_limiter_webhook
+    type: rate_limiter
+    symbol: throttle:webhook
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: payment_response_controller
+    type: controller_action
+    symbol: BankIntegrationController::paymentResponse
+    file: app/Http/Controllers/BankIntegrationController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: process_response_action
+    type: service_call
+    symbol: ProcessPaymentResponseAction::execute
+    file: app/Application/Payment/Actions/ProcessPaymentResponseAction.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: verify_signature
+    type: service_call
+    symbol: PaymentCallbackSecurityService::verifyPaymentSignature
+    file: app/Application/Payment/Services/PaymentCallbackSecurityService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: payload_mapper
+    type: service_call
+    symbol: PaymentPayloadMapper::toCallbackRequestFromPayment
+    file: app/Application/Payment/Mappers/PaymentPayloadMapper.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: orchestration_resolve
+    type: service_call
+    symbol: PaymentOrchestrationService::resolveCallback
+    file: app/Application/Payment/Services/PaymentOrchestrationService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: txn_boundary
+    type: transaction_boundary
+    symbol: DB::transaction
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: txn_write
+    type: transactional_write
+    symbol: unknown::update
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: payment_response_controller
+    to: process_response_action
+    relation: calls
+  - from: process_response_action
+    to: verify_signature
+    relation: calls
+  - from: process_response_action
+    to: orchestration_resolve
+    relation: calls
+  - from: orchestration_resolve
+    to: txn_boundary
+    relation: calls
+  - from: txn_boundary
+    to: txn_write
+    relation: wraps
+
+expected_findings:
+  - type: transaction_boundary
+    required_nodes: [verify_signature, txn_boundary, process_response_action]
+
+expected_top_finding: transaction_boundary
+
+annotations:
+  - type: security_note
+    nodes: [verify_signature]
+    description: >
+      PaymentCallbackSecurityService::verifyPaymentSignature uses HMAC/SHA1+SHA512
+      hash comparison with hash_equals. However, if the bank callback omits HASH or
+      HASHPARAMS fields, verifySignature returns true (passthrough). This is a design
+      assumption about which banks are integrated — missing hash fields mean no
+      signature verification is attempted.
+  - type: txn_scope
+    nodes: [txn_boundary, txn_write]
+    description: >
+      DB::transaction wraps payment status update and account transaction credit.
+      The transaction_escape pattern is not present here — no side effects (mails, jobs)
+      are dispatched directly inside the closure.

@@ -40,13 +40,13 @@ export interface TransactionParseResult {
 
 export function parseTransactions(filePath: string): TransactionParseResult {
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return { hasTransaction: false, blocks: [] }
   }
-
-  const tree  = _parser.parse(source)
   const root  = tree.rootNode
   const blocks: TransactionBlock[] = []
 

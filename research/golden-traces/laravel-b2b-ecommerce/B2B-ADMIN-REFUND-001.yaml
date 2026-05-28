@@ -1,0 +1,126 @@
+id: B2B-ADMIN-REFUND-001
+entrypoint: "POST /aka/payments/{payment}/refund"
+framework: laravel
+source_project: laravel-b2b-ecommerce
+
+retrieval:
+  query: "What authorization is required to process a payment refund, and what is the full service chain involved in committing the refund to the database?"
+
+nodes:
+  - id: permission_check
+    type: authorization_check
+    symbol: permission:Ödeme Raporları
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: audit_middleware
+    type: middleware
+    symbol: AdminAuditTrailMiddleware
+    file: app/Http/Middleware/AdminAuditTrailMiddleware.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: refund_controller
+    type: controller_action
+    symbol: PaymentReportController::updateRefundStatus
+    file: app/Http/Controllers/Admin/PaymentReportController.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: refund_service
+    type: service_call
+    symbol: RefundService::process
+    file: app/Services/RefundService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: payment_service_refund
+    type: service_call
+    symbol: PaymentService::refund
+    file: app/Services/PaymentService.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: state_machine_refund
+    type: service_call
+    symbol: PaymentStateMachine::canTransitionToRefund
+    file: app/Application/Payment/Services/PaymentStateMachine.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: account_txn_refund
+    type: service_call
+    symbol: AccountTransactionService::createRefundForPayment
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: txn_boundary
+    type: transaction_boundary
+    symbol: DB::transaction
+    file: ~
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: txn_write
+    type: transactional_write
+    symbol: unknown::update
+    file: ~
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: permission_check
+    to: refund_controller
+    relation: guards
+  - from: audit_middleware
+    to: refund_controller
+    relation: wraps
+  - from: refund_controller
+    to: refund_service
+    relation: calls
+  - from: refund_service
+    to: payment_service_refund
+    relation: calls
+  - from: payment_service_refund
+    to: state_machine_refund
+    relation: calls
+  - from: payment_service_refund
+    to: txn_boundary
+    relation: calls
+  - from: txn_boundary
+    to: txn_write
+    relation: wraps
+  - from: txn_boundary
+    to: account_txn_refund
+    relation: wraps
+
+expected_findings:
+  - type: transaction_boundary
+    required_nodes: [permission_check, refund_service, payment_service_refund, txn_boundary, state_machine_refund]
+
+expected_top_finding: transaction_boundary
+
+annotations:
+  - type: design_note
+    nodes: [permission_check, audit_middleware]
+    description: >
+      Admin refund is properly guarded: permission:Ödeme Raporları (authorization_check)
+      plus AdminAuditTrailMiddleware for audit logging. This is the correct pattern for
+      admin-only destructive operations.
+  - type: state_machine
+    nodes: [state_machine_refund]
+    description: >
+      PaymentStateMachine::canTransitionToRefund enforces that only SUCCESS-state
+      payments can be refunded. The state machine is called before the DB::transaction,
+      so a refund attempt on a non-SUCCESS payment fails before touching the database.

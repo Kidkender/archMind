@@ -156,3 +156,57 @@ describe("augmentGraph — missing file field", () => {
     expect(result.edges).toHaveLength(0)
   })
 })
+
+// ---- P1: Event → listener tracing ------------------------------------
+
+const TXN_STORE_SKELETON: IntermediateExecutionGraph = {
+  entrypoint: "POST /tasks",
+  method:     "POST",
+  path:       "/tasks",
+  nodes: [{
+    id:     "ctrl_taskcontroller_store",
+    type:   "controller_action",
+    symbol: "TaskController::store",
+    role:   "handler",
+    file:   "app/Modules/Task/Http/Controllers/TaskController.php",
+  }],
+  edges:       [],
+  annotations: [],
+}
+
+describe("augmentGraph — event→listener tracing (P1)", () => {
+  let aug: IntermediateExecutionGraph
+
+  beforeAll(() => {
+    aug = augmentGraph(TXN_STORE_SKELETON, { projectRoot: FIXTURES })
+  })
+
+  test("emits transaction_escape node for TaskCreated::dispatch", () => {
+    const esc = aug.nodes.find((n) => n.type === "transaction_escape")
+    expect(esc).toBeDefined()
+    expect(esc?.symbol).toBe("TaskCreated::dispatch")
+  })
+
+  test("emits service_call listener node for SendTaskCreatedNotification::handle", () => {
+    const listener = aug.nodes.find((n) => n.symbol === "SendTaskCreatedNotification::handle")
+    expect(listener).toBeDefined()
+    expect(listener?.type).toBe("service_call")
+    expect(listener?.role).toBe("listener")
+    expect(listener?.file).toBe("app/Listeners/SendTaskCreatedNotification.php")
+  })
+
+  test("listener node is NOT marked afterCommitSafe (ShouldQueue, no ShouldHandleEventsAfterCommit)", () => {
+    const listener = aug.nodes.find((n) => n.symbol === "SendTaskCreatedNotification::handle")
+    expect(listener?.args ?? []).not.toContain("afterCommit")
+  })
+
+  test("calls edge connects transaction_escape to listener", () => {
+    const escNode    = aug.nodes.find((n) => n.type === "transaction_escape")
+    const listenNode = aug.nodes.find((n) => n.symbol === "SendTaskCreatedNotification::handle")
+    const edge = aug.edges.find(
+      (e) => e.from === escNode?.id && e.to === listenNode?.id && e.relation === "calls"
+    )
+    expect(edge).toBeDefined()
+    expect(edge?.traceability).toBe("semantic")
+  })
+})

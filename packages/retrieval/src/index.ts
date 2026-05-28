@@ -2,3 +2,4 @@ export { retrieve, prune, classifyNode, deduplicate, rankByQuery, type Retrieval
 export { serialize } from "./serializer.js"
 export { naiveRag, compare, type NaiveRagResult, type ComparisonReport } from "./naive-rag.js"
 export { fuseWithRuntime, type FusedRetrievalResult } from "./fused-retrieval.js"
+export { buildDependencyIndex, queryDependents, indexStats, type DependencyIndex, type DependencyHit } from "./dependency-index.js"

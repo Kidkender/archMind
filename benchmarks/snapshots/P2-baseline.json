@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-27T03:20:25.492Z",
+  "timestamp": "2026-05-28T09:19:39.832Z",
   "label": "P2-baseline",
   "traces": {
     "LARAVEL-AUTH-001": {
@@ -74,8 +74,8 @@
     },
     "LARAVEL-TXN-001": {
       "entrypoint": "POST /tasks",
-      "naive_rag_tokens": 706,
-      "naive_rag_files": 2,
+      "naive_rag_tokens": 787,
+      "naive_rag_files": 3,
       "r0_tokens": 0,
       "r0_recall": 0,
       "r1_tokens": 0,

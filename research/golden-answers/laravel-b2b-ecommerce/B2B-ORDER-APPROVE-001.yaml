@@ -1,0 +1,21 @@
+id: B2B-ORDER-APPROVE-001-ANSWER
+golden_trace_id: B2B-ORDER-APPROVE-001
+entrypoint: "POST /orders/{order}/dealer-approve"
+query: "Who can approve a dealer order, and is there any ownership check preventing a dealer from approving orders that don't belong to them?"
+
+expected_response:
+  finding_type: missing_authorization
+  severity: HIGH
+  key_nodes:
+    - OrderController::dealerApprove
+    - ApproveDealerOrderAction::handle
+
+  explanation_must_contain:
+    - approve
+    - ownership
+    - dealer
+
+  recommendations_must_contain:
+    - - policy
+      - authorize
+      - owner

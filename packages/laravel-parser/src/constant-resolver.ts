@@ -10,8 +10,14 @@ const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
 
 export function parseConstantClass(filePath: string): ConstantMap {
-  const source = readFileSync(filePath, "utf-8")
-  const tree = _parser.parse(source)
+  let source: string
+  let tree: ReturnType<typeof _parser.parse>
+  try {
+    source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
+  } catch {
+    return {}
+  }
   const map: ConstantMap = {}
   walkNode(tree.rootNode, null, map)
   return map

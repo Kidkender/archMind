@@ -44,13 +44,13 @@ export function parseIsolation(filePath: string, opts: IsolationOptions = {}): I
   const tenantContainerKeys = opts.tenantContainerKeys ?? DEFAULT_TENANT_CONTAINER_KEYS
 
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return { modelQueries: [], readsTenantFromContainer: false }
   }
-
-  const tree  = _parser.parse(source)
   const root  = tree.rootNode
 
   const modelQueries: ModelQueryCall[]    = []

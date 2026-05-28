@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate } from "./cache.js"
-import { retrieve } from "@archmind/retrieval"
+import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@archmind/retrieval"
 import { explain } from "@archmind/explainer"
 import type { RetrievalFocus } from "@archmind/protocol"
 import { PROTOCOL_VERSION } from "@archmind/protocol"
@@ -205,6 +205,49 @@ export function createServer(): McpServer {
             ),
           },
         ],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_get_dependents",
+    {
+      description:
+        "Find all routes that depend on a service class or method. " +
+        "Use to answer 'What breaks if I change X?' or 'Which routes call OrderService?'. " +
+        "Pass a class name (e.g. 'OrderService') for all methods, or a full symbol " +
+        "(e.g. 'OrderService::create') for a specific method.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        symbol: z
+          .string()
+          .describe(
+            "Service class or method to query. Examples: 'CartService', 'PaymentService::refund'"
+          ),
+      },
+    },
+    async ({ project_root, symbol }) => {
+      const graphs = getGraphs(project_root)
+      const index  = buildDependencyIndex(graphs)
+      const hits   = queryDependents(index, symbol)
+      const stats  = indexStats(index)
+
+      const result = {
+        symbol,
+        project_root,
+        dependent_routes: hits.map((h) => ({
+          entrypoint:     h.entrypoint,
+          matching_nodes: h.matchingNodes.map((n) => ({ symbol: n.symbol, type: n.type, file: n.file })),
+        })),
+        total_dependents: hits.length,
+        index_stats: {
+          total_symbols: stats.totalSymbols,
+          total_classes: stats.totalClasses,
+        },
+      }
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       }
     }
   )

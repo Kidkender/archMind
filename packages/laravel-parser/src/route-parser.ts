@@ -57,12 +57,13 @@ function processFile(
   opts: ParseOptions
 ): void {
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return
   }
-  const tree   = _parser.parse(source)
   const useMap = extractUseMap(tree.rootNode)
   walkBlock(tree.rootNode, ctx, out, filePath, opts, useMap)
 }

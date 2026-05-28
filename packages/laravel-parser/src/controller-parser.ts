@@ -27,11 +27,18 @@ export interface ServiceCall {
   args:         string[] // string literal args extracted from the call site
 }
 
+export interface ConstructorMiddleware {
+  raw:    string    // e.g. "auth:web,subdealer"
+  except: string[]  // method names excluded from this middleware
+  only:   string[]  // if non-empty, middleware only applies to these methods
+}
+
 export interface ControllerL1 {
-  useMap:        Map<string, string>   // shortName → FQCN from use statements
-  formRequests:  FormRequestParam[]
-  authorizeCalls: AuthorizeCall[]
-  serviceCalls:  ServiceCall[]
+  useMap:               Map<string, string>
+  formRequests:         FormRequestParam[]
+  authorizeCalls:       AuthorizeCall[]
+  serviceCalls:         ServiceCall[]
+  constructorMiddleware: ConstructorMiddleware[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -46,19 +53,21 @@ export function parseControllerMethod(
   methodName: string
 ): ControllerL1 | null {
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return null
   }
-
-  const tree  = _parser.parse(source)
   const root  = tree.rootNode
   const useMap = extractUseMap(root)
 
   const methodNode = findMethod(root, methodName)
+  const constructorMiddleware = gatherConstructorMiddleware(root)
+
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [] }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware }
   }
 
   const injections = extractConstructorInjections(root, useMap)
@@ -95,6 +104,7 @@ export function parseControllerMethod(
     formRequests,
     authorizeCalls,
     serviceCalls: uniqueServiceCalls,
+    constructorMiddleware,
   }
 }
 
@@ -275,6 +285,94 @@ function resolveStringNode(node: Parser.SyntaxNode): string {
     return content?.text ?? node.text.slice(1, -1)
   }
   return node.text
+}
+
+// ---- Constructor middleware extraction --------------------------------
+
+/**
+ * Parse $this->middleware() calls from the __construct() body.
+ *
+ * Handles:
+ *   $this->middleware('auth:web')
+ *   $this->middleware('auth:web,subdealer', ['except' => ['login']])
+ *   $this->middleware('auth:api', ['only' => ['store']])
+ *
+ * Note: method-chaining form ($this->middleware('auth')->except([...]))
+ * is not yet supported — treated as middleware with no filters.
+ */
+function gatherConstructorMiddleware(root: Parser.SyntaxNode): ConstructorMiddleware[] {
+  const constructNode = findMethod(root, "__construct")
+  if (!constructNode) return []
+  const body = constructNode.childForFieldName("body")
+  if (!body) return []
+
+  const results: ConstructorMiddleware[] = []
+  collectMiddlewareCalls(body, results)
+  return results
+}
+
+function collectMiddlewareCalls(node: Parser.SyntaxNode, results: ConstructorMiddleware[]): void {
+  if (node.type === "member_call_expression") {
+    const obj  = node.childForFieldName("object")
+    const name = node.childForFieldName("name")
+
+    if (obj?.text === "$this" && name?.text === "middleware") {
+      const argsNode = node.childForFieldName("arguments")
+      if (argsNode) {
+        const argList = (argsNode.children as Parser.SyntaxNode[]).filter(
+          (c) => c.type === "argument"
+        )
+        if (argList.length >= 1) {
+          const firstVal = argList[0].firstNamedChild
+          if (firstVal) {
+            const raw = resolveStringNode(firstVal)
+            if (raw) {
+              let except: string[] = []
+              let only:   string[] = []
+
+              if (argList.length >= 2) {
+                const secondVal = argList[1].firstNamedChild
+                if (secondVal?.type === "array_creation_expression") {
+                  for (const elem of secondVal.namedChildren as Parser.SyntaxNode[]) {
+                    if (elem.type !== "array_element_initializer") continue
+                    // namedChildren: [key_string, value_array] (=> token is anonymous)
+                    const named = elem.namedChildren as Parser.SyntaxNode[]
+                    if (named.length < 2) continue
+                    const key = resolveStringNode(named[0])
+                    const valNode = named[1]
+                    if (valNode.type === "array_creation_expression") {
+                      const vals = extractStringArrayValues(valNode)
+                      if (key === "except") except = vals
+                      else if (key === "only") only = vals
+                    }
+                  }
+                }
+              }
+
+              results.push({ raw, except, only })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    collectMiddlewareCalls(child, results)
+  }
+}
+
+function extractStringArrayValues(arrayNode: Parser.SyntaxNode): string[] {
+  const results: string[] = []
+  for (const elem of arrayNode.namedChildren as Parser.SyntaxNode[]) {
+    if (elem.type !== "array_element_initializer") continue
+    const named = elem.namedChildren as Parser.SyntaxNode[]
+    // Simple value (no key): namedChildren has exactly 1 element
+    if (named.length === 1 && named[0].type === "string") {
+      results.push(resolveStringNode(named[0]))
+    }
+  }
+  return results
 }
 
 // ---- Constructor injection extraction --------------------------------

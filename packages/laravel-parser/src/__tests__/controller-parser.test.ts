@@ -90,6 +90,40 @@ describe("parseControllerMethod — file not found", () => {
   })
 })
 
+// ---- P0: Constructor middleware extraction ---------------------------------
+
+const MW_CTRL = join(FIXTURES, "app/Http/Controllers/MiddlewareController.php")
+
+describe("parseControllerMethod — constructor middleware (P0)", () => {
+  test("extracts $this->middleware() with except filter", () => {
+    const result = parseControllerMethod(MW_CTRL, "protectedAction")
+    expect(result).not.toBeNull()
+    expect(result!.constructorMiddleware).toHaveLength(2)
+    expect(result!.constructorMiddleware[0].raw).toBe("auth:web,subdealer")
+    expect(result!.constructorMiddleware[0].except).toEqual(["publicAction", "anotherPublic"])
+    expect(result!.constructorMiddleware[0].only).toEqual([])
+  })
+
+  test("extracts second middleware with no filters", () => {
+    const result = parseControllerMethod(MW_CTRL, "protectedAction")
+    expect(result!.constructorMiddleware[1].raw).toBe("verified")
+    expect(result!.constructorMiddleware[1].except).toEqual([])
+    expect(result!.constructorMiddleware[1].only).toEqual([])
+  })
+
+  test("returns empty constructorMiddleware when no __construct", () => {
+    const result = parseControllerMethod(TASK_CTRL, "update")
+    expect(result).not.toBeNull()
+    expect(result!.constructorMiddleware).toHaveLength(0)
+  })
+
+  test("constructorMiddleware still returned when method not found", () => {
+    const result = parseControllerMethod(MW_CTRL, "nonexistent")
+    expect(result).not.toBeNull()
+    expect(result!.constructorMiddleware).toHaveLength(2)
+  })
+})
+
 // ---- Phase 5C: private method traversal (depth 1) -----------------------
 
 const ROLE_CTRL = join(FIXTURES, "app/Modules/Role/Http/Controllers/RoleController.php")

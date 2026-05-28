@@ -25,13 +25,13 @@ type AstNode = { type: string; children: AstNode[]; namedChildren: AstNode[]; te
  */
 export function parseBootstrap(filePath: string, projectRoot: string): BootstrapParseResult {
   let source: string
+  let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
   } catch {
     return { aliasMap: {}, routeFiles: [] }
   }
-
-  const tree = _parser.parse(source)
   const root = tree.rootNode as AstNode
 
   const aliasMap = extractAliasMap(root)

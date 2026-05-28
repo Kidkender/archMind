@@ -6,6 +6,8 @@ import type {
   ProjectConfig,
 } from "@archmind/protocol"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
+import { middlewareToNode } from "./middleware-mapper.js"
+import { parseEventListeners } from "./event-listener-mapper.js"
 import { parseConstantClass } from "./constant-resolver.js"
 import { extractPermissionNodes } from "./permission-extractor/constants.js"
 import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
@@ -121,6 +123,9 @@ export function augmentGraph(
           })
         }
 
+        // Constructor middleware pass — inject auth nodes not present at route level
+        injectConstructorMiddleware(newNodes, newEdges, ctrlNode.id, l1.constructorMiddleware, methodName)
+
         // Service calls from controller action
         const ctrlServiceNodes = addServiceCallNodes(newNodes, newEdges, ctrlNode.id, l1.serviceCalls, config.namespaces)
 
@@ -207,6 +212,9 @@ export function augmentGraph(
     }
   }
 
+  // ---- Event → listener tracing pass ----------------------------------
+  traceEventListeners(newNodes, newEdges, opts.projectRoot, config.namespaces)
+
   // ---- Isolation pass --------------------------------------------------
   const ctrlNodeForIso = graph.nodes.find((n) => n.type === "controller_action")
   if (ctrlNodeForIso?.file) {
@@ -219,6 +227,100 @@ export function augmentGraph(
   }
 
   return { ...graph, nodes: newNodes, edges: newEdges }
+}
+
+// ---- Event → listener tracing ----------------------------------------
+
+/**
+ * For every `transaction_escape` node already in the graph, look up the event
+ * class in the project's EventServiceProvider $listen map and add a `service_call`
+ * node for each non-afterCommit-safe listener with a `calls` edge.
+ *
+ * This is what closes the TXN-001 ceiling: the graph previously stopped at
+ * TaskCreated::dispatch; now it continues to SendTaskCreatedNotification::handle.
+ */
+function traceEventListeners(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  projectRoot: string,
+  namespaces: Record<string, string>
+): void {
+  const escapeNodes = nodes.filter((n) => n.type === "transaction_escape")
+  if (escapeNodes.length === 0) return
+
+  // Lazy-load the map — only parsed once per augmentGraph call
+  const listenerMap = parseEventListeners(projectRoot, namespaces)
+  if (listenerMap.size === 0) return
+
+  for (const escNode of escapeNodes) {
+    // symbol: "TaskCreated::dispatch" → extract "TaskCreated"
+    const eventClass = escNode.symbol.split("::")[0]
+    if (!eventClass) continue
+
+    const listeners = listenerMap.get(eventClass) ?? []
+
+    listeners.forEach((entry, idx) => {
+      const short = entry.listenerFqcn.split("\\").pop() ?? entry.listenerFqcn
+      const id    = `listener_${escNode.id}_${idx}`
+
+      if (nodes.some((n) => n.id === id)) return
+
+      nodes.push({
+        id,
+        type:   "service_call",
+        symbol: `${short}::handle`,
+        role:   "listener",
+        ...(entry.listenerFile ? { file: entry.listenerFile } : {}),
+        ...(entry.isAfterCommitSafe ? { args: ["afterCommit"] } : {}),
+      })
+      edges.push({
+        from:         escNode.id,
+        to:           id,
+        relation:     "calls",
+        traceability: "semantic",
+      })
+    })
+  }
+}
+
+// ---- Constructor middleware injection --------------------------------
+
+/**
+ * Inject authentication_gate / authorization_check nodes sourced from
+ * $this->middleware() calls in the controller constructor.
+ *
+ * Only injects if the middleware applies to `methodName` (respects except/only
+ * filters). Nodes are identified with a `ctor_mw_` prefix so they are distinct
+ * from route-level middleware nodes — both are kept so duplicate_authorization
+ * detectors can flag intentional redundancy.
+ */
+function injectConstructorMiddleware(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  ctrlNodeId: string,
+  middlewares: import("./controller-parser.js").ConstructorMiddleware[],
+  methodName: string
+): void {
+  middlewares.forEach((mw, idx) => {
+    // Check if this middleware applies to methodName
+    if (mw.only.length > 0 && !mw.only.includes(methodName)) return
+    if (mw.except.length > 0 && mw.except.includes(methodName)) return
+
+    const slug = mw.raw.toLowerCase().replace(/[^a-z0-9]/g, "_")
+    const id   = `ctor_mw_${idx}_${slug}`
+
+    // Avoid inserting the same node twice (idempotent — safe if augment is called repeatedly)
+    if (nodes.some((n) => n.id === id)) return
+
+    const node = middlewareToNode(mw.raw, idx)
+    nodes.push({ ...node, id })
+    edges.push({
+      from:         id,
+      to:           ctrlNodeId,
+      relation:     "next_middleware",
+      traceability: "static",
+    })
+  })
 }
 
 // ---- PSR-4 helpers ----------------------------------------------------

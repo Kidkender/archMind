@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * LLM Answer Quality Benchmark: ArchMind vs Naive RAG
+ * LLM Answer Quality Benchmark: ArchMind vs Naive RAG — laravel-b2b-ecommerce
  *
- * Validates the core hypothesis: does ArchMind's structured execution graph
- * lead to materially better LLM answers compared to naive file-dump RAG?
+ * Covers service chains, payment security, DB transactions, and authorization gaps.
  *
  * Usage (from repo root):
- *   node packages/orchestrator/dist/scripts/run-ecomerce-llm-eval.js \
+ *   node packages/orchestrator/dist/scripts/run-b2b-llm-eval.js \
  *     <project-root> \
  *     [--golden-answers <dir>] \
  *     [--golden-traces <dir>] \
@@ -38,7 +37,7 @@ const SNAP_DIR = join(REPO_ROOT, "benchmarks/snapshots")
 
 const projectRoot = process.argv[2]
 if (!projectRoot) {
-  console.error("Usage: run-ecomerce-llm-eval.js <project-root> [--golden-answers <dir>] [--golden-traces <dir>] [--label <name>] [--model gpt-4.1]")
+  console.error("Usage: run-b2b-llm-eval.js <project-root> [--golden-answers <dir>] [--golden-traces <dir>] [--label <name>] [--model gpt-4.1]")
   process.exit(1)
 }
 
@@ -47,9 +46,9 @@ function argAfter(flag: string): string | undefined {
   return i !== -1 ? process.argv[i + 1] : undefined
 }
 
-const GOLDEN_ANSWERS_DIR = argAfter("--golden-answers") ?? join(REPO_ROOT, "research/golden-answers/ecomerce-api")
-const GOLDEN_TRACES_DIR  = argAfter("--golden-traces")  ?? join(REPO_ROOT, "research/golden-traces/ecomerce-api")
-const label = argAfter("--label") ?? "llm-eval"
+const GOLDEN_ANSWERS_DIR = argAfter("--golden-answers") ?? join(REPO_ROOT, "research/golden-answers/laravel-b2b-ecommerce")
+const GOLDEN_TRACES_DIR  = argAfter("--golden-traces")  ?? join(REPO_ROOT, "research/golden-traces/laravel-b2b-ecommerce")
+const label = argAfter("--label") ?? "b2b-llm-eval"
 const model = argAfter("--model") ?? "gpt-4.1"
 
 const apiKey = process.env.OPENAI_API_KEY
@@ -178,7 +177,7 @@ const passArchmind = rows.filter((r) => r.archmind.score.passed).length
 const passNaive    = rows.filter((r) => r.naive_rag.score.passed).length
 
 console.log("═══════════════════════════════════════════════════════")
-console.log("  COMPARISON: ArchMind vs Naive RAG (LLM Answer Quality)")
+console.log("  COMPARISON: ArchMind vs Naive RAG — laravel-b2b-ecommerce")
 console.log("═══════════════════════════════════════════════════════")
 console.log(`  Model: ${model}`)
 console.log(`  Traces: ${rows.length}`)

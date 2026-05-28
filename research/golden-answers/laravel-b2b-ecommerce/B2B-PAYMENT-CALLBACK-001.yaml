@@ -1,0 +1,21 @@
+id: B2B-PAYMENT-CALLBACK-001-ANSWER
+golden_trace_id: B2B-PAYMENT-CALLBACK-001
+entrypoint: "POST /bank-integrations/payment/response"
+query: "How is the payment callback from the bank authenticated, and what database operations are committed when a callback is received?"
+
+expected_response:
+  finding_type: incomplete_verification
+  severity: MEDIUM
+  key_nodes:
+    - PaymentCallbackSecurityService::verifyPaymentSignature
+    - ProcessPaymentResponseAction::execute
+
+  explanation_must_contain:
+    - signature
+    - hash
+    - verify
+
+  recommendations_must_contain:
+    - - signature
+      - hash
+      - callback

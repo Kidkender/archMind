@@ -54,17 +54,17 @@ type SectionName =
   | "OTHER"
 
 const NODE_SECTION: Record<string, SectionName> = {
-  middleware:          "MIDDLEWARE CHAIN",
+  middleware: "MIDDLEWARE CHAIN",
   authentication_gate: "MIDDLEWARE CHAIN",
   authorization_check: "MIDDLEWARE CHAIN",
-  rate_limiter:        "MIDDLEWARE CHAIN",
-  controller:          "HANDLER",
-  controller_action:   "HANDLER",
-  form_request:        "VALIDATION",
-  policy:              "AUTHORIZATION",
-  permission:          "AUTHORIZATION",
-  service_call:        "AUTHORIZATION",
-  runtime_injection:   "RUNTIME",
+  rate_limiter: "MIDDLEWARE CHAIN",
+  controller: "HANDLER",
+  controller_action: "HANDLER",
+  form_request: "VALIDATION",
+  policy: "AUTHORIZATION",
+  permission: "AUTHORIZATION",
+  service_call: "AUTHORIZATION",
+  runtime_injection: "RUNTIME",
 }
 
 const SECTION_ORDER: SectionName[] = [
@@ -105,8 +105,8 @@ function buildExecutionSummary(nodes: ExecutionNode[]): string | null {
 // ---- Node formatting --------------------------------------------------
 
 function formatNode(node: ExecutionNode): string {
-  const args  = node.args?.length ? ` [${node.args.join(", ")}]` : ""
-  const role  = node.role ? ` (${node.role})` : ""
+  const args = node.args?.length ? ` [${node.args.join(", ")}]` : ""
+  const role = node.role ? ` (${node.role})` : ""
   const count = (node.occurrenceCount ?? 1) > 1 ? ` ×${node.occurrenceCount}` : ""
   return `  → ${node.symbol}${args}${role}${count}`
 }
