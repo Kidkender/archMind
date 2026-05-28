@@ -3,5 +3,7 @@ export type { OrchestratorOptions, QueryResult, ConversationTurn, ConversationCo
 export { MAX_CONVERSATION_TURNS } from "./types.js"
 export { runAnswerBenchmark } from "./answer-benchmark.js"
 export type { AnswerBenchmarkSnapshot, AnswerBenchmarkTrace } from "./answer-benchmark.js"
+export { runMultiRunBenchmark } from "./multi-run-benchmark.js"
+export type { MultiRunBenchmarkSnapshot, TraceStats } from "./multi-run-benchmark.js"
 export { runConversationBenchmark } from "./conversation-benchmark.js"
 export type { ConvBenchmarkSnapshot, ConvBenchmarkEntry } from "./conversation-benchmark.js"

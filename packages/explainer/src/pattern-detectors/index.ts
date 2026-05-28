@@ -10,6 +10,7 @@ import { detectMissingTenantScope } from "./missing-tenant-scope.js"
 import { detectDoublePermissionCheck } from "./double-permission-check.js"
 import { detectRuntimeConsumerTrace } from "./runtime-consumer-trace.js"
 import { detectMissingAuthorization } from "./missing-authorization.js"
+import { detectMissingPolicy } from "./missing-policy.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -24,6 +25,7 @@ export function detect(
   const authNodeIds = getAuthNodeIds(facts)
 
   return [
+    ...detectMissingPolicy(graph),
     ...detectMissingAuthorization(facts, graph),
     ...detectDuplicateAuthorization(facts, graph),
     ...detectDelegatedValidation(facts, authNodeIds, graph),

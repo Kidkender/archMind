@@ -42,6 +42,7 @@ export interface Finding {
 export const FINDING_TYPES = {
   DUPLICATE_AUTHORIZATION: "duplicate_authorization",
   MISSING_AUTHORIZATION: "missing_authorization",
+  MISSING_POLICY: "missing_policy",
   DELEGATED_VALIDATION: "delegated_validation",
   HIDDEN_RUNTIME_DEPENDENCY: "hidden_runtime_dependency",
   PRIVILEGE_HIERARCHY_PRESENT: "privilege_hierarchy_present",

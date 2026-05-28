@@ -1,8 +1,10 @@
 import { join } from "path"
+import { existsSync } from "fs"
 import type {
   IntermediateExecutionGraph,
   ExecutionNode,
   ExecutionEdge,
+  GraphAnnotation,
   ProjectConfig,
 } from "@archmind/protocol"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
@@ -69,8 +71,9 @@ export function augmentGraph(
     ...(opts.permissionConstantFiles ?? []),
   ]
 
-  const newNodes: ExecutionNode[] = [...graph.nodes]
-  const newEdges: ExecutionEdge[]  = [...graph.edges]
+  const newNodes:       ExecutionNode[]   = [...graph.nodes]
+  const newEdges:       ExecutionEdge[]   = [...graph.edges]
+  const newAnnotations: GraphAnnotation[] = [...graph.annotations]
 
   // ---- Controller L1 pass ------------------------------------------
   const ctrlNode = graph.nodes.find((n) => n.type === "controller_action")
@@ -114,6 +117,17 @@ export function augmentGraph(
           }
           newNodes.push(policyNode)
           addedPolicyNodes.push(policyNode)
+
+          // Annotate when the policy class file doesn't exist — structural fact, deterministic
+          if (!existsSync(join(opts.projectRoot, policyFile))) {
+            newAnnotations.push({
+              type:        "missing_policy",
+              nodes:       [id],
+              description: `${policyClass} referenced in ${ctrlNode.symbol} but class file not found at ${policyFile}`,
+              severity:    "high",
+              confidence:  "HIGH",
+            })
+          }
           newEdges.push({
             from:         ctrlNode.id,
             to:           id,
@@ -226,7 +240,7 @@ export function augmentGraph(
     addIsolationNodes(newNodes, newEdges, ctrlNodeForIso.id, isoResult)
   }
 
-  return { ...graph, nodes: newNodes, edges: newEdges }
+  return { ...graph, nodes: newNodes, edges: newEdges, annotations: newAnnotations }
 }
 
 // ---- Event → listener tracing ----------------------------------------

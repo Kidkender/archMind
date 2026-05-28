@@ -7,6 +7,7 @@ export interface OpenAIChatCreate {
     model: string
     max_tokens: number
     messages: Array<{ role: "system" | "user" | "assistant"; content: string }>
+    temperature?: number
   }): Promise<{
     choices: Array<{ message: { content: string | null } }>
     model: string
@@ -71,6 +72,7 @@ export class OpenAILLMClient implements LLMClient, JudgeClient {
     const completion = await withRetry(() => this.chat.create({
       model: this.model,
       max_tokens: 256,
+      temperature: 0,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user },

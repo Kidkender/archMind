@@ -8,6 +8,7 @@ export interface AnthropicMessagesCreate {
     max_tokens: number
     system: string
     messages: Array<{ role: string; content: string }>
+    temperature?: number
   }): Promise<{
     content: Array<{ type: string; text?: string }>
     model: string
@@ -52,6 +53,7 @@ export class ClaudeLLMClient implements LLMClient, JudgeClient {
     const message = await this.messages.create({
       model: this.model,
       max_tokens: 256,
+      temperature: 0,
       system,
       messages: [{ role: "user", content: user }],
     })
