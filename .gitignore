@@ -7,3 +7,4 @@ benchmarks/
 bugs/
 smoke-*.mjs
 smoke-*.txt
+spike/
