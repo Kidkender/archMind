@@ -3,6 +3,13 @@ import { join } from "path"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
 import { CRITICAL_NODE_TYPES } from "./retrieval-baseline.js"
 
+// Node types whose GAIN (appearance) is a regression — e.g. an unscoped write
+// appearing means tenant isolation was removed from a previously-scoped operation.
+export const DANGER_NODE_TYPES: ReadonlyArray<string> = [
+  "unscoped_write",
+  "unscoped_query",
+]
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -122,10 +129,13 @@ export function verifyTopologyBaseline(
     const lost_types   = [...prevSet].filter((t) => !currSet.has(t))
     const gained_types = [...currSet].filter((t) => !prevSet.has(t))
 
+    // Gain of a danger type (e.g. unscoped_write) is also a regression
+    const dangerGained = gained_types.filter((t) => DANGER_NODE_TYPES.includes(t))
+
     if (lost_types.length > 0 || gained_types.length > 0) {
       drifts.push({
         route,
-        changed:     lost_types.length > 0,   // only losses are regressions
+        changed:     lost_types.length > 0 || dangerGained.length > 0,
         lost_types,
         gained_types,
       })

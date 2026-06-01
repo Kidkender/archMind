@@ -38,6 +38,7 @@ import {
   verifyTopologyBaseline,
   saveTopologyBaseline,
   loadTopologyBaseline,
+  DANGER_NODE_TYPES,
 } from "../topology-baseline.js"
 
 const __filename   = fileURLToPath(import.meta.url)
@@ -134,12 +135,19 @@ if (result.drifts.length > 0) {
   const additions   = result.drifts.filter((d) => !d.changed)
 
   if (regressions.length > 0) {
-    console.error(`Topology regressions (${regressions.length} route(s) lost critical node types):`)
+    console.error(`Topology regressions (${regressions.length} route(s)):`)
     for (const d of regressions) {
       console.error(`  ${d.route}`)
-      console.error(`    lost:   [${d.lost_types.join(", ")}]`)
-      if (d.gained_types.length > 0) {
-        console.error(`    gained: [${d.gained_types.join(", ")}]`)
+      if (d.lost_types.length > 0) {
+        console.error(`    lost:   [${d.lost_types.join(", ")}]`)
+      }
+      const dangerGained = d.gained_types.filter((t) => DANGER_NODE_TYPES.includes(t))
+      const safeGained   = d.gained_types.filter((t) => !DANGER_NODE_TYPES.includes(t))
+      if (dangerGained.length > 0) {
+        console.error(`    danger: [${dangerGained.join(", ")}] — dangerous type appeared`)
+      }
+      if (safeGained.length > 0) {
+        console.error(`    gained: [${safeGained.join(", ")}]`)
       }
     }
     console.error()
