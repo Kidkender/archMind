@@ -30,7 +30,7 @@ jobs:
           node-version: '20'
 
       - name: Install archmind
-        run: npm install -g archmind
+        run: npm install -g @kidkender/archmind
 
       - name: Run findings
         run: archmind findings --project .

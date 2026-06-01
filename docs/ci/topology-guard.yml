@@ -40,7 +40,7 @@ jobs:
           node-version: '20'
 
       - name: Install archmind
-        run: npm install -g archmind
+        run: npm install -g @kidkender/archmind
 
       - name: Verify topology
         run: archmind verify --project . --label topology-main

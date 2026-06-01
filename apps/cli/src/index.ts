@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { parseConstantClass, parseRouteFile, augmentGraph } from "@archmind/laravel-parser"
 import { loadGoldenTrace, scoreTrace } from "@archmind/scorer"
 import { ClaudeLLMClient, MockLLMClient, OpenAILLMClient } from "@archmind/llm-client"

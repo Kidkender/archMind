@@ -14,7 +14,7 @@ Blocks PRs that remove critical execution nodes from routes:
 
 ```bash
 # 1. Install archmind
-npm install -g archmind
+npm install -g @kidkender/archmind
 
 # 2. Create baseline from your current codebase
 archmind verify --project /path/to/your-laravel-app --update

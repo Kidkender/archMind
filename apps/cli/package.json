@@ -1,26 +1,42 @@
 {
-  "name": "@archmind/cli",
+  "name": "@kidkender/archmind",
   "version": "0.1.0",
+  "description": "Execution topology intelligence for Laravel — trace routes, detect regressions, find security gaps. No LLM required.",
   "type": "module",
   "bin": {
-    "archmind": "./dist/index.js"
+    "archmind": "./dist/index.cjs"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node build.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "tree-sitter": "^0.21.0",
+    "tree-sitter-php": "^0.22.0"
+  },
+  "devDependencies": {
     "@archmind/explainer": "*",
     "@archmind/laravel-parser": "*",
     "@archmind/llm-client": "*",
     "@archmind/orchestrator": "*",
     "@archmind/protocol": "*",
     "@archmind/retrieval": "*",
-    "@archmind/scorer": "*"
-  },
-  "devDependencies": {
+    "@archmind/scorer": "*",
     "@types/node": "^20.0.0",
+    "esbuild": "^0.28.0",
     "typescript": "^5.4.0"
-  }
+  },
+  "keywords": ["laravel", "static-analysis", "security", "cli", "execution-graph"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kidkender/archmind"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/index.cjs"
+  ]
 }
