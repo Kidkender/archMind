@@ -1,0 +1,37 @@
+# ArchMind Findings Check
+#
+# Reports static security findings on every PR:
+#   - missing_authorization  (authenticated route with no policy/gate)
+#   - missing_policy         (policy class referenced but file not found)
+#   - unscoped_write         (model write without tenant constraint)
+#   - duplicate_authorization (auth checked twice on same route)
+#
+# Exit code: 1 if any HIGH or CRITICAL findings, 0 otherwise.
+# Use continue-on-error: true if you want findings as warnings only.
+
+name: Findings Check
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'routes/**'
+
+jobs:
+  findings:
+    runs-on: ubuntu-latest
+    name: Static security findings
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install archmind
+        run: npm install -g archmind
+
+      - name: Run findings
+        run: archmind findings --project .
+        continue-on-error: true   # remove to make findings block merge

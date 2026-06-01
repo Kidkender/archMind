@@ -1,5 +1,4 @@
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
+import { join } from "path"
 import {
   captureTopologyBaseline,
   verifyTopologyBaseline,
@@ -8,19 +7,15 @@ import {
 } from "@archmind/retrieval"
 import { parseProject, requireProject } from "../utils/parse-project.js"
 
-const __filename   = fileURLToPath(import.meta.url)
-const __dirname    = dirname(__filename)
-const REPO_ROOT    = join(__dirname, "../../../..")
-const BASELINE_DIR = join(REPO_ROOT, "benchmarks/topology-baselines")
-
 export function runBaseline(subcommand: string | undefined, flags: Record<string, string>): void {
   if (subcommand !== "update" && subcommand !== "verify") {
-    console.error("Usage: archmind baseline update|verify --project <path> [--label <name>]")
+    console.error("Usage: archmind baseline update|verify --project <path> [--label <name>] [--baseline-dir <path>]")
     process.exit(2)
   }
 
-  const projectRoot = requireProject(flags)
-  const label       = flags["label"] ?? "topology-main"
+  const projectRoot  = requireProject(flags)
+  const label        = flags["label"] ?? "topology-main"
+  const BASELINE_DIR = flags["baseline-dir"] ?? join(projectRoot, ".archmind", "baselines")
 
   const { graphs, routeCount, fileCount } = parseProject(projectRoot)
   console.log(`Parsed ${routeCount} routes from ${fileCount} file(s)`)

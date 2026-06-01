@@ -1,5 +1,4 @@
-import { join, dirname } from "path"
-import { fileURLToPath } from "url"
+import { join } from "path"
 import {
   captureTopologyBaseline,
   verifyTopologyBaseline,
@@ -9,16 +8,12 @@ import {
 } from "@archmind/retrieval"
 import { parseProject, requireProject } from "../utils/parse-project.js"
 
-const __filename   = fileURLToPath(import.meta.url)
-const __dirname    = dirname(__filename)
-// apps/cli/dist/commands/ → up 4 levels → repo root
-const REPO_ROOT    = join(__dirname, "../../../..")
-const BASELINE_DIR = join(REPO_ROOT, "benchmarks/topology-baselines")
-
 export async function runVerify(flags: Record<string, string>): Promise<void> {
-  const projectRoot = requireProject(flags)
-  const label       = flags["label"] ?? "topology-main"
-  const mode        = flags["update"] !== undefined ? "update" : "verify"
+  const projectRoot  = requireProject(flags)
+  const label        = flags["label"] ?? "topology-main"
+  const mode         = flags["update"] !== undefined ? "update" : "verify"
+  // Default: store baseline inside the project being analyzed so it can be committed to that repo
+  const BASELINE_DIR = flags["baseline-dir"] ?? join(projectRoot, ".archmind", "baselines")
 
   console.log(`Parsing: ${projectRoot}`)
   const { graphs, routeCount, fileCount } = parseProject(projectRoot)

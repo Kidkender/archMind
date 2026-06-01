@@ -1,0 +1,58 @@
+# ArchMind Topology Guard
+#
+# Detects architectural regressions before they merge:
+#   - transaction_boundary removed from a route
+#   - authentication_gate removed from a route
+#   - unscoped_write appeared (tenant isolation removed)
+#   - route deleted entirely
+#
+# Setup:
+#   1. Copy this file to your Laravel project at .github/workflows/topology-guard.yml
+#   2. Run once locally to create the baseline:
+#        npx archmind@latest verify --project . --update
+#      This creates .archmind/baselines/topology-main.json — commit it.
+#   3. From now on, every PR runs verify automatically.
+#
+# The baseline lives inside your project repo (.archmind/baselines/).
+# Update it intentionally when topology changes are expected:
+#        npx archmind@latest verify --project . --update
+#        git add .archmind/baselines/ && git commit -m "chore: update topology baseline"
+
+name: Topology Guard
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'routes/**'
+      - 'bootstrap/app.php'
+
+jobs:
+  topology-check:
+    runs-on: ubuntu-latest
+    name: Execution topology regression check
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install archmind
+        run: npm install -g archmind
+
+      - name: Verify topology
+        run: archmind verify --project . --label topology-main
+        # Exit code 1 = regression detected (transaction removed, auth lost, etc.)
+        # Exit code 0 = no regressions
+
+      - name: Update baseline (on main branch only)
+        if: github.ref == 'refs/heads/main' && success()
+        run: |
+          archmind verify --project . --update --label topology-main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .archmind/baselines/
+          git diff --staged --quiet || git commit -m "chore: update topology baseline [skip ci]"
+          git push
