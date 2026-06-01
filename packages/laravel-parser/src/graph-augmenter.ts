@@ -621,8 +621,34 @@ function addIsolationNodes(
       traceability: "static",
     })
 
-    // Unscoped queries in a tenant-aware controller are a boundary violation
     if (!q.hastenantConstraint && isoResult.readsTenantFromContainer) {
+      const injId = `tenant_injection_${callerNodeId}`
+      edges.push({
+        from:         id,
+        to:           injId,
+        relation:     "missing_tenant_scope",
+        traceability: "semantic",
+      })
+    }
+  })
+
+  // Write-path: emit unscoped_write nodes for INSERT/CREATE/SAVE without tenant
+  isoResult.modelWrites.forEach((w, idx) => {
+    if (w.hasTenantConstraint) return
+    const id = `iso_write_${callerNodeId}_${idx}`
+    nodes.push({
+      id,
+      type:   "unscoped_write",
+      symbol: `${w.model}::${w.operation}`,
+      role:   "data_access",
+    })
+    edges.push({
+      from:         callerNodeId,
+      to:           id,
+      relation:     "calls",
+      traceability: "static",
+    })
+    if (isoResult.readsTenantFromContainer) {
       const injId = `tenant_injection_${callerNodeId}`
       edges.push({
         from:         id,

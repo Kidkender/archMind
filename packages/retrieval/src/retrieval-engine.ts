@@ -32,6 +32,7 @@ const DEDUP_TYPES = new Set([
   "transactional_write",
   "transaction_escape",
   "unscoped_query",
+  "unscoped_write",
   "tenant_scoped_query",
 ])
 
@@ -212,8 +213,9 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   transactional_write:  "HIGH",
   transaction_escape:   "HIGH",
 
-  // Isolation semantics — unscoped query is the critical signal
+  // Isolation semantics — unscoped query/write are the critical signals
   unscoped_query:       "HIGH",
+  unscoped_write:       "HIGH",
   tenant_scoped_query:  "MEDIUM",
 
   // FormRequest::authorize is an authorization gate — HIGH for auth focus

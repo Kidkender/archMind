@@ -9,13 +9,27 @@ import { naiveRag } from "./naive-rag.js"
 // Types
 // ---------------------------------------------------------------------------
 
+// Node types whose presence/absence is semantically significant for regression detection.
+// When any of these disappear from a route's graph vs. the stored baseline, the verify
+// step flags it as a topology regression (historical-absence detection).
+export const CRITICAL_NODE_TYPES: ReadonlyArray<string> = [
+  "authentication_gate",
+  "authorization_check",
+  "transaction_boundary",
+  "tenant_scoped_query",
+  "unscoped_write",
+  "policy",
+  "form_request",
+]
+
 export interface RetrievalBaselineEntry {
-  route:               string
-  retrieved_node_ids:  string[]   // in retrieval order — drift here = behavior change
-  node_count:          number
-  compression_ratio:   number
-  token_count:         number
-  recall:              number
+  route:                string
+  retrieved_node_ids:   string[]   // in retrieval order — drift here = behavior change
+  critical_node_types:  string[]   // intersection of present types with CRITICAL_NODE_TYPES
+  node_count:           number
+  compression_ratio:    number
+  token_count:          number
+  recall:               number
 }
 
 export interface RetrievalBaseline {
@@ -63,13 +77,15 @@ export function captureBaseline(opts: {
     const score  = scoreRetrieval(golden, r0)
     const ratio  = naive.token_estimate > 0 ? naive.token_estimate / r0.token_estimate : 1
 
+    const presentTypes = new Set(r0.nodes.map((n) => n.type))
     entries[golden.id] = {
-      route:              golden.entrypoint,
-      retrieved_node_ids: r0.nodes.map((n) => n.id),
-      node_count:         r0.nodes.length,
-      compression_ratio:  parseFloat(ratio.toFixed(2)),
-      token_count:        r0.token_estimate,
-      recall:             parseFloat(score.combined_recall.toFixed(3)),
+      route:               golden.entrypoint,
+      retrieved_node_ids:  r0.nodes.map((n) => n.id),
+      critical_node_types: CRITICAL_NODE_TYPES.filter((t) => presentTypes.has(t)),
+      node_count:          r0.nodes.length,
+      compression_ratio:   parseFloat(ratio.toFixed(2)),
+      token_count:         r0.token_estimate,
+      recall:              parseFloat(score.combined_recall.toFixed(3)),
     }
   }
 
@@ -137,6 +153,14 @@ export function verifyBaseline(
     if (added.length === 0 && removed.length === 0) {
       const orderChanged = curr.retrieved_node_ids.some((n, i) => n !== prev.retrieved_node_ids[i])
       if (orderChanged) details.push("node ordering changed")
+    }
+
+    // Critical node type disappearance (topology regression)
+    const prevCritical = new Set(prev.critical_node_types ?? [])
+    const currCritical = new Set(curr.critical_node_types ?? [])
+    const lostTypes = [...prevCritical].filter((t) => !currCritical.has(t))
+    if (lostTypes.length > 0) {
+      details.push(`critical node types removed: [${lostTypes.join(", ")}]`)
     }
 
     // Recall regression

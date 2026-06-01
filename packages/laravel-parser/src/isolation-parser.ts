@@ -18,9 +18,21 @@ export interface ModelQueryCall {
   callText: string
 }
 
+export interface ModelWriteCall {
+  /** e.g. "Task" */
+  model: string
+  /** "create" | "insert" | "update" | "save" */
+  operation: string
+  /** true if tenant signal found in literal data array keys */
+  hasTenantConstraint: boolean
+  callText: string
+}
+
 export interface IsolationParseResult {
   /** Model queries found in the file */
   modelQueries: ModelQueryCall[]
+  /** Model write calls found in the file */
+  modelWrites: ModelWriteCall[]
   /** true if the file reads tenant from container: app('tenant') */
   readsTenantFromContainer: boolean
 }
@@ -49,16 +61,18 @@ export function parseIsolation(filePath: string, opts: IsolationOptions = {}): I
     source = readFileSync(filePath, "utf-8")
     tree = _parser.parse(source)
   } catch {
-    return { modelQueries: [], readsTenantFromContainer: false }
+    return { modelQueries: [], modelWrites: [], readsTenantFromContainer: false }
   }
   const root  = tree.rootNode
 
-  const modelQueries: ModelQueryCall[]    = []
-  const readsTenantFromContainer          = detectTenantContainerRead(root, tenantContainerKeys)
+  const modelQueries: ModelQueryCall[] = []
+  const modelWrites:  ModelWriteCall[] = []
+  const readsTenantFromContainer       = detectTenantContainerRead(root, tenantContainerKeys)
 
   gatherModelQueries(root, modelQueries, tenantSignals)
+  gatherModelWrites(root, modelWrites, tenantSignals)
 
-  return { modelQueries, readsTenantFromContainer }
+  return { modelQueries, modelWrites, readsTenantFromContainer }
 }
 
 // ---- Container read detection -----------------------------------------
@@ -154,6 +168,71 @@ function chainHasTenantConstraint(node: Parser.SyntaxNode, tenantSignals: Set<st
   const text = node.text
   for (const signal of tenantSignals) {
     if (text.includes(signal)) return true
+  }
+  return false
+}
+
+// ---- Write-op detection -----------------------------------------------
+
+const WRITE_OPS = new Set(["create", "insert", "update"])
+
+function gatherModelWrites(
+  node: Parser.SyntaxNode,
+  results: ModelWriteCall[],
+  tenantSignals: Set<string>
+): void {
+  // Static call: Model::create([...]) / Model::insert([...]) / Model::update([...])
+  if (node.type === "scoped_call_expression") {
+    const cls  = (node.children as Parser.SyntaxNode[])[0]
+    const name = node.childForFieldName("name")
+    if (cls && name) {
+      const clsText = cls.text.replace(/^\\/, "")
+      if (isModelClass(clsText) && WRITE_OPS.has(name.text)) {
+        const args = node.childForFieldName("arguments")
+        results.push({
+          model:               clsText,
+          operation:           name.text,
+          hasTenantConstraint: args ? dataArgHasTenantKey(args, tenantSignals) : false,
+          callText:            node.text.slice(0, 120),
+        })
+        return
+      }
+    }
+  }
+
+  // Instance save: $model->save() — can't statically prove tenant assignment
+  // Flag conservatively as unscoped; documented false-negative risk in CLAUDE.md.
+  if (node.type === "member_call_expression") {
+    const name = node.childForFieldName("name")
+    if (name?.text === "save") {
+      const obj = node.childForFieldName("object")
+      if (obj && /^\$[a-zA-Z_]/.test(obj.text)) {
+        results.push({
+          model:               obj.text,
+          operation:           "save",
+          hasTenantConstraint: false,
+          callText:            node.text.slice(0, 120),
+        })
+        return
+      }
+    }
+  }
+
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    gatherModelWrites(child, results, tenantSignals)
+  }
+}
+
+/**
+ * Check if the first argument to a write call contains a literal key matching
+ * a tenant signal. Only checks literal string array keys — variable args are
+ * a known false negative (documented in CLAUDE.md).
+ */
+function dataArgHasTenantKey(argsNode: Parser.SyntaxNode, tenantSignals: Set<string>): boolean {
+  const text = argsNode.text
+  for (const signal of tenantSignals) {
+    // Match literal string key: 'tenant_id' => or "tenant_id" =>
+    if (text.includes(`'${signal}'`) || text.includes(`"${signal}"`)) return true
   }
   return false
 }
