@@ -327,10 +327,14 @@ export function resolveAliasMap(projectRoot: string, config: ProjectConfig): Res
     // Laravel 11/12 — bootstrap/app.php
     const { aliasMap, routeFiles: detected } = parseBootstrap(bootstrapPath, projectRoot)
     // Use bootstrap-detected files only when .archmind.json did NOT explicitly set routeFiles.
-    // If the user set routeFiles in .archmind.json (even if it matches the default value),
-    // their intent takes precedence over what bootstrap declares.
-    const useDetected = detected.length > 0 && !archmindJsonHasRouteFiles(projectRoot)
-    const expanded = expandRouteFiles(projectRoot, useDetected ? detected : config.routeFiles)
+    // Filter out console/channels files — they register commands/events, not HTTP routes.
+    const NON_HTTP = new Set(["routes/console.php", "routes/channels.php"])
+    const httpDetected = detected.filter((f) => !NON_HTTP.has(f))
+    // Fall back to inferred route files when bootstrap only found non-HTTP files
+    // (e.g. projects using a custom RouteServiceProvider with a `using:` closure).
+    const fallback = httpDetected.length === 0 ? inferRouteFiles(projectRoot) : httpDetected
+    const useDetected = fallback.length > 0 && !archmindJsonHasRouteFiles(projectRoot)
+    const expanded = expandRouteFiles(projectRoot, useDetected ? fallback : config.routeFiles)
     return {
       aliasMap,
       routeFiles: flattenRouteIncludes(projectRoot, expanded),

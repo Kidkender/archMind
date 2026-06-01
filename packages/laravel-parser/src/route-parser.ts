@@ -174,6 +174,72 @@ function handleRouteExpression(
     return
   }
 
+  // Resource routes: Route::apiResource() / Route::resource()
+  const resourceVerb = methods.find((m) => m.name === "apiResource" || m.name === "resource")
+  if (resourceVerb) {
+    const inlineMiddleware = methods
+      .filter((m) => m.name === "middleware")
+      .flatMap((m) => resolveMiddlewareArgs(m.args, opts.constants))
+    const allMiddleware = [...ctx.middleware, ...inlineMiddleware]
+
+    const rawPath  = resolveString(resourceVerb.args[0], opts.constants) ?? "/"
+    const fullPath = joinPath(ctx.prefix, rawPath)
+    // Controller arg: [VaultController::class] or ['App\...\VaultController']
+    const ctrlArg  = resourceVerb.args[1]
+    let controller = "UnknownController"
+    if (ctrlArg) {
+      const ctrlText = ctrlArg.text ?? ""
+      // Strip ::class suffix and FQCN prefix to get short class name
+      const stripped = ctrlText.replace(/::class\s*$/i, "").replace(/['"]/g, "").trim()
+      const parts = stripped.split(/[\\\/]/)
+      controller = parts[parts.length - 1] || "UnknownController"
+    }
+
+    // Determine which actions are included (from .only([...]) or .except([...]))
+    const onlyMethod  = methods.find((m) => m.name === "only")
+    const exceptMethod = methods.find((m) => m.name === "except")
+
+    const API_RESOURCE_ROUTES: Array<{ method: string; suffix: string; action: string }> = [
+      { method: "GET",    suffix: "",        action: "index"   },
+      { method: "POST",   suffix: "",        action: "store"   },
+      { method: "GET",    suffix: "/{id}",   action: "show"    },
+      { method: "PUT",    suffix: "/{id}",   action: "update"  },
+      { method: "PATCH",  suffix: "/{id}",   action: "update"  },
+      { method: "DELETE", suffix: "/{id}",   action: "destroy" },
+    ]
+    // Route::resource() also has create and edit HTML form routes (not in apiResource)
+    const WEB_ONLY_ROUTES: Array<{ method: string; suffix: string; action: string }> = [
+      { method: "GET", suffix: "/create", action: "create" },
+      { method: "GET", suffix: "/{id}/edit", action: "edit" },
+    ]
+    const candidateRoutes = resourceVerb.name === "resource"
+      ? [...API_RESOURCE_ROUTES, ...WEB_ONLY_ROUTES]
+      : API_RESOURCE_ROUTES
+
+    // Collect .only([...]) or .except([...]) string lists
+    const filterList = (m: { args: Parser.SyntaxNode[] } | undefined): Set<string> => {
+      if (!m) return new Set()
+      const arr = m.args[0]
+      if (!arr) return new Set()
+      const items: string[] = []
+      for (const child of arr.children ?? []) {
+        const s = resolveString(child, opts.constants)
+        if (s) items.push(s)
+      }
+      return new Set(items)
+    }
+
+    const only   = filterList(onlyMethod)
+    const except = filterList(exceptMethod)
+
+    for (const r of candidateRoutes) {
+      if (only.size > 0 && !only.has(r.action)) continue
+      if (except.size > 0 && except.has(r.action)) continue
+      out.push(buildGraph(r.method, fullPath + r.suffix, allMiddleware, controller, r.action, useMap, opts))
+    }
+    return
+  }
+
   // Leaf route: Route::get/post/put/delete/patch(...)
   const routeVerb = methods.find((m) => HTTP_VERBS.has(m.name.toLowerCase()))
   if (!routeVerb) return
