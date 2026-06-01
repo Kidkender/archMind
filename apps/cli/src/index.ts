@@ -7,34 +7,95 @@ import type { ConversationContext, QueryMode } from "@archmind/orchestrator"
 import { resolve, dirname, relative } from "path"
 import { writeFileSync } from "fs"
 import { createInterface } from "readline"
+import { runTrace as runTraceProject } from "./commands/trace.js"
+import { runVerify } from "./commands/verify.js"
+import { runFindings } from "./commands/findings.js"
+import { runDeps } from "./commands/deps.js"
+import { runBaseline } from "./commands/baseline.js"
+
+function parseFlags(rawArgs: string[]): { flags: Record<string, string>; positional: string[] } {
+  const flags: Record<string, string> = {}
+  const positional: string[] = []
+  for (let i = 0; i < rawArgs.length; i++) {
+    if (rawArgs[i].startsWith("--")) {
+      const key = rawArgs[i].slice(2)
+      const next = rawArgs[i + 1]
+      if (next && !next.startsWith("--")) {
+        flags[key] = next
+        i++
+      } else {
+        flags[key] = ""
+      }
+    } else {
+      positional.push(rawArgs[i])
+    }
+  }
+  return { flags, positional }
+}
 
 function main(): void {
   const args = process.argv.slice(2)
   const command = args[0]
 
-  if (!command || command === "--help") {
+  if (!command || command === "--help" || command === "-h") {
     console.log([
-      "Usage:",
-      "  archmind trace             <routes-file> [--constants <php-file>] [--out <json-file>]",
-      "  archmind score             <routes-file> --golden <yaml-file> [--constants <php-file>]",
-      "  archmind query             <routes-file> --ask \"<question>\" --entrypoint \"<METHOD /path>\"",
-      "                             [--constants <php-file>] [--project-root <dir>]",
-      "                             [--mock] [--openai] [--model <model-id>] [--mode review|teach|debug]",
-      "  archmind chat              <routes-file> --entrypoint \"<METHOD /path>\"",
-      "                             [--constants <php-file>] [--project-root <dir>]",
-      "                             [--mock] [--openai] [--model <model-id>] [--mode review|teach|debug]",
-      "  archmind benchmark-answers <routes-file> --golden-answers <dir>",
-      "                             [--constants <php-file>] [--project-root <dir>]",
-      "                             [--mock] [--openai] [--model <model-id>] [--out <json-file>]",
-      "  archmind benchmark-convs   <routes-file> --golden-convs <dir>",
-      "                             [--constants <php-file>] [--project-root <dir>]",
-      "                             [--mock] [--openai] [--model <model-id>] [--out <json-file>]",
       "",
-      "  ANTHROPIC_API_KEY env var required for Claude queries (default).",
-      "  OPENAI_API_KEY env var required when --openai flag is used.",
+      "archmind — execution topology intelligence for Laravel",
+      "",
+      "Deterministic commands (no LLM required):",
+      "  archmind trace    --project <path> [\"METHOD /route\"]   Show execution graph",
+      "  archmind verify   --project <path> [--label <name>]    Topology regression check",
+      "                    --update                              Save new baseline",
+      "  archmind findings --project <path> [\"METHOD /route\"]   List static findings",
+      "  archmind deps     --project <path> <ServiceClass>      Cross-route impact",
+      "  archmind baseline update|verify --project <path>       Manage baseline",
+      "",
+      "Research/eval commands (require API key):",
+      "  archmind query    <routes-file> --ask \"<question>\" --entrypoint \"METHOD /path\"",
+      "  archmind chat     <routes-file> --entrypoint \"METHOD /path\"",
+      "  archmind score    <routes-file> --golden <yaml-file>",
+      "  archmind benchmark-answers <routes-file> --golden-answers <dir>",
+      "  archmind benchmark-convs   <routes-file> --golden-convs <dir>",
+      "",
+      "  ANTHROPIC_API_KEY required for query/chat/benchmark (Claude, default).",
+      "  OPENAI_API_KEY required when --openai flag is used.",
     ].join("\n"))
     process.exit(0)
   }
+
+  const { flags, positional } = parseFlags(args.slice(1))
+
+  // ---- Deterministic commands (no LLM) ------------------------------------
+
+  if (command === "trace" && ("project" in flags)) {
+    runTraceProject(flags, positional)
+    return
+  }
+
+  if (command === "verify") {
+    runVerify(flags).catch((e: unknown) => {
+      console.error(e instanceof Error ? e.message : String(e))
+      process.exit(2)
+    })
+    return
+  }
+
+  if (command === "findings") {
+    runFindings(flags, positional)
+    return
+  }
+
+  if (command === "deps") {
+    runDeps(flags, positional)
+    return
+  }
+
+  if (command === "baseline") {
+    runBaseline(positional[0], flags)
+    return
+  }
+
+  // ---- Legacy research commands (keep working) ----------------------------
 
   if (command === "trace") {
     runTrace(args.slice(1))
@@ -66,7 +127,7 @@ function main(): void {
   }
 }
 
-function parseFlags(args: string[]): Record<string, string> {
+function parseLegacyFlags(args: string[]): Record<string, string> {
   const flags: Record<string, string> = {}
   for (let i = 0; i < args.length; i++) {
     if (args[i].startsWith("--")) {
@@ -80,7 +141,7 @@ function parseFlags(args: string[]): Record<string, string> {
 }
 
 function runTrace(args: string[]): void {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"]) { console.error("Missing routes file"); process.exit(1) }
 
   const routesFile = resolve(flags["_"])
@@ -98,7 +159,7 @@ function runTrace(args: string[]): void {
 }
 
 function runScore(args: string[]): void {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"])      { console.error("Missing routes file"); process.exit(1) }
   if (!flags["golden"]) { console.error("Missing --golden <yaml-file>"); process.exit(1) }
 
@@ -141,7 +202,7 @@ function parseMode(flags: Record<string, string>): QueryMode {
 }
 
 async function runQuery(args: string[]): Promise<void> {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"])           { console.error("Missing routes file"); process.exit(1) }
   if (!flags["ask"])         { console.error("Missing --ask \"<question>\""); process.exit(1) }
   if (!flags["entrypoint"])  { console.error('Missing --entrypoint "METHOD /path"'); process.exit(1) }
@@ -207,7 +268,7 @@ async function runQuery(args: string[]): Promise<void> {
 }
 
 async function runBenchmarkAnswers(args: string[]): Promise<void> {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"])              { console.error("Missing routes file"); process.exit(1) }
   if (!flags["golden-answers"]) { console.error("Missing --golden-answers <dir>"); process.exit(1) }
 
@@ -289,7 +350,7 @@ async function runBenchmarkAnswers(args: string[]): Promise<void> {
 }
 
 async function runBenchmarkConvs(args: string[]): Promise<void> {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"])            { console.error("Missing routes file"); process.exit(1) }
   if (!flags["golden-convs"]) { console.error("Missing --golden-convs <dir>"); process.exit(1) }
 
@@ -357,7 +418,7 @@ async function runBenchmarkConvs(args: string[]): Promise<void> {
 }
 
 async function runChat(args: string[]): Promise<void> {
-  const flags = parseFlags(args)
+  const flags = parseLegacyFlags(args)
   if (!flags["_"])          { console.error("Missing routes file"); process.exit(1) }
   if (!flags["entrypoint"]) { console.error('Missing --entrypoint "METHOD /path"'); process.exit(1) }
 

@@ -5,5 +5,5 @@ export { fuseWithRuntime, type FusedRetrievalResult } from "./fused-retrieval.js
 export { buildDependencyIndex, queryDependents, indexStats, type DependencyIndex, type DependencyHit } from "./dependency-index.js"
 export { captureBaseline, verifyBaseline, saveBaseline, loadBaseline, CRITICAL_NODE_TYPES } from "./retrieval-baseline.js"
 export type { RetrievalBaseline, RetrievalBaselineEntry, BaselineDrift, BaselineVerifyResult } from "./retrieval-baseline.js"
-export { captureTopologyBaseline, verifyTopologyBaseline, saveTopologyBaseline, loadTopologyBaseline } from "./topology-baseline.js"
+export { captureTopologyBaseline, verifyTopologyBaseline, saveTopologyBaseline, loadTopologyBaseline, DANGER_NODE_TYPES } from "./topology-baseline.js"
 export type { TopologyBaseline, TopologyBaselineEntry, TopologyDrift, TopologyVerifyResult } from "./topology-baseline.js"
