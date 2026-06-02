@@ -1,6 +1,25 @@
-# @archmind/mcp-server
+# @kidkender/archmind-mcp
 
-**Exposes ArchMind's execution graph intelligence as MCP tools — usable directly from Claude Code without any extra setup.**
+MCP server for ArchMind — semantic execution graph intelligence for Laravel projects.
+
+Gives Claude Code (and any MCP-compatible AI client) five tools to understand your Laravel app's execution flow without dumping raw source files.
+
+## Setup
+
+Add to your Claude Code MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "archmind": {
+      "command": "npx",
+      "args": ["-y", "@kidkender/archmind-mcp"]
+    }
+  }
+}
+```
+
+No API key required. Works fully offline. Requires Node.js ≥ 18.
 
 ---
 

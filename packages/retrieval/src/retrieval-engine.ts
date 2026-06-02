@@ -200,34 +200,43 @@ export function prune(
 // Derived from golden trace patterns across all 4 pain cases.
 
 const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
-  // Always semantically critical
+  // --- IR types (ir: prefix) ---
+  "ir:auth_gate":           "HIGH",
+  "ir:authz_check":         "HIGH",
+  "ir:permission_constant": "HIGH",
+  "ir:runtime_inject":      "HIGH",
+  "ir:runtime_consume":     "MEDIUM",
+  "ir:tenant_context":      "HIGH",
+  "ir:service_call":        "HIGH",
+  "ir:validation_gate":     "HIGH",
+  "ir:business_handler":    "MEDIUM",
+  "ir:entrypoint":          "MEDIUM",
+  "ir:txn_boundary":        "HIGH",
+  "ir:txn_write":           "HIGH",
+  "ir:txn_escape":          "HIGH",
+  "ir:unscoped_query":      "HIGH",
+  "ir:scoped_query":        "MEDIUM",
+
+  // --- Legacy Laravel types (kept for backward compat during migration) ---
   policy:               "HIGH",
   permission:           "HIGH",
   authentication_gate:  "HIGH",
   authorization_check:  "HIGH",
   runtime_injection:    "HIGH",
   service_call:         "HIGH",
-
-  // Transaction semantics — all HIGH (boundary + escape are the danger zone)
   transaction_boundary: "HIGH",
   transactional_write:  "HIGH",
   transaction_escape:   "HIGH",
-
-  // Isolation semantics — unscoped query/write are the critical signals
   unscoped_query:       "HIGH",
   unscoped_write:       "HIGH",
   tenant_scoped_query:  "MEDIUM",
-
-  // FormRequest::authorize is an authorization gate — HIGH for auth focus
   form_request:         "HIGH",
   controller_action:    "MEDIUM",
   controller:           "MEDIUM",
   middleware:           "MEDIUM",
-
-  // Service-layer expansion nodes (Phase 4)
-  service_method:       "HIGH",   // service entry point when expanded
-  repository_call:      "HIGH",   // explicit repository class calls
-  model_operation:      "MEDIUM", // direct Eloquent model calls in service context
+  service_method:       "HIGH",
+  repository_call:      "HIGH",
+  model_operation:      "MEDIUM",
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {

@@ -1,26 +1,49 @@
 {
-  "name": "@archmind/mcp-server",
+  "name": "@kidkender/archmind-mcp",
   "version": "0.1.0",
+  "description": "ArchMind MCP server — semantic execution graph intelligence for Laravel projects, wired into Claude Code and any MCP-compatible AI client.",
   "type": "module",
-  "main": "dist/index.js",
   "bin": {
-    "archmind-mcp": "dist/index.js"
+    "archmind-mcp": "dist/index.cjs"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node build.mjs",
     "dev": "node --loader ts-node/esm src/index.ts"
   },
   "dependencies": {
+    "tree-sitter": "^0.21.0",
+    "tree-sitter-php": "^0.22.0"
+  },
+  "devDependencies": {
     "@archmind/laravel-parser": "*",
     "@archmind/retrieval": "*",
     "@archmind/explainer": "*",
     "@archmind/protocol": "*",
     "@archmind/runtime-ingest": "*",
     "@archmind/runtime-correlator": "*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
-  },
-  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^20.0.0",
-    "typescript": "^5.4.0"
-  }
+    "esbuild": "^0.28.0",
+    "typescript": "^5.4.0",
+    "zod": "^3.0.0"
+  },
+  "keywords": [
+    "laravel",
+    "mcp",
+    "static-analysis",
+    "security",
+    "execution-graph",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kidkender/archmind.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/index.cjs"
+  ]
 }

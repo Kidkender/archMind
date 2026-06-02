@@ -110,6 +110,8 @@ export interface IntermediateExecutionGraph {
   nodes:        ExecutionNode[]
   edges:        ExecutionEdge[]
   annotations:  GraphAnnotation[]
+  framework?:   string            // "laravel" | "nestjs" | "django" — set by adapter, for diagnostics
+  ir_ver?:      string            // IR spec version that emitted this graph (from ir.ts IR_VERSION)
 }
 
 export interface RetrievalRequest {

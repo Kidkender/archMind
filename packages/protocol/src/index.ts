@@ -1,4 +1,5 @@
 export * from "./graph.js"
+export * from "./ir.js"
 export * from "./trace.js"
 export * from "./conversation.js"
 export * from "./runtime.js"
