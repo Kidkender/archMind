@@ -8,6 +8,7 @@ import type {
   ExecutionNode,
   ExecutionEdge,
 } from "@archmind/protocol"
+import { IR_NODE_TYPES } from "@archmind/protocol"
 import { middlewareToNode, resolvedMiddlewareToNode } from "./middleware-mapper.js"
 import type { ConstantMap } from "./constant-resolver.js"
 import { extractUseMap } from "./controller-parser.js"
@@ -292,7 +293,7 @@ function buildGraph(
   const ctrlId = `ctrl_${controller.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${action}`
   const ctrlNode: ExecutionNode = {
     id:     ctrlId,
-    type:   "controller_action",
+    type:   IR_NODE_TYPES.BUSINESS_HANDLER,
     symbol: `${controller}::${action}`,
     role:   "handler",
     ...(file ? { file } : {}),

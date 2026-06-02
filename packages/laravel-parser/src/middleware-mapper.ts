@@ -1,4 +1,5 @@
 import type { ExecutionNode } from "@archmind/protocol"
+import { IR_NODE_TYPES } from "@archmind/protocol"
 import { DEFAULT_PROJECT_CONFIG, fqcnToPath } from "./project-config.js"
 
 // Maps raw Laravel middleware strings → semantic ExecutionNodes.
@@ -19,15 +20,15 @@ interface MiddlewareMapping {
 function classifyFqcn(fqcn: string): MiddlewareMapping {
   const short = fqcn.split("\\").pop() ?? fqcn
   if (/Authenticate|Guard/.test(short)) {
-    return { type: "authentication_gate", role: "authentication" }
+    return { type: IR_NODE_TYPES.AUTH_GATE, role: "authentication" }
   }
   if (/Permission|Role|Authorize|CheckAccess|HasRole|EnsureRole|EnsureUser/.test(short)) {
-    return { type: "authorization_check", role: "authorization" }
+    return { type: IR_NODE_TYPES.AUTHZ_CHECK, role: "authorization" }
   }
   if (/Throttle|RateLimit/.test(short)) {
     return { type: "rate_limiter", role: "rate_limiting" }
   }
-  return { type: "middleware", role: "middleware" }
+  return { type: IR_NODE_TYPES.AUTH_GATE, role: "middleware" }
 }
 
 /**
@@ -60,14 +61,14 @@ export function resolvedMiddlewareToNode(
 function mapMiddleware(raw: string): MiddlewareMapping {
   // auth:sanctum, auth:api, auth:web
   if (/^auth:/.test(raw)) {
-    return { type: "authentication_gate", role: "authentication" }
+    return { type: IR_NODE_TYPES.AUTH_GATE, role: "authentication" }
   }
 
   // permission:TASK_UPDATE, permission:TASK_VIEW|TASK_UPDATE
   const permMatch = raw.match(/^permission:(.+)$/)
   if (permMatch) {
     return {
-      type: "authorization_check",
+      type: IR_NODE_TYPES.AUTHZ_CHECK,
       role: "authorization",
       args: permMatch[1].split("|"),
     }
@@ -90,10 +91,10 @@ function mapMiddleware(raw: string): MiddlewareMapping {
 
   // Class-based middleware — use short class name as symbol
   if (raw.includes("\\") || /^[A-Z]/.test(raw)) {
-    return { type: "middleware", role: "middleware", args: [raw] }
+    return { type: IR_NODE_TYPES.AUTH_GATE, role: "middleware", args: [raw] }
   }
 
-  return { type: "middleware", role: "middleware" }
+  return { type: IR_NODE_TYPES.AUTH_GATE, role: "middleware" }
 }
 
 export function middlewareToNode(raw: string, index: number): ExecutionNode {

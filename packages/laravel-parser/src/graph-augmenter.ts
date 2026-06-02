@@ -7,6 +7,7 @@ import type {
   GraphAnnotation,
   ProjectConfig,
 } from "@archmind/protocol"
+import { IR_NODE_TYPES, IR_VERSION } from "@archmind/protocol"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
@@ -76,7 +77,7 @@ export function augmentGraph(
   const newAnnotations: GraphAnnotation[] = [...graph.annotations]
 
   // ---- Controller L1 pass ------------------------------------------
-  const ctrlNode = graph.nodes.find((n) => n.type === "controller_action")
+  const ctrlNode = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
   if (ctrlNode?.file) {
     const [ctrlClass, methodName] = ctrlNode.symbol.split("::")
     if (methodName) {
@@ -89,7 +90,7 @@ export function augmentGraph(
           const frFile = fqcnToPath(fr.fqcn, config.namespaces) ?? undefined
           newNodes.push({
             id,
-            type:   "form_request",
+            type: IR_NODE_TYPES.VALIDATION_GATE,
             symbol: `${fr.shortName}::authorize`,
             role:   "validation",
             file:   frFile,
@@ -110,7 +111,7 @@ export function augmentGraph(
           const id = `policy_${policyClass.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${auth.ability}`
           const policyNode: ExecutionNode = {
             id,
-            type:   "policy",
+            type: IR_NODE_TYPES.AUTHZ_CHECK,
             symbol: `${policyClass}::${auth.ability}`,
             role:   "authorization",
             file:   policyFile,
@@ -182,7 +183,7 @@ export function augmentGraph(
   }
 
   // ---- Middleware service_call pass ------------------------------------
-  const mwTypes = new Set(["middleware", "authorization_check", "authentication_gate"])
+  const mwTypes = new Set(["ir:auth_gate", "ir:authz_check", "middleware", "authorization_check", "authentication_gate"])
   for (const mwNode of graph.nodes) {
     if (!mwTypes.has(mwNode.type) || !mwNode.file) continue
     const filePath = join(opts.projectRoot, mwNode.file)
@@ -217,7 +218,7 @@ export function augmentGraph(
   }
 
   // ---- Transaction pass ------------------------------------------------
-  const ctrlNodeForTxn = graph.nodes.find((n) => n.type === "controller_action")
+  const ctrlNodeForTxn = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
   if (ctrlNodeForTxn?.file) {
     const filePath = join(opts.projectRoot, ctrlNodeForTxn.file)
     const txnResult = parseTransactions(filePath)
@@ -230,7 +231,7 @@ export function augmentGraph(
   traceEventListeners(newNodes, newEdges, opts.projectRoot, config.namespaces)
 
   // ---- Isolation pass --------------------------------------------------
-  const ctrlNodeForIso = graph.nodes.find((n) => n.type === "controller_action")
+  const ctrlNodeForIso = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
   if (ctrlNodeForIso?.file) {
     const filePath = join(opts.projectRoot, ctrlNodeForIso.file)
     const isoResult = parseIsolation(filePath, {
@@ -240,7 +241,7 @@ export function augmentGraph(
     addIsolationNodes(newNodes, newEdges, ctrlNodeForIso.id, isoResult)
   }
 
-  return { ...graph, nodes: newNodes, edges: newEdges, annotations: newAnnotations }
+  return { ...graph, nodes: newNodes, edges: newEdges, annotations: newAnnotations, framework: "laravel", ir_ver: IR_VERSION }
 }
 
 // ---- Event → listener tracing ----------------------------------------
@@ -259,7 +260,7 @@ function traceEventListeners(
   projectRoot: string,
   namespaces: Record<string, string>
 ): void {
-  const escapeNodes = nodes.filter((n) => n.type === "transaction_escape")
+  const escapeNodes = nodes.filter((n) => n.type === IR_NODE_TYPES.TXN_ESCAPE)
   if (escapeNodes.length === 0) return
 
   // Lazy-load the map — only parsed once per augmentGraph call
@@ -281,7 +282,7 @@ function traceEventListeners(
 
       nodes.push({
         id,
-        type:   "service_call",
+        type: IR_NODE_TYPES.SERVICE_CALL,
         symbol: `${short}::handle`,
         role:   "listener",
         ...(entry.listenerFile ? { file: entry.listenerFile } : {}),
@@ -382,7 +383,7 @@ function addServiceCallNodes(
 
     const node: ExecutionNode = {
       id,
-      type:   "service_call",
+      type: IR_NODE_TYPES.SERVICE_CALL,
       symbol: `${sc.serviceClass}::${sc.method}`,
       role:   "service",
       ...(file               ? { file }      : {}),
@@ -528,7 +529,7 @@ function addTransactionNodes(
 
     nodes.push({
       id:     txnId,
-      type:   "transaction_boundary",
+      type: IR_NODE_TYPES.TXN_BOUNDARY,
       symbol: "DB::transaction",
       role:   "atomicity",
     })
@@ -544,7 +545,7 @@ function addTransactionNodes(
       const writeId = `txn_write_${callerNodeId}_${blockIdx}_${wIdx}`
       nodes.push({
         id:     writeId,
-        type:   "transactional_write",
+        type: IR_NODE_TYPES.TXN_WRITE,
         symbol: `${w.className}::${w.operation}`,
         role:   "persistence",
       })
@@ -561,7 +562,7 @@ function addTransactionNodes(
       const escapeId = `txn_escape_${callerNodeId}_${blockIdx}_${dIdx}`
       nodes.push({
         id:     escapeId,
-        type:   "transaction_escape",
+        type: IR_NODE_TYPES.TXN_ESCAPE,
         symbol: `${d.className}::dispatch`,
         role:   "side_effect",
       })
@@ -597,7 +598,7 @@ function addIsolationNodes(
     if (!nodes.some((n) => n.id === injId)) {
       nodes.push({
         id:     injId,
-        type:   "runtime_injection",
+        type: IR_NODE_TYPES.RUNTIME_INJECT,
         symbol: "app()->instance('tenant', $tenant)",
         role:   "runtime",
       })
@@ -605,7 +606,7 @@ function addIsolationNodes(
   }
 
   isoResult.modelQueries.forEach((q, idx) => {
-    const nodeType = q.hastenantConstraint ? "tenant_scoped_query" : "unscoped_query"
+    const nodeType = q.hastenantConstraint ? IR_NODE_TYPES.SCOPED_QUERY : IR_NODE_TYPES.UNSCOPED_QUERY
     const id = `iso_query_${callerNodeId}_${idx}`
 
     nodes.push({

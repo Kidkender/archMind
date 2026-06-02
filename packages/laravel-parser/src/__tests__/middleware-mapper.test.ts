@@ -3,7 +3,7 @@ import { middlewareToNode } from "../middleware-mapper.js"
 describe("middlewareToNode", () => {
   test("auth:sanctum → authentication_gate", () => {
     const node = middlewareToNode("auth:sanctum", 0)
-    expect(node.type).toBe("authentication_gate")
+    expect(node.type).toBe("ir:auth_gate")
     expect(node.role).toBe("authentication")
     expect(node.symbol).toBe("auth:sanctum")
     expect(node.id).toBe("mw_0_auth_sanctum")
@@ -11,12 +11,12 @@ describe("middlewareToNode", () => {
 
   test("auth:api → authentication_gate", () => {
     const node = middlewareToNode("auth:api", 0)
-    expect(node.type).toBe("authentication_gate")
+    expect(node.type).toBe("ir:auth_gate")
   })
 
   test("permission:task.update → authorization_check with args", () => {
     const node = middlewareToNode("permission:task.update", 2)
-    expect(node.type).toBe("authorization_check")
+    expect(node.type).toBe("ir:authz_check")
     expect(node.role).toBe("authorization")
     expect(node.args).toEqual(["task.update"])
     expect(node.symbol).toBe("permission:task.update")
@@ -46,7 +46,7 @@ describe("middlewareToNode", () => {
 
   test("class-based: ResolveTenant → middleware with class name", () => {
     const node = middlewareToNode("ResolveTenant", 1)
-    expect(node.type).toBe("middleware")
+    expect(node.type).toBe("ir:auth_gate")
     expect(node.symbol).toBe("ResolveTenant")
     expect(node.args).toContain("ResolveTenant")
   })
@@ -59,7 +59,7 @@ describe("middlewareToNode", () => {
 
   test("unknown middleware → generic middleware node", () => {
     const node = middlewareToNode("some-unknown-middleware", 0)
-    expect(node.type).toBe("middleware")
+    expect(node.type).toBe("ir:auth_gate")
   })
 
   test("node id is unique by index and name", () => {

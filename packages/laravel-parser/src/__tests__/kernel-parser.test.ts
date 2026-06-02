@@ -36,7 +36,7 @@ describe("parseRouteFile — alias resolution", () => {
     const g = graphs.find((g) => g.path === "/reports")!
     const roleNode = g.nodes.find((n) => n.symbol === "role:admin")
     expect(roleNode).toBeDefined()
-    expect(roleNode!.type).toBe("middleware")
+    expect(roleNode!.type).toBe("ir:auth_gate")
   })
 
   test("with aliasMap: role:admin resolves to authorization_check", () => {
@@ -45,7 +45,7 @@ describe("parseRouteFile — alias resolution", () => {
     const g = graphs.find((g) => g.path === "/reports")!
     const roleNode = g.nodes.find((n) => n.symbol === "EnsureUserHasRole")
     expect(roleNode).toBeDefined()
-    expect(roleNode!.type).toBe("authorization_check")
+    expect(roleNode!.type).toBe("ir:authz_check")
     expect(roleNode!.args).toEqual(["admin"])
   })
 
@@ -61,7 +61,7 @@ describe("parseRouteFile — alias resolution", () => {
     const aliasMap = parseKernel(KERNEL)
     const graphs = parseRouteFile(join(FIXTURES, "routes-alias.php"), { aliasMap })
     const g = graphs.find((g) => g.path === "/reports")!
-    const authNode = g.nodes.find((n) => n.type === "authentication_gate")
+    const authNode = g.nodes.find((n) => n.type === "ir:auth_gate")
     expect(authNode).toBeDefined()
     expect(authNode!.symbol).toBe("auth:sanctum")
   })
@@ -73,7 +73,7 @@ describe("parseRouteFile — alias resolution", () => {
     expect(g).toBeDefined()
     const tenantNode = g.nodes.find((n) => n.symbol === "ResolveTenant")
     expect(tenantNode).toBeDefined()
-    expect(tenantNode!.type).toBe("middleware")
+    expect(tenantNode!.type).toBe("ir:auth_gate")
   })
 
   test("with aliasMap: /projects/{project} has full inherited middleware stack", () => {
@@ -81,8 +81,8 @@ describe("parseRouteFile — alias resolution", () => {
     const graphs = parseRouteFile(join(FIXTURES, "routes-alias.php"), { aliasMap })
     const g = graphs.find((g) => g.path === "/projects/{project}")!
     const types = g.nodes.map((n) => n.type)
-    expect(types).toContain("authentication_gate")
-    expect(types).toContain("middleware")          // ResolveTenant
-    expect(types).toContain("controller_action")
+    expect(types).toContain("ir:auth_gate")
+    expect(types).toContain("ir:auth_gate")          // ResolveTenant
+    expect(types).toContain("ir:business_handler")
   })
 })

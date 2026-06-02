@@ -21,7 +21,7 @@ describe("extractPermissionNodes", () => {
 
   test("node type is always 'permission'", () => {
     const nodes = extractPermissionNodes(parseConstantClass(PERM_FIXTURE), REL_PATH)
-    expect(nodes.every((n) => n.type === "permission")).toBe(true)
+    expect(nodes.every((n) => n.type === "ir:permission_constant")).toBe(true)
   })
 
   test("symbol is ClassName::CONST_NAME", () => {
@@ -80,7 +80,7 @@ describe("buildHierarchyEdges", () => {
   test("no hierarchy edge when _ANY has no base counterpart", () => {
     // Synthetic case: only TASK_DELETE_ANY, no TASK_DELETE
     const nodes = [
-      { id: "perm_p_task_delete_any", type: "permission", symbol: "P::TASK_DELETE_ANY" },
+      { id: "perm_p_task_delete_any", type: "ir:permission_constant", symbol: "P::TASK_DELETE_ANY" },
     ]
     const edges = buildHierarchyEdges(nodes)
     expect(edges).toHaveLength(0)

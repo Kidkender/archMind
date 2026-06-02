@@ -16,7 +16,7 @@ const SKELETON: IntermediateExecutionGraph = {
   nodes: [
     {
       id:     "ctrl_taskcontroller_update",
-      type:   "controller_action",
+      type:   "ir:business_handler",
       symbol: "TaskController::update",
       role:   "handler",
       file:   "app/Modules/Task/Http/Controllers/TaskController.php",
@@ -35,21 +35,21 @@ describe("augmentGraph — TaskController::update", () => {
 
   test("adds a form_request node", () => {
     const types = augmented.nodes.map((n) => n.type)
-    expect(types).toContain("form_request")
+    expect(types).toContain("ir:validation_gate")
   })
 
   test("form_request symbol is UpdateTaskRequest::authorize", () => {
-    const node = augmented.nodes.find((n) => n.type === "form_request")
+    const node = augmented.nodes.find((n) => n.type === "ir:validation_gate")
     expect(node?.symbol).toBe("UpdateTaskRequest::authorize")
   })
 
   test("adds a policy node", () => {
     const types = augmented.nodes.map((n) => n.type)
-    expect(types).toContain("policy")
+    expect(types).toContain("ir:authz_check")
   })
 
   test("policy symbol is TaskPolicy::update", () => {
-    const node = augmented.nodes.find((n) => n.type === "policy")
+    const node = augmented.nodes.find((n) => n.type === "ir:authz_check")
     expect(node?.symbol).toBe("TaskPolicy::update")
   })
 
@@ -67,7 +67,7 @@ describe("augmentGraph — TaskController::update", () => {
   })
 
   test("original skeleton nodes are preserved", () => {
-    expect(augmented.nodes.some((n) => n.type === "controller_action")).toBe(true)
+    expect(augmented.nodes.some((n) => n.type === "ir:business_handler")).toBe(true)
   })
 })
 
@@ -79,12 +79,12 @@ describe("augmentGraph — service_call extraction", () => {
     method: "PUT", path: "/tasks/{task}",
     nodes: [
       {
-        id: "mw_2_checkpermission", type: "authorization_check",
+        id: "mw_2_checkpermission", type: "ir:authz_check",
         symbol: "CheckPermission::handle", role: "authorization",
         file: "app/Http/Middleware/CheckPermission.php",
       },
       {
-        id: "ctrl_taskcontroller_update", type: "controller_action",
+        id: "ctrl_taskcontroller_update", type: "ir:business_handler",
         symbol: "TaskController::update", role: "handler",
         file: "app/Modules/Task/Http/Controllers/TaskController.php",
       },
@@ -101,7 +101,7 @@ describe("augmentGraph — service_call extraction", () => {
 
   test("extracts service_call from CheckPermission::handle", () => {
     const sc = augmented.nodes.find(
-      n => n.type === "service_call" && n.symbol === "PermissionService::hasPermission"
+      n => n.type === "ir:service_call" && n.symbol === "PermissionService::hasPermission"
         && n.id.includes("checkpermission")
     )
     expect(sc).toBeDefined()
@@ -109,14 +109,14 @@ describe("augmentGraph — service_call extraction", () => {
 
   test("CheckPermission service_call has correct file", () => {
     const sc = augmented.nodes.find(
-      n => n.type === "service_call" && n.id.includes("checkpermission")
+      n => n.type === "ir:service_call" && n.id.includes("checkpermission")
     )
     expect(sc?.file).toBe("app/Modules/Access/Services/PermissionService.php")
   })
 
   test("extracts service_call from TaskPolicy::update", () => {
     const sc = augmented.nodes.find(
-      n => n.type === "service_call" && n.symbol === "PermissionService::hasPermission"
+      n => n.type === "ir:service_call" && n.symbol === "PermissionService::hasPermission"
         && n.id.includes("policy")
     )
     expect(sc).toBeDefined()
@@ -124,13 +124,13 @@ describe("augmentGraph — service_call extraction", () => {
 
   test("policy service_call has args (TASK_UPDATE)", () => {
     const sc = augmented.nodes.find(
-      n => n.type === "service_call" && n.id.includes("policy")
+      n => n.type === "ir:service_call" && n.id.includes("policy")
     )
     expect(sc?.args).toContain("TASK_UPDATE")
   })
 
   test("service_call edges have relation 'calls' and traceability semantic", () => {
-    const serviceCallIds = new Set(augmented.nodes.filter(n => n.type === "service_call").map(n => n.id))
+    const serviceCallIds = new Set(augmented.nodes.filter(n => n.type === "ir:service_call").map(n => n.id))
     const scEdges = augmented.edges.filter(e => e.relation === "calls" && serviceCallIds.has(e.to))
     expect(scEdges.length).toBeGreaterThanOrEqual(2)
     expect(scEdges.every(e => e.traceability === "semantic")).toBe(true)
@@ -138,7 +138,7 @@ describe("augmentGraph — service_call extraction", () => {
 
   test("two distinct service_call nodes for same method (caller-scoped IDs)", () => {
     const scNodes = augmented.nodes.filter(
-      n => n.type === "service_call" && n.symbol === "PermissionService::hasPermission"
+      n => n.type === "ir:service_call" && n.symbol === "PermissionService::hasPermission"
     )
     expect(scNodes.length).toBe(2)
     expect(scNodes[0].id).not.toBe(scNodes[1].id)
@@ -149,7 +149,7 @@ describe("augmentGraph — missing file field", () => {
   test("returns graph unchanged when controller has no file field", () => {
     const noFile: IntermediateExecutionGraph = {
       ...SKELETON,
-      nodes: [{ id: "ctrl", type: "controller_action", symbol: "Ctrl::act", role: "handler" }],
+      nodes: [{ id: "ctrl", type: "ir:business_handler", symbol: "Ctrl::act", role: "handler" }],
     }
     const result = augmentGraph(noFile, { projectRoot: FIXTURES })
     expect(result.nodes).toHaveLength(1)
@@ -165,7 +165,7 @@ const TXN_STORE_SKELETON: IntermediateExecutionGraph = {
   path:       "/tasks",
   nodes: [{
     id:     "ctrl_taskcontroller_store",
-    type:   "controller_action",
+    type:   "ir:business_handler",
     symbol: "TaskController::store",
     role:   "handler",
     file:   "app/Modules/Task/Http/Controllers/TaskController.php",
@@ -182,7 +182,7 @@ describe("augmentGraph — event→listener tracing (P1)", () => {
   })
 
   test("emits transaction_escape node for TaskCreated::dispatch", () => {
-    const esc = aug.nodes.find((n) => n.type === "transaction_escape")
+    const esc = aug.nodes.find((n) => n.type === "ir:txn_escape")
     expect(esc).toBeDefined()
     expect(esc?.symbol).toBe("TaskCreated::dispatch")
   })
@@ -190,7 +190,7 @@ describe("augmentGraph — event→listener tracing (P1)", () => {
   test("emits service_call listener node for SendTaskCreatedNotification::handle", () => {
     const listener = aug.nodes.find((n) => n.symbol === "SendTaskCreatedNotification::handle")
     expect(listener).toBeDefined()
-    expect(listener?.type).toBe("service_call")
+    expect(listener?.type).toBe("ir:service_call")
     expect(listener?.role).toBe("listener")
     expect(listener?.file).toBe("app/Listeners/SendTaskCreatedNotification.php")
   })
@@ -201,7 +201,7 @@ describe("augmentGraph — event→listener tracing (P1)", () => {
   })
 
   test("calls edge connects transaction_escape to listener", () => {
-    const escNode    = aug.nodes.find((n) => n.type === "transaction_escape")
+    const escNode    = aug.nodes.find((n) => n.type === "ir:txn_escape")
     const listenNode = aug.nodes.find((n) => n.symbol === "SendTaskCreatedNotification::handle")
     const edge = aug.edges.find(
       (e) => e.from === escNode?.id && e.to === listenNode?.id && e.relation === "calls"

@@ -26,7 +26,7 @@ describe("parseRouteFile — simple routes", () => {
     const g = graphs.find((g) => g.path === "/health")
     expect(g).toBeDefined()
     expect(g!.nodes).toHaveLength(1)
-    expect(g!.nodes[0].type).toBe("controller_action")
+    expect(g!.nodes[0].type).toBe("ir:business_handler")
   })
 
   test("POST /tasks has no middleware", () => {
@@ -57,22 +57,22 @@ describe("parseRouteFile — nested middleware groups", () => {
     const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")!
     const types = g.nodes.map((n) => n.type)
     expect(types).toEqual([
-      "authentication_gate",
-      "middleware",
-      "authorization_check",
-      "controller_action",
+      "ir:auth_gate",
+      "ir:auth_gate",
+      "ir:authz_check",
+      "ir:business_handler",
     ])
   })
 
   test("permission arg is resolved from constant (task.update not raw constant name)", () => {
     const g = graphs.find((g) => g.entrypoint === "PUT /tasks/{task}")!
-    const perm = g.nodes.find((n) => n.type === "authorization_check")
+    const perm = g.nodes.find((n) => n.type === "ir:authz_check")
     expect(perm?.args).toEqual(["task.update"])
   })
 
   test("DELETE /tasks/{task} has permission:task.delete", () => {
     const g = graphs.find((g) => g.method === "DELETE")!
-    const perm = g.nodes.find((n) => n.type === "authorization_check")
+    const perm = g.nodes.find((n) => n.type === "ir:authz_check")
     expect(perm?.args).toEqual(["task.delete"])
   })
 
@@ -105,8 +105,8 @@ describe("parseRouteFile — require includes", () => {
   test("routes inherit middleware from parent file's groups", () => {
     for (const g of graphs) {
       const types = g.nodes.map((n) => n.type)
-      expect(types).toContain("authentication_gate")
-      expect(types).toContain("middleware")  // ResolveTenant
+      expect(types).toContain("ir:auth_gate")
+      expect(types).toContain("ir:auth_gate")  // ResolveTenant
     }
   })
 })

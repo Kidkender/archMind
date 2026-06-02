@@ -1,4 +1,5 @@
 import type { IntermediateExecutionGraph, ExecutionNode } from "@archmind/protocol"
+import { toIRNodeType } from "@archmind/protocol"
 import type { GoldenTrace, GoldenNode } from "./golden-trace.js"
 
 // ---- Public API -------------------------------------------------------
@@ -42,8 +43,15 @@ export interface ScoreReport {
 
 // ---- Tier classification ----------------------------------------------
 
-// Skeleton = nodes extractable from the routes file alone
+// Skeleton = nodes extractable from the routes file alone (no interprocedural analysis).
+// "ir:authz_check" is intentionally excluded — it covers both middleware-level authz
+// (skeleton) AND policy-level authz (deeper). Using raw type strings preserves the
+// original taxonomy until golden traces are migrated to IR types.
 const SKELETON_TYPES = new Set([
+  // IR types that are unambiguously skeleton
+  "ir:auth_gate",
+  "ir:business_handler",
+  // Legacy types (golden traces not yet migrated)
   "middleware",
   "controller",
   "authentication_gate",
@@ -55,6 +63,8 @@ const SKELETON_TYPES = new Set([
 ])
 
 function isSkeleton(node: GoldenNode): boolean {
+  // Do NOT normalize here — golden trace type strings encode skeleton/deeper distinction
+  // that would be lost by mapping "authorization_check" and "policy" both to "ir:authz_check"
   return SKELETON_TYPES.has(node.type)
 }
 
@@ -111,14 +121,18 @@ function matchScore(golden: GoldenNode, extracted: ExecutionNode): number {
 }
 
 function semanticTypeMatch(goldenType: string, extractedType: string): boolean {
-  const AUTH_TYPES    = new Set(["middleware", "authentication_gate", "signature_check", "email_verification"])
-  const AUTHZ_TYPES   = new Set(["middleware", "authorization_check", "policy"])
-  const HANDLER_TYPES = new Set(["controller", "controller_action"])
+  const g = toIRNodeType(goldenType)
+  const e = toIRNodeType(extractedType)
+  if (g === e) return true
+  // Middleware in golden traces covers both auth and authz — treat all middleware IR types as compatible
+  const AUTH_TYPES    = new Set(["ir:auth_gate", "ir:authz_check", "middleware", "authentication_gate", "authorization_check", "signature_check", "email_verification"])
+  const AUTHZ_TYPES   = new Set(["ir:authz_check", "ir:auth_gate", "middleware", "authorization_check", "policy"])
+  const HANDLER_TYPES = new Set(["ir:business_handler", "controller", "controller_action"])
 
-  if (AUTH_TYPES.has(goldenType)    && AUTH_TYPES.has(extractedType))    return true
-  if (AUTHZ_TYPES.has(goldenType)   && AUTHZ_TYPES.has(extractedType))   return true
-  if (HANDLER_TYPES.has(goldenType) && HANDLER_TYPES.has(extractedType)) return true
-  return goldenType === extractedType
+  if (AUTH_TYPES.has(g)    && AUTH_TYPES.has(e))    return true
+  if (AUTHZ_TYPES.has(g)   && AUTHZ_TYPES.has(e))   return true
+  if (HANDLER_TYPES.has(g) && HANDLER_TYPES.has(e)) return true
+  return false
 }
 
 function tokenize(sym: string): string[] {
@@ -203,7 +217,11 @@ export function scoreTrace(
     : skeletonEdgeCount === 0 ? 1 : 0
 
   // Score deeper nodes against any non-skeleton nodes in the extracted graph
-  const extractedDeeper = graph.nodes.filter((n) => !SKELETON_TYPES.has(n.type))
+  // Normalize extracted node types to catch ir: prefixed types that map to legacy skeleton types
+  const extractedDeeper = graph.nodes.filter((n) => {
+    const normalized = toIRNodeType(n.type)
+    return !SKELETON_TYPES.has(n.type) && !SKELETON_TYPES.has(normalized)
+  })
   const deeperMatches: NodeMatch[] = deeperNodes.map((gn) => {
     const hit = findBestMatch(gn, extractedDeeper)
     return {

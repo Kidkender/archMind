@@ -1,4 +1,5 @@
 import type { ExecutionNode } from "@archmind/protocol"
+import { IR_NODE_TYPES } from "@archmind/protocol"
 import type { ConstantMap } from "../constant-resolver.js"
 
 export function extractPermissionNodes(
@@ -12,7 +13,7 @@ export function extractPermissionNodes(
       const id = `perm_${className.toLowerCase()}_${constName.toLowerCase()}`
       nodes.push({
         id,
-        type: "permission",
+        type: IR_NODE_TYPES.PERMISSION_CONSTANT,
         symbol: `${className}::${constName}`,
         file: relativeFilePath,
       })
