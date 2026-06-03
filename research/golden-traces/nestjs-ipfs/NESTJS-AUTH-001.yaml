@@ -1,0 +1,44 @@
+id: NESTJS-AUTH-001
+entrypoint: "GET /auth/status"
+framework: nestjs
+source_project: IPFS-api
+
+retrieval:
+  query: "Who is allowed to check authentication status, and is there any authorization beyond being logged in?"
+
+nodes:
+  - id: jwt_guard
+    type: ir:auth_gate
+    symbol: JwtAuthGuard
+    file: src/auth/guards/jwt.guard.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: auth_controller_status
+    type: ir:business_handler
+    symbol: AuthController::status
+    file: src/auth/auth.controller.ts
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: jwt_guard
+    to: auth_controller_status
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [jwt_guard, auth_controller_status]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: security_note
+    nodes: [jwt_guard]
+    description: >
+      JwtAuthGuard verifies the JWT token but does not enforce any role or
+      permission check. Any authenticated user can call GET /auth/status.
+      No policy or roles guard is present — this is authentication-only,
+      not authorization.

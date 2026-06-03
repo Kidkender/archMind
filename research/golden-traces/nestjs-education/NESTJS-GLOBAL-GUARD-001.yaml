@@ -1,0 +1,53 @@
+id: NESTJS-GLOBAL-GUARD-001
+entrypoint: "DELETE /users/:id"
+framework: nestjs
+source_project: education-api
+
+retrieval:
+  query: "How is user deletion protected? Can any authenticated user delete any user?"
+
+nodes:
+  - id: global_auth_guard
+    type: ir:auth_gate
+    symbol: AuthGuard
+    file: src/auth/guards/auth.guard.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: users_controller_remove
+    type: ir:business_handler
+    symbol: UsersController::remove
+    file: src/users/users.controller.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: global_auth_guard
+    to: users_controller_remove
+    relation: next_middleware
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [global_auth_guard, users_controller_remove]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: security_note
+    nodes: [global_auth_guard]
+    description: >
+      AuthGuard is registered globally via APP_GUARD token in AuthModule.
+      It enforces authentication across all routes automatically.
+      @Public() on /auth/login bypasses it. However, DELETE /users/:id
+      has no role check or ownership policy — any authenticated user can
+      delete any other user by guessing their ID.
+
+  - type: design_note
+    nodes: [global_auth_guard]
+    description: >
+      Global guard via APP_GUARD is idiomatic NestJS for enforcing
+      authentication project-wide. The @Public() decorator on login
+      is a whitelist exception pattern — more maintainable than
+      adding @UseGuards() to every protected route.

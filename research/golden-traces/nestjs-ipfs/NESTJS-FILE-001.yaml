@@ -1,0 +1,56 @@
+id: NESTJS-FILE-001
+entrypoint: "POST /files/copy-file"
+framework: nestjs
+source_project: IPFS-api
+
+retrieval:
+  query: "Who can copy a file, and is the copy request validated before processing?"
+
+nodes:
+  - id: jwt_guard
+    type: ir:auth_gate
+    symbol: JwtAuthGuard
+    file: src/auth/guards/jwt.guard.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: file_controller_copy
+    type: ir:business_handler
+    symbol: FileController::copyFile
+    file: src/files/file.controller.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: transfer_dto
+    type: ir:validation_gate
+    symbol: TransferIpfsFileDto
+    file: src/files/dto/transfer-ipfs-file.dto.ts
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+edges:
+  - from: jwt_guard
+    to: file_controller_copy
+    relation: next_middleware
+
+  - from: file_controller_copy
+    to: transfer_dto
+    relation: validates
+
+expected_findings:
+  - type: missing_authorization
+    required_nodes: [jwt_guard, file_controller_copy]
+
+expected_top_finding: missing_authorization
+
+annotations:
+  - type: security_note
+    nodes: [jwt_guard, transfer_dto]
+    description: >
+      JwtAuthGuard enforces authentication but not authorization — any
+      authenticated user can copy any file regardless of ownership.
+      TransferIpfsFileDto validates the request body (source/destination
+      CID fields). No ownership check or policy guard is present.
