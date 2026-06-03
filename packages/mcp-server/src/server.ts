@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
-import { getGraphs, invalidate } from "./cache.js"
+import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@archmind/retrieval"
 import { explain } from "@archmind/explainer"
 import type { RetrievalFocus } from "@archmind/protocol"
@@ -13,15 +13,34 @@ const FOCUS_VALUES = ["auth", "validation", "runtime", "transaction", "isolation
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "archmind",
-    version: "0.1.0",
+    version: "0.2.0",
   })
+
+  server.registerTool(
+    "archmind_detect_framework",
+    {
+      description: "Detect whether a project is Laravel or NestJS. Call this first if you are unsure which framework the project uses.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the project root"),
+      },
+    },
+    async ({ project_root }) => {
+      const framework = detectFramework(project_root)
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({ project_root, framework }, null, 2),
+        }],
+      }
+    }
+  )
 
   server.registerTool(
     "archmind_list_entrypoints",
     {
-      description: "List all HTTP entrypoints (routes) in a Laravel project, with method, path, and node count.",
+      description: "List all HTTP entrypoints (routes) in a Laravel or NestJS project, with method, path, and node count. Framework is auto-detected from the project root.",
       inputSchema: {
-        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
       },
     },
     async ({ project_root }) => {
@@ -48,9 +67,9 @@ export function createServer(): McpServer {
     "archmind_get_execution_graph",
     {
       description:
-        "Return the semantic execution graph for a specific entrypoint. Use `focus` to narrow to a concern (auth, validation, runtime, transaction, isolation, all).",
+        "Return the semantic execution graph for a specific entrypoint in a Laravel or NestJS project. Use `focus` to narrow to a concern (auth, validation, runtime, transaction, isolation, all). Framework is auto-detected.",
       inputSchema: {
-        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
         entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}"'),
         focus: z
           .enum(FOCUS_VALUES)
@@ -117,8 +136,8 @@ export function createServer(): McpServer {
       description:
         "Run static and optional runtime pattern detectors on the execution graph and return semantic findings (no LLM call). Findings include security issues, authorization gaps, transaction anomalies, isolation violations, and — when a trace session is provided — runtime findings like N+1 queries and slow queries.",
       inputSchema: {
-        project_root: z.string().describe("Absolute path to the Laravel project root"),
-        entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}"'),
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
+        entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /tasks/{task}" or "GET /users/:id"'),
         query: z
           .string()
           .optional()
@@ -218,7 +237,7 @@ export function createServer(): McpServer {
         "Pass a class name (e.g. 'OrderService') for all methods, or a full symbol " +
         "(e.g. 'OrderService::create') for a specific method.",
       inputSchema: {
-        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
         symbol: z
           .string()
           .describe(
@@ -256,9 +275,9 @@ export function createServer(): McpServer {
     "archmind_invalidate_cache",
     {
       description:
-        "Invalidate the cached parse result for a project root, forcing a fresh parse on the next call. Use when the project's PHP files have changed.",
+        "Invalidate the cached parse result for a project root, forcing a fresh parse on the next call. Use when the project's source files have changed.",
       inputSchema: {
-        project_root: z.string().describe("Absolute path to the Laravel project root"),
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
       },
     },
     async ({ project_root }) => {
