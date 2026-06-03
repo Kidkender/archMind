@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: mw_0_tenant_context
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenantContext
     file: app/Http/Middleware/ResolveTenantContext.php
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: false
 
   - id: mw_1_api_auth
-    type: authentication_gate
+    type: ir:auth_gate
     symbol: AuthenticateApiToken
     file: app/Http/Middleware/AuthenticateApiToken.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: false
 
   - id: ctrl_userprofilecontroller_getUserInfo
-    type: controller_action
+    type: ir:business_handler
     symbol: UserProfileController::getUserInfo
     file: app/Domains/Auth/Http/Controllers/UserProfileController.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: false
 
   - id: svc_tenantcontextservice_resolvetenantcontext
-    type: service_call
+    type: ir:service_call
     symbol: TenantContextService::resolveTenantContext
     file: app/Domains/Tenant/Services/TenantContextService.php
     retrieval:
@@ -40,7 +40,7 @@ nodes:
       compressible: false
 
   - id: svc_tenantcontextservice_resolverolescope
-    type: service_call
+    type: ir:service_call
     symbol: TenantContextService::resolveRoleScope
     file: app/Domains/Tenant/Services/TenantContextService.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: iso_tenant_get
-    type: unscoped_query
+    type: ir:unscoped_query
     symbol: Tenant::get
     file: ~
     retrieval:
@@ -56,7 +56,7 @@ nodes:
       compressible: false
 
   - id: iso_tenant_all
-    type: unscoped_query
+    type: ir:unscoped_query
     symbol: Tenant::all
     file: ~
     retrieval:

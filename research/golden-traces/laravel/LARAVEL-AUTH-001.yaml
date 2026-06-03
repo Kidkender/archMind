@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: sanctum
-    type: middleware
+    type: ir:auth_gate
     symbol: auth:sanctum
     file: ~
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: resolve_tenant
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: check_permission
-    type: middleware
+    type: ir:auth_gate
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     args: [task.update]
@@ -33,7 +33,7 @@ nodes:
       compressible: false
 
   - id: task_controller_update
-    type: controller
+    type: ir:business_handler
     symbol: TaskController::update
     file: app/Modules/Task/Http/Controllers/TaskController.php
     retrieval:
@@ -41,7 +41,7 @@ nodes:
       compressible: true
 
   - id: update_task_request
-    type: form_request
+    type: ir:validation_gate
     symbol: UpdateTaskRequest::authorize
     file: app/Modules/Task/Requests/UpdateTaskRequest.php
     retrieval:
@@ -49,7 +49,7 @@ nodes:
       compressible: true
 
   - id: task_policy_update
-    type: policy
+    type: ir:authz_check
     symbol: TaskPolicy::update
     file: app/Policies/TaskPolicy.php
     retrieval:
@@ -57,7 +57,7 @@ nodes:
       compressible: false
 
   - id: permission_service_1
-    type: service_call
+    type: ir:service_call
     symbol: PermissionService::hasPermission
     file: app/Modules/Access/Services/PermissionService.php
     args: [TASK_UPDATE]
@@ -68,7 +68,7 @@ nodes:
       compressed_summary: "middleware invokes PermissionService::hasPermission(TASK_UPDATE)"
 
   - id: permission_service_2
-    type: service_call
+    type: ir:service_call
     symbol: PermissionService::hasPermission
     file: app/Modules/Access/Services/PermissionService.php
     args: [TASK_UPDATE]

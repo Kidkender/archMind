@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: sanctum
-    type: middleware
+    type: ir:auth_gate
     symbol: auth:sanctum
     file: ~
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: product_controller_update
-    type: controller
+    type: ir:business_handler
     symbol: ProductController::update
     file: app/Http/Controllers/Api/ProductController.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: false
 
   - id: update_product_request
-    type: form_request
+    type: ir:validation_gate
     symbol: UpdateProductRequest::authorize
     file: app/Http/Requests/UpdateProductRequest.php
     retrieval:

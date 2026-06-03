@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: sanctum
-    type: authentication_gate
+    type: ir:auth_gate
     symbol: auth:sanctum
     file: ~
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: cart_index
-    type: controller_action
+    type: ir:business_handler
     symbol: CartController::index
     file: app/Http/Controllers/Api/V1/CartController.php
     retrieval:

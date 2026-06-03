@@ -45,21 +45,14 @@ export interface ScoreReport {
 
 // Skeleton = nodes extractable from the routes file alone (no interprocedural analysis).
 // "ir:authz_check" is intentionally excluded — it covers both middleware-level authz
-// (skeleton) AND policy-level authz (deeper). Using raw type strings preserves the
-// original taxonomy until golden traces are migrated to IR types.
+// (skeleton) AND policy-level authz (deeper).
 const SKELETON_TYPES = new Set([
-  // IR types that are unambiguously skeleton
   "ir:auth_gate",
   "ir:business_handler",
-  // Legacy types (golden traces not yet migrated)
-  "middleware",
-  "controller",
-  "authentication_gate",
-  "authorization_check",
+  // Non-IR types with no IR equivalent (kept as-is by middleware-mapper)
   "rate_limiter",
   "signature_check",
   "email_verification",
-  "controller_action",
 ])
 
 function isSkeleton(node: GoldenNode): boolean {

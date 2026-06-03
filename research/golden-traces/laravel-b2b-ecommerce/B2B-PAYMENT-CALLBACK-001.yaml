@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: payment_response_controller
-    type: controller_action
+    type: ir:business_handler
     symbol: BankIntegrationController::paymentResponse
     file: app/Http/Controllers/BankIntegrationController.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: false
 
   - id: process_response_action
-    type: service_call
+    type: ir:service_call
     symbol: ProcessPaymentResponseAction::execute
     file: app/Application/Payment/Actions/ProcessPaymentResponseAction.php
     retrieval:
@@ -40,7 +40,7 @@ nodes:
       compressible: false
 
   - id: verify_signature
-    type: service_call
+    type: ir:service_call
     symbol: PaymentCallbackSecurityService::verifyPaymentSignature
     file: app/Application/Payment/Services/PaymentCallbackSecurityService.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: payload_mapper
-    type: service_call
+    type: ir:service_call
     symbol: PaymentPayloadMapper::toCallbackRequestFromPayment
     file: app/Application/Payment/Mappers/PaymentPayloadMapper.php
     retrieval:
@@ -56,7 +56,7 @@ nodes:
       compressible: true
 
   - id: orchestration_resolve
-    type: service_call
+    type: ir:service_call
     symbol: PaymentOrchestrationService::resolveCallback
     file: app/Application/Payment/Services/PaymentOrchestrationService.php
     retrieval:
@@ -64,7 +64,7 @@ nodes:
       compressible: false
 
   - id: txn_boundary
-    type: transaction_boundary
+    type: ir:txn_boundary
     symbol: DB::transaction
     file: ~
     retrieval:
@@ -72,7 +72,7 @@ nodes:
       compressible: false
 
   - id: txn_write
-    type: transactional_write
+    type: ir:txn_write
     symbol: unknown::update
     file: ~
     retrieval:

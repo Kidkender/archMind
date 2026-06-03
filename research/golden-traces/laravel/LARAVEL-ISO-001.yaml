@@ -8,14 +8,14 @@ retrieval:
 
 nodes:
   - id: sanctum
-    type: middleware
+    type: ir:auth_gate
     symbol: auth:sanctum
     retrieval:
       relevance: LOW
       compressible: true
 
   - id: resolve_tenant
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
     retrieval:
@@ -23,7 +23,7 @@ nodes:
       compressible: false
 
   - id: tenant_injection
-    type: runtime_injection
+    type: ir:runtime_inject
     symbol: app()->instance('tenant', $tenant)
     role: runtime
     retrieval:
@@ -31,7 +31,7 @@ nodes:
       compressible: false
 
   - id: check_permission
-    type: authorization_check
+    type: ir:authz_check
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     args: [task.view]
@@ -40,7 +40,7 @@ nodes:
       compressible: true
 
   - id: task_controller_show
-    type: controller_action
+    type: ir:business_handler
     symbol: TaskController::show
     file: app/Modules/Task/Http/Controllers/TaskController.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: task_find_unscoped
-    type: unscoped_query
+    type: ir:unscoped_query
     symbol: Task::find
     file: app/Modules/Task/Models/Task.php
     role: data_access
@@ -57,7 +57,7 @@ nodes:
       compressible: false
 
   - id: task_policy_view
-    type: policy
+    type: ir:authz_check
     symbol: TaskPolicy::view
     file: app/Policies/TaskPolicy.php
     retrieval:

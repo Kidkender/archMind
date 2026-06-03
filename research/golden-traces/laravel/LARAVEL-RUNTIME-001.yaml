@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: resolve_tenant
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: false
 
   - id: container_instance
-    type: runtime_injection
+    type: ir:runtime_inject
     symbol: app()->instance('tenant', $tenant)
     key: tenant
     injected_by: resolve_tenant
@@ -25,7 +25,7 @@ nodes:
       compressible: false
 
   - id: task_controller
-    type: controller
+    type: ir:business_handler
     symbol: TaskController
     file: app/Modules/Task/Http/Controllers/TaskController.php
     consumes_key: tenant
@@ -35,7 +35,7 @@ nodes:
       compressible: false
 
   - id: require_feature
-    type: middleware
+    type: ir:auth_gate
     symbol: RequireFeature::handle
     file: app/Http/Middleware/RequireFeature.php
     consumes_key: tenant

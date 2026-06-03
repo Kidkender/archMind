@@ -8,14 +8,14 @@ retrieval:
 
 nodes:
   - id: sanctum
-    type: middleware
+    type: ir:auth_gate
     symbol: auth:sanctum
     retrieval:
       relevance: LOW
       compressible: true
 
   - id: resolve_tenant
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
     retrieval:
@@ -23,7 +23,7 @@ nodes:
       compressible: true
 
   - id: check_permission
-    type: middleware
+    type: ir:auth_gate
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     args: [task.delete]
@@ -32,7 +32,7 @@ nodes:
       compressible: true
 
   - id: task_controller_destroy
-    type: controller
+    type: ir:business_handler
     symbol: TaskController::destroy
     file: app/Modules/Task/Http/Controllers/TaskController.php
     retrieval:
@@ -40,7 +40,7 @@ nodes:
       compressible: true
 
   - id: task_policy_delete
-    type: policy
+    type: ir:authz_check
     symbol: TaskPolicy::delete
     file: app/Policies/TaskPolicy.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: perm_task_delete
-    type: permission
+    type: ir:permission_constant
     symbol: Permission::TASK_DELETE
     file: app/Common/Constants/Permission.php
     privilege_level: basic
@@ -57,7 +57,7 @@ nodes:
       compressible: false
 
   - id: perm_task_delete_any
-    type: permission
+    type: ir:permission_constant
     symbol: Permission::TASK_DELETE_ANY
     file: app/Common/Constants/Permission.php
     privilege_level: elevated

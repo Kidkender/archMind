@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: update_task_request
-    type: form_request
+    type: ir:validation_gate
     symbol: UpdateTaskRequest::authorize
     file: app/Modules/Task/Requests/UpdateTaskRequest.php
     returns: true
@@ -18,7 +18,7 @@ nodes:
       compressible: false
 
   - id: check_permission
-    type: middleware
+    type: ir:auth_gate
     symbol: CheckPermission::handle
     file: app/Http/Middleware/CheckPermission.php
     role: auth_layer_1
@@ -27,7 +27,7 @@ nodes:
       compressible: false
 
   - id: task_policy_update
-    type: policy
+    type: ir:authz_check
     symbol: TaskPolicy::update
     file: app/Policies/TaskPolicy.php
     role: auth_layer_2

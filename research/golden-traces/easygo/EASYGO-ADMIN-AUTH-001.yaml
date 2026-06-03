@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: sanctum
-    type: authentication_gate
+    type: ir:auth_gate
     symbol: auth:sanctum
     file: ~
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: admin_middleware
-    type: middleware
+    type: ir:auth_gate
     symbol: AdminMiddleware
     file: app/Http/Middleware/AdminMiddleware.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: false
 
   - id: update_status
-    type: controller_action
+    type: ir:business_handler
     symbol: AdminOrderController::updateStatus
     file: app/Http/Controllers/Api/V1/Admin/AdminOrderController.php
     retrieval:

@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: permission_check
-    type: authorization_check
+    type: ir:authz_check
     symbol: permission:Ödeme Raporları
     file: ~
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: false
 
   - id: audit_middleware
-    type: middleware
+    type: ir:auth_gate
     symbol: AdminAuditTrailMiddleware
     file: app/Http/Middleware/AdminAuditTrailMiddleware.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: refund_controller
-    type: controller_action
+    type: ir:business_handler
     symbol: PaymentReportController::updateRefundStatus
     file: app/Http/Controllers/Admin/PaymentReportController.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: false
 
   - id: refund_service
-    type: service_call
+    type: ir:service_call
     symbol: RefundService::process
     file: app/Services/RefundService.php
     retrieval:
@@ -40,7 +40,7 @@ nodes:
       compressible: false
 
   - id: payment_service_refund
-    type: service_call
+    type: ir:service_call
     symbol: PaymentService::refund
     file: app/Services/PaymentService.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: state_machine_refund
-    type: service_call
+    type: ir:service_call
     symbol: PaymentStateMachine::canTransitionToRefund
     file: app/Application/Payment/Services/PaymentStateMachine.php
     retrieval:
@@ -56,7 +56,7 @@ nodes:
       compressible: false
 
   - id: account_txn_refund
-    type: service_call
+    type: ir:service_call
     symbol: AccountTransactionService::createRefundForPayment
     file: ~
     retrieval:
@@ -64,7 +64,7 @@ nodes:
       compressible: true
 
   - id: txn_boundary
-    type: transaction_boundary
+    type: ir:txn_boundary
     symbol: DB::transaction
     file: ~
     retrieval:
@@ -72,7 +72,7 @@ nodes:
       compressible: false
 
   - id: txn_write
-    type: transactional_write
+    type: ir:txn_write
     symbol: unknown::update
     file: ~
     retrieval:

@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: dealer_approve_controller
-    type: controller_action
+    type: ir:business_handler
     symbol: OrderController::dealerApprove
     file: app/Http/Controllers/OrderController.php
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: false
 
   - id: approve_action
-    type: service_call
+    type: ir:service_call
     symbol: ApproveDealerOrderAction::handle
     file: app/Application/Order/Actions/ApproveDealerOrderAction.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: false
 
   - id: order_update
-    type: service_call
+    type: ir:service_call
     symbol: Order::update
     file: app/Models/Order.php
     retrieval:

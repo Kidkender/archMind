@@ -8,14 +8,14 @@ retrieval:
 
 nodes:
   - id: sanctum
-    type: middleware
+    type: ir:auth_gate
     symbol: auth:sanctum
     retrieval:
       relevance: LOW
       compressible: true
 
   - id: resolve_tenant
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenant::handle
     file: app/Http/Middleware/ResolveTenant.php
     retrieval:
@@ -23,7 +23,7 @@ nodes:
       compressible: true
 
   - id: task_controller_store
-    type: controller_action
+    type: ir:business_handler
     symbol: TaskController::store
     file: app/Modules/Task/Http/Controllers/TaskController.php
     retrieval:
@@ -31,7 +31,7 @@ nodes:
       compressible: false
 
   - id: txn_boundary
-    type: transaction_boundary
+    type: ir:txn_boundary
     symbol: DB::transaction
     role: atomicity
     retrieval:
@@ -39,7 +39,7 @@ nodes:
       compressible: false
 
   - id: task_create
-    type: transactional_write
+    type: ir:txn_write
     symbol: Task::create
     file: app/Modules/Task/Models/Task.php
     role: persistence
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: task_created_dispatch
-    type: transaction_escape
+    type: ir:txn_escape
     symbol: TaskCreated::dispatch
     file: app/Events/TaskCreated.php
     role: side_effect
@@ -57,7 +57,7 @@ nodes:
       compressible: false
 
   - id: send_notification
-    type: service_call
+    type: ir:service_call
     symbol: SendTaskCreatedNotification::handle
     file: app/Listeners/SendTaskCreatedNotification.php
     retrieval:
@@ -65,7 +65,7 @@ nodes:
       compressible: false
 
   - id: audit_log
-    type: transactional_write
+    type: ir:txn_write
     symbol: AuditService::log
     file: app/Services/AuditService.php
     role: persistence

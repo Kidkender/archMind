@@ -8,6 +8,7 @@ import { ingestOtlpFile } from "@archmind/runtime-ingest"
 import { correlateSession, detectNPlusOne, detectSlowQuery } from "@archmind/runtime-correlator"
 import { retrieve, prune } from "./retrieval-engine.js"
 import { naiveRag, compare } from "./naive-rag.js"
+import { toIRNodeType } from "@archmind/protocol"
 
 // ---- Runtime golden session types ------------------------------------
 
@@ -248,9 +249,11 @@ function classifyRecallGap(
   }
   if (recall >= 0.99) return "ok"
   // If missing nodes are all service_call / deeper types that aren't yet extracted
+  const DEEPER_IR_TYPES = new Set(["ir:service_call", "ir:permission_constant", "ir:runtime_inject", "ir:runtime_consume"])
   const allMissingAreDeeper = missingHighNodes.every((id) => {
     const node = golden.nodes.find((n) => n.id === id)
-    return node?.type === "service_call" || node?.type === "permission" || node?.type === "runtime_injection"
+    if (!node) return false
+    return DEEPER_IR_TYPES.has(toIRNodeType(node.type))
   })
   return allMissingAreDeeper ? "extraction_ceiling" : "retrieval_failure"
 }

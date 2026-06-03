@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: mw_0_tenant_context
-    type: middleware
+    type: ir:auth_gate
     symbol: ResolveTenantContext
     file: app/Http/Middleware/ResolveTenantContext.php
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: mw_1_api_auth
-    type: authentication_gate
+    type: ir:auth_gate
     symbol: AuthenticateApiToken
     file: app/Http/Middleware/AuthenticateApiToken.php
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: false
 
   - id: mw_2_idempotent_request
-    type: middleware
+    type: ir:auth_gate
     symbol: HandleIdempotentRequests
     file: app/Http/Middleware/HandleIdempotentRequests.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: true
 
   - id: mw_3_api_permission_role_manage
-    type: authorization_check
+    type: ir:authz_check
     symbol: EnsureApiPermission
     file: app/Http/Middleware/EnsureApiPermission.php
     retrieval:
@@ -40,7 +40,7 @@ nodes:
       compressible: false
 
   - id: ctrl_rolecontroller_store
-    type: controller_action
+    type: ir:business_handler
     symbol: RoleController::store
     file: app/Domains/Access/Http/Controllers/RoleController.php
     retrieval:
@@ -48,7 +48,7 @@ nodes:
       compressible: false
 
   - id: svc_roleservice_create
-    type: service_call
+    type: ir:service_call
     symbol: RoleService::create
     file: app/Domains/Access/Services/RoleService.php
     retrieval:
@@ -56,7 +56,7 @@ nodes:
       compressible: false
 
   - id: svc_idempotencyservice_begin
-    type: service_call
+    type: ir:service_call
     symbol: IdempotencyService::begin
     file: app/Domains/Shared/Services/IdempotencyService.php
     retrieval:
@@ -64,7 +64,7 @@ nodes:
       compressible: true
 
   - id: txn_roleservice_create
-    type: transaction_boundary
+    type: ir:txn_boundary
     symbol: DB::transaction
     file: ~
     retrieval:
@@ -72,7 +72,7 @@ nodes:
       compressible: false
 
   - id: svc_tenantcontextservice_resolvetenantcontext
-    type: service_call
+    type: ir:service_call
     symbol: TenantContextService::resolveTenantContext
     file: app/Domains/Tenant/Services/TenantContextService.php
     retrieval:
@@ -80,7 +80,7 @@ nodes:
       compressible: true
 
   - id: svc_auditlogservice_record
-    type: service_call
+    type: ir:service_call
     symbol: AuditLogService::record
     file: app/Domains/System/Services/AuditLogService.php
     retrieval:

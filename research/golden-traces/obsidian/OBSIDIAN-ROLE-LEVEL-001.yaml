@@ -8,7 +8,7 @@ retrieval:
 
 nodes:
   - id: auth
-    type: authentication_gate
+    type: ir:auth_gate
     symbol: AuthenticateApiToken
     file: ~
     retrieval:
@@ -16,7 +16,7 @@ nodes:
       compressible: true
 
   - id: authz
-    type: authorization_check
+    type: ir:authz_check
     symbol: EnsureApiPermission
     file: ~
     retrieval:
@@ -24,7 +24,7 @@ nodes:
       compressible: true
 
   - id: ctrl
-    type: controller_action
+    type: ir:business_handler
     symbol: RoleController::store
     file: app/Domains/Access/Http/Controllers/RoleController.php
     retrieval:
@@ -32,7 +32,7 @@ nodes:
       compressible: false
 
   - id: scope_svc
-    type: service_call
+    type: ir:service_call
     symbol: RoleScopeGuardService::isRequestedRoleLevelAllowed
     file: app/Domains/Access/Services/RoleScopeGuardService.php
     retrieval:
