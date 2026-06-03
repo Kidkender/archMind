@@ -3,8 +3,9 @@ import { fileURLToPath } from "url"
 import { parseNestJSProject } from "../adapter.js"
 
 const __filename = fileURLToPath(import.meta.url)
+const GLOBAL_GUARD_FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "global-guard")
 const __dirname  = dirname(__filename)
-const FIXTURES   = join(__dirname, "fixtures")
+const FIXTURES   = join(__dirname, "fixtures", "user-api")
 
 describe("parseNestJSProject — full pipeline", () => {
   let graphs: ReturnType<typeof parseNestJSProject>
@@ -58,5 +59,41 @@ describe("parseNestJSProject — full pipeline", () => {
     const g = graphs.find(g => g.method === "POST" && g.path === "/users")!
     const nextMwEdges = g.edges.filter(e => e.relation === "next_middleware")
     expect(nextMwEdges.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe("parseNestJSProject — APP_GUARD global guards", () => {
+  let graphs: ReturnType<typeof parseNestJSProject>
+
+  beforeAll(() => {
+    graphs = parseNestJSProject(GLOBAL_GUARD_FIXTURES)
+  })
+
+  test("emits 4 graphs from posts controller", () => {
+    expect(graphs).toHaveLength(4)
+  })
+
+  test("non-public routes get global JwtAuthGuard prepended", () => {
+    const g = graphs.find(g => g.method === "GET" && g.path === "/posts")!
+    const authGates = g.nodes.filter(n => n.type === "ir:auth_gate")
+    expect(authGates).toHaveLength(1)
+    expect(authGates[0].symbol).toBe("JwtAuthGuard")
+  })
+
+  test("@Public() route has no guard nodes", () => {
+    const g = graphs.find(g => g.path === "/posts/public-stats")!
+    expect(g.nodes.filter(n => n.type === "ir:auth_gate")).toHaveLength(0)
+    expect(g.nodes.filter(n => n.type === "ir:authz_check")).toHaveLength(0)
+  })
+
+  test("@Public() route has only business_handler node", () => {
+    const g = graphs.find(g => g.path === "/posts/public-stats")!
+    expect(g.nodes.map(n => n.type)).toEqual(["ir:business_handler"])
+  })
+
+  test("global guard node has authentication role", () => {
+    const g = graphs.find(g => g.method === "POST" && g.path === "/posts")!
+    const gateNode = g.nodes.find(n => n.type === "ir:auth_gate")!
+    expect(gateNode.role).toBe("authentication")
   })
 })

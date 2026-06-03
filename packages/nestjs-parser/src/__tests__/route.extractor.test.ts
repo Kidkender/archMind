@@ -4,7 +4,7 @@ import { extractRoutes } from "../extractors/route.extractor.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname  = dirname(__filename)
-const FIXTURES   = join(__dirname, "fixtures")
+const FIXTURES   = join(__dirname, "fixtures", "user-api")
 
 describe("extractRoutes — UserController", () => {
   let routes: ReturnType<typeof extractRoutes>
