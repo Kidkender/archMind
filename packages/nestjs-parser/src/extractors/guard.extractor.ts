@@ -24,11 +24,19 @@ export function extractGuards(decorators: Decorator[]): GuardDescriptor[] {
     for (const arg of callArgs) {
       const text = arg.getText().trim()
 
-      // AuthGuard('strategy') — call expression with string arg
-      const callMatch = text.match(/^(\w+)\(['"]([^'"]+)['"]\)$/)
-      if (callMatch) {
-        const [, className, strategyArg] = callMatch
+      // AuthGuard('strategy') — call expression with string arg e.g. AuthGuard('jwt')
+      const callWithArg = text.match(/^(\w+)\(['"]([^'"]+)['"]\)$/)
+      if (callWithArg) {
+        const [, className, strategyArg] = callWithArg
         guards.push({ className, args: [strategyArg], irType: classifyGuard(className) })
+        continue
+      }
+
+      // AuthGuard() — call expression with no args (pre-configured factory result)
+      const callNoArg = text.match(/^(\w+)\(\)$/)
+      if (callNoArg) {
+        const [, className] = callNoArg
+        guards.push({ className, args: [], irType: classifyGuard(className) })
         continue
       }
 

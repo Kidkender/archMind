@@ -2,11 +2,11 @@
 // Unknown custom guards emit "unknown_guard" so they can be classified later.
 
 const AUTH_GATE_NAMES = new Set([
-  "AuthGuard", "JwtAuthGuard", "LocalAuthGuard", "BearerAuthGuard",
-  "ApiKeyGuard", "GoogleAuthGuard", "FacebookAuthGuard", "GithubAuthGuard",
-  "PassportAuthGuard",
+  "AuthGuard", "JwtAuthGuard", "JwtGuard", "LocalAuthGuard", "LocalGuard",
+  "BearerAuthGuard", "ApiKeyGuard", "GoogleAuthGuard", "FacebookAuthGuard",
+  "GithubAuthGuard", "PassportAuthGuard", "OAuthGuard",
 ])
-const AUTH_GATE_PATTERNS = [/AuthGuard$/, /ApiKeyGuard$/, /BearerGuard$/]
+const AUTH_GATE_PATTERNS = [/AuthGuard$/, /JwtGuard$/, /ApiKeyGuard$/, /BearerGuard$/, /OAuthGuard$/]
 
 const AUTHZ_CHECK_NAMES = new Set([
   "RolesGuard", "PermissionsGuard", "PolicyGuard", "AbilitiesGuard",
