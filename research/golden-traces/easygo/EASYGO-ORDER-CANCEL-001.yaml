@@ -2,6 +2,7 @@ id: EASYGO-ORDER-CANCEL-001
 entrypoint: "POST /v1/orders/{number}/cancel"
 framework: laravel
 source_project: easygo-shopping-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Can a user cancel another user's order? Where is the ownership check enforced?"

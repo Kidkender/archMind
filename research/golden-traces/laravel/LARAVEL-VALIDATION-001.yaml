@@ -2,6 +2,7 @@ id: LARAVEL-VALIDATION-001
 entrypoint: "PUT /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Is UpdateTaskRequest::authorize() a missing authorization check or intentional delegation?"

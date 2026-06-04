@@ -2,6 +2,7 @@ id: B2B-PAYMENT-CALLBACK-001
 entrypoint: "POST /bank-integrations/payment/response"
 framework: laravel
 source_project: laravel-b2b-ecommerce
+adapter_version: "0.1.0"
 
 retrieval:
   query: "How is the payment callback from the bank authenticated, and what database operations are committed when a callback is received?"

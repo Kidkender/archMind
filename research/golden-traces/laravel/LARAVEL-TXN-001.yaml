@@ -2,6 +2,7 @@ id: LARAVEL-TXN-001
 entrypoint: "POST /tasks"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Why does a task creation sometimes send a notification email but the task doesn't appear in the database?"

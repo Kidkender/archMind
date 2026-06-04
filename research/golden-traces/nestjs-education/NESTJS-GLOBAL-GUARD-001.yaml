@@ -2,6 +2,7 @@ id: NESTJS-GLOBAL-GUARD-001
 entrypoint: "DELETE /users/:id"
 framework: nestjs
 source_project: education-api
+adapter_version: "0.2.0"
 
 retrieval:
   query: "How is user deletion protected? Can any authenticated user delete any user?"

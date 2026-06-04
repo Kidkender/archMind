@@ -2,6 +2,7 @@ id: LARAVEL-ISO-001
 entrypoint: "GET /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Why can a user from one tenant access another tenant's task by guessing the task ID?"

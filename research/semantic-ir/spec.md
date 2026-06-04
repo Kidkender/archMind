@@ -1,5 +1,17 @@
 # ArchMind Semantic IR — Specification v1.0
 
+> **FROZEN — 2026-06-04 | Validated — 2026-06-04 (sprint P0-P2)**
+> IR vocabulary is stable. Validated against 10 NestJS projects (140 routes) and 12 Laravel
+> projects (154 routes) in sprint P0-P2. All auth/authz/validation patterns discovered map
+> cleanly to existing node types — no new types were needed.
+>
+> Evidence: NestJS auth 41%→72%, authz 4%→23%. Laravel auth 59%→77%, authz 5%→13%.
+> Improvements came entirely from parser/classifier fixes, NOT from IR changes.
+> This confirms IR v1 node taxonomy is expressive enough for both frameworks.
+>
+> New node types, edge relations, or annotation types require a spec update + version bump
+> before being used in any adapter. Framework #3 may only begin after IR Migration completes.
+
 ## Motivation
 
 ArchMind's goal is to be an *execution-aware intelligence layer*, not a parser factory.
@@ -157,6 +169,99 @@ IRAnnotation {
 
 ---
 
+## Resource Semantics (Draft)
+
+> **Status**: Design draft — not yet implemented in any adapter.
+> This section captures the intended model for resource-aware authorization detection.
+> See discuss.txt for the decision to spec this before IR migration.
+
+### Problem
+
+The current IR can detect that an `AUTHZ_CHECK` is *present or absent*, but cannot detect that
+the authorization targets a *different resource* than the one being accessed. Example:
+
+```php
+// Controller method
+public function update(Request $request, int $orderId)
+{
+    Gate::authorize('update', $this->user);   // authorizes: User
+    $order = Order::find($orderId);           // accesses: Order
+    $order->update($request->validated());
+}
+```
+
+The graph today emits one `AUTHZ_CHECK` node → detector sees authorization present → no finding.
+The actual security issue — authorizing on `User` while accessing `Order` — is invisible to the engine.
+
+This is an **IR design gap**, not a context ceiling. The information (which resource is being
+authorized, which resource is being accessed) is statically recoverable but not being encoded.
+
+### RESOURCE Node Type
+
+```
+RESOURCE
+  id:     string   // scoped: "resource::{ClassName}::{route_id}"
+  type:   "ir:resource"
+  symbol: string   // class name: "User", "Order", "Task"
+  file?:  string   // model file if resolvable
+  role:   "authorized_resource" | "accessed_resource"
+```
+
+### New Edges
+
+| Relation | From | To | Meaning |
+|---|---|---|---|
+| `authorizes` | `AUTHZ_CHECK` | `RESOURCE` | Which resource this check protects |
+| `accesses` | `BUSINESS_HANDLER` / `SERVICE_CALL` | `RESOURCE` | Which resource this node reads/writes |
+
+### Resource Recovery Strategy
+
+**Statically recoverable (HIGH confidence):**
+
+| Pattern | Resource | Recovery method |
+|---|---|---|
+| Method signature: `update(User $user)` | `User` | Route model binding — first typed param |
+| `Gate::authorize('update', $user)` | type of `$user` | Var type from signature |
+| `$this->authorize('update', $task)` | type of `$task` | Var type from signature |
+| `Order::find(...)` | `Order` | Static model class name |
+| `Order::where(...)->get()` | `Order` | Static model class name |
+| NestJS: `@Param() userId`, then `UserService.findOne(userId)` | `User` | Service call name heuristic |
+
+**Not statically recoverable (mark as UNKNOWN):**
+
+| Pattern | Reason |
+|---|---|
+| `$model = $this->repository->find($id)` | Dynamic dispatch, return type unknown without type inference |
+| `$class::find($id)` where `$class` is a variable | Variable class name |
+| `app()->make($type)::find(...)` | Runtime container resolution |
+
+### New Annotation: `RESOURCE_MISMATCH`
+
+| Annotation | Trigger | Severity |
+|---|---|---|
+| `RESOURCE_MISMATCH` | `AUTHZ_CHECK` has `authorizes → Resource(A)` but the handler has `accesses → Resource(B)` where A ≠ B | critical |
+
+This replaces what is currently mislabeled as "context ceiling" in DELEGATED-AUTH-001 and similar traces.
+
+### Impact on Existing Known Limitations
+
+The following traces in CLAUDE.md are labeled "context ceiling" but should be re-labeled
+"Missing resource semantics" once this section is implemented:
+
+- `ECOMERCE-DELEGATED-AUTH-001` — authorizes `User`, accesses `Product`
+- `EASYGO-ADMIN-AUTH-001` — no `ProductPolicy` in graph because policy class doesn't exist
+  (this one remains a true context ceiling — policy class must exist to be detected)
+
+### Implementation Notes for Adapters
+
+When implementing RESOURCE nodes, adapters MUST:
+1. Only emit `RESOURCE` nodes when the resource class is statically determinable
+2. Set `confidence: HIGH` for route-model-binding params, `confidence: LOW` for heuristic inferences
+3. Never guess resource types — emit `UNKNOWN` rather than a wrong type
+4. The `RESOURCE_MISMATCH` detector runs on IR; adapters only emit nodes and edges
+
+---
+
 ## Annotation Types (Detections)
 
 Detections run on IR — they do not depend on framework.
@@ -201,27 +306,38 @@ What adapters must NOT do:
 
 ### Auth patterns across frameworks
 
-| Framework | Authentication | IR type |
-|---|---|---|
-| Laravel | `Route::middleware('auth:sanctum')` | `AUTH_GATE` |
-| Laravel | `Authenticate` middleware class | `AUTH_GATE` |
-| NestJS | `@UseGuards(JwtAuthGuard)` | `AUTH_GATE` |
-| NestJS | `@UseGuards(AuthGuard('jwt'))` | `AUTH_GATE` |
-| Django | `@login_required` decorator | `AUTH_GATE` |
-| Django | `IsAuthenticated` in `permission_classes` | `AUTH_GATE` |
-| Spring | `@PreAuthorize("isAuthenticated()")` | `AUTH_GATE` |
+| Framework | Authentication | IR type | Discovery method |
+|---|---|---|---|
+| Laravel | `Route::middleware('auth:sanctum')` | `AUTH_GATE` | route-parser |
+| Laravel | `Authenticate` middleware class | `AUTH_GATE` | kernel-parser + middleware-mapper |
+| NestJS | `@UseGuards(JwtAuthGuard)` | `AUTH_GATE` | route-extractor decorator scan |
+| NestJS | `@UseGuards(AuthGuard('jwt'))` | `AUTH_GATE` | route-extractor, string-arg form |
+| NestJS | `@UseGuards(AuthGuard({ public: ... }))` | `AUTH_GATE` | route-extractor, object-arg form |
+| NestJS | `APP_GUARD` token in module providers | `AUTH_GATE` | module.resolver |
+| NestJS | `NestModule.configure()` → `consumer.apply(AuthMiddleware).forRoutes(...)` | `AUTH_GATE` | middleware.scanner |
+| NestJS | Custom decorator wrapping `applyDecorators(UseGuards(...))` | `AUTH_GATE` | decorator.scanner |
+| Django | `@login_required` decorator | `AUTH_GATE` | — |
+| Django | `IsAuthenticated` in `permission_classes` | `AUTH_GATE` | — |
+| Spring | `@PreAuthorize("isAuthenticated()")` | `AUTH_GATE` | — |
 
 ### Authorization patterns across frameworks
 
-| Framework | Authorization | IR type |
-|---|---|---|
-| Laravel | `$this->authorize('update', $task)` | `AUTHZ_CHECK` |
-| Laravel | `CheckPermission` middleware with permission arg | `AUTHZ_CHECK` |
-| NestJS | `@UseGuards(RolesGuard)` + `@Roles(...)` | `AUTHZ_CHECK` |
-| NestJS | `@CheckPolicies(...)` with `PoliciesGuard` | `AUTHZ_CHECK` |
-| Django | `@permission_required('app.change_task')` | `AUTHZ_CHECK` |
-| Django | `IsAdminUser` in `permission_classes` | `AUTHZ_CHECK` |
-| Spring | `@PreAuthorize("hasRole('ADMIN')")` | `AUTHZ_CHECK` |
+| Framework | Authorization | IR type | Discovery method |
+|---|---|---|---|
+| Laravel | `$this->authorize('ability', $model)` | `AUTHZ_CHECK` | controller-parser, instance method |
+| Laravel | `Gate::authorize('ability', $model)` | `AUTHZ_CHECK` | controller-parser, static facade (`scoped_call_expression`) |
+| Laravel | `Gate::allows('ability', $model)` | `AUTHZ_CHECK` | controller-parser, static facade |
+| Laravel | `CheckPermission` middleware with permission arg | `AUTHZ_CHECK` | middleware-mapper |
+| Laravel | `can:ability` route middleware | `AUTHZ_CHECK` | route-parser |
+| NestJS | `@UseGuards(RolesGuard)` + `@Roles(...)` | `AUTHZ_CHECK` | route-extractor + guard.classifier |
+| NestJS | `@UseGuards(ShareOwnerGuard)` / `OwnerGuard` pattern | `AUTHZ_CHECK` | guard.classifier pattern `OwnerGuard$` |
+| NestJS | `@UseGuards(AdministratorGuard)` / `AdminGuard` pattern | `AUTHZ_CHECK` | guard.classifier pattern `Admin(istrator)?Guard$` |
+| NestJS | `@UseGuards(ShareSecurityGuard)` / `SecurityGuard` pattern | `AUTHZ_CHECK` | guard.classifier pattern `SecurityGuard$` |
+| NestJS | `@CheckPolicies(...)` with `PoliciesGuard` | `AUTHZ_CHECK` | guard.classifier |
+| NestJS | Custom `@Auth([RoleType.ADMIN])` wrapping `applyDecorators(UseGuards(AuthGuard, RolesGuard))` | `AUTH_GATE` + `AUTHZ_CHECK` | decorator.scanner |
+| Django | `@permission_required('app.change_task')` | `AUTHZ_CHECK` | — |
+| Django | `IsAdminUser` in `permission_classes` | `AUTHZ_CHECK` | — |
+| Spring | `@PreAuthorize("hasRole('ADMIN')")` | `AUTHZ_CHECK` | — |
 
 ### Runtime injection patterns
 
@@ -256,13 +372,43 @@ graphs emitted by different adapter versions.
 
 ---
 
-## What is NOT in scope for the IR
+## What is NOT in IR v1
 
-The IR is static by design. These require a future `Runtime IR` extension:
+### Explicitly excluded node types
 
-- Actual execution traces (which code paths were taken at runtime)
-- Performance data (latency, query count per request)
-- Real tenant IDs or user IDs (these are runtime values)
+These constructs exist in real frameworks but are **not modeled in IR v1**.
+Adding them requires a spec update + version bump.
+
+| Construct | Reason excluded | Future version |
+|---|---|---|
+| `RESOURCE` | Requires type inference to link authz target to access target. Spec drafted but not implemented. | v1.1 (deferred correctness enhancement) |
+| Rate limiter / throttle | Operational concern, not a security semantic | v2.x |
+| Cache layer | Runtime optimization, not static semantic | v2.x |
+| Exception filter | Response shaping, not execution guard | — |
+| Interceptor (NestJS) | Unless it performs auth/authz, it is cross-cutting infrastructure | — |
+| `@Public()` / opt-out decorators | Modeled as `isPublic` flag on route, not as a node | — |
+| Versioned routes (`/v1/`, `/v2/`) | Version prefix is part of path, not a semantic node | — |
+
+### Explicitly excluded patterns
+
+These patterns are **not statically resolvable** by the current adapters and will
+produce no node rather than a wrong node (fail-safe):
+
+| Pattern | Framework | Why not modeled |
+|---|---|---|
+| Dynamic middleware: `if ($env) Route::middleware(...)` | Laravel | Conditional at runtime |
+| Reflection-based DI: `app()->make($className)` | Laravel | Dynamic container resolution |
+| Middleware applied via `NestModule.configure()` with controller class ref | NestJS | Requires route→controller resolution not yet implemented |
+| Custom decorator factory with complex runtime args | NestJS | Requires type inference |
+| `applyDecorators()` nested more than 1 level deep | NestJS | Only 1-level unwrap implemented |
+
+### Runtime constructs (future `Runtime IR`)
+
+| Construct | Reason excluded |
+|---|---|
+| Actual execution traces (which paths ran) | Runtime, not static |
+| Performance data (latency, query count) | Runtime, not static |
+| Real tenant IDs or user IDs | Runtime values |
 
 The static IR describes **what could happen**. Runtime IR will describe **what did happen**.
 That gap is where ArchMind's long-term moat lives.
@@ -271,15 +417,27 @@ That gap is where ArchMind's long-term moat lives.
 
 ## Relationship to existing `@archmind/protocol`
 
-The existing `graph.ts` in `packages/protocol/` predates this spec and uses
-Laravel-specific strings (`"middleware"`, `"form_request"`, `"policy"`) as node types.
+### Migration status (as of 2026-06-04)
 
-Migration path:
-1. This spec defines the canonical IR vocabulary going forward.
-2. The Laravel adapter will be updated to emit IR types (`AUTH_GATE`, `AUTHZ_CHECK`, etc.)
-   with a compatibility shim for existing golden traces during transition.
-3. `packages/protocol/src/graph.ts` will be updated to use IR type constants.
-4. Golden traces will be migrated in a single pass after the Laravel adapter is updated.
+| Component | Status |
+|---|---|
+| `packages/protocol/src/ir.ts` | ✅ IR types defined (`IR_NODE_TYPES`, `IR_EDGE_RELATIONS`, `IR_ANNOTATION_TYPES`) |
+| NestJS adapter (`nestjs-parser`) | ✅ Emits IR types exclusively (`ir:auth_gate`, `ir:authz_check`, etc.) |
+| Laravel adapter (`laravel-parser`) | ⚠️ Partially migrated — middleware-mapper and graph-augmenter emit IR types; backward-compat shims remain for `"controller_action"`, legacy `mwTypes` |
+| `packages/protocol/src/graph.ts` | ⚠️ Still defines legacy `NODE_TYPES` for backward compat; `LARAVEL_TO_IR` shim maps them |
+| Golden traces (Laravel) | ✅ Already use IR type strings (`ir:auth_gate`, `ir:authz_check`, etc.) |
+| Golden traces (NestJS) | ✅ Use IR type strings from day 1 |
+| Retrieval engine (`NODE_TYPE_RELEVANCE`) | ✅ Has entries for both IR types and legacy types (migration window) |
 
-Until migration is complete, `graph.ts` NODE_TYPES are the source of truth for
-production code. This spec is the target.
+### Remaining migration tasks (Phase 10)
+
+1. Remove `|| n.type === "controller_action"` backward-compat guards in `graph-augmenter.ts`
+   — blocked until all real-project graphs are confirmed to emit `ir:business_handler`
+2. Remove legacy `"middleware"`, `"authorization_check"`, `"authentication_gate"` from `mwTypes`
+   in `graph-augmenter.ts`
+3. Clean legacy entries from `NODE_TYPE_RELEVANCE` in `retrieval-engine.ts`
+4. Remove `NODE_TYPES` (legacy) from `graph.ts` once Laravel adapter is fully migrated
+5. Update `DEDUP_TYPES` in `retrieval-engine.ts` to IR-types-only
+
+**Do not attempt Phase 10 items without running the full benchmark suite first** —
+the backward-compat shims are load-bearing for real projects that may still emit legacy types.

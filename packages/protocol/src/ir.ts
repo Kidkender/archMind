@@ -28,6 +28,7 @@ export const IR_NODE_TYPES = {
   // Data access domain
   SCOPED_QUERY:        "ir:scoped_query",
   UNSCOPED_QUERY:      "ir:unscoped_query",
+  UNSCOPED_WRITE:      "ir:unscoped_write",
 
   // Transaction domain
   TXN_BOUNDARY:        "ir:txn_boundary",
@@ -95,6 +96,7 @@ export const LARAVEL_TO_IR: Record<string, IRNodeType> = {
 
   // Isolation domain
   "unscoped_query":       IR_NODE_TYPES.UNSCOPED_QUERY,
+  "unscoped_write":       IR_NODE_TYPES.UNSCOPED_WRITE,
   "tenant_scoped_query":  IR_NODE_TYPES.SCOPED_QUERY,
 }
 

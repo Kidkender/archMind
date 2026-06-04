@@ -2,6 +2,7 @@ id: ECOMERCE-MISSING-AUTH-001
 entrypoint: "DELETE /products/{product}"
 framework: laravel
 source_project: ecomerce-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Who is allowed to delete a product, and where is that enforced?"

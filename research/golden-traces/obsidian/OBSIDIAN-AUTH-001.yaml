@@ -2,6 +2,7 @@ id: OBSIDIAN-AUTH-001
 entrypoint: "POST /$toVersionedPath($version, 'role')/"
 framework: laravel
 source_project: obsidian-admin-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Who can create a role, and is the authorization check complete?"

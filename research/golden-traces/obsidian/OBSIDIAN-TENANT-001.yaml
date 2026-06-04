@@ -2,6 +2,7 @@ id: OBSIDIAN-TENANT-001
 entrypoint: "GET /$toVersionedPath($version, 'auth')/getUserInfo"
 framework: laravel
 source_project: obsidian-admin-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "How does tenant context propagate through this endpoint, and are there isolation risks?"

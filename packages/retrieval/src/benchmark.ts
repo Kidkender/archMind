@@ -60,6 +60,8 @@ export interface TraceSnapshot {
 export interface BenchmarkSnapshot {
   timestamp:       string
   label:           string
+  adapter_ver?:    string   // adapter package version that generated the graphs
+  ir_ver?:         string   // IR spec version
   traces:          Record<string, TraceSnapshot>
   runtime_traces?: Record<string, RuntimeTraceSnapshot>
   summary: {
@@ -76,10 +78,11 @@ export function runBenchmark(opts: {
   fixtureDir:         string
   graphs:             Record<string, IntermediateExecutionGraph[]>  // golden_id → extracted graphs
   label?:             string
+  adapter_ver?:       string   // adapter version that produced the graphs
   runtimeGoldenDir?:  string   // dir containing runtime golden session YAMLs
   workspaceRoot?:     string   // base path for resolving otlp_fixture paths
 }): BenchmarkSnapshot {
-  const { goldenDir, fixtureDir, graphs, label = "snapshot", runtimeGoldenDir, workspaceRoot } = opts
+  const { goldenDir, fixtureDir, graphs, label = "snapshot", adapter_ver, runtimeGoldenDir, workspaceRoot } = opts
 
   const traceFiles = readdirSync(goldenDir).filter((f) => f.endsWith(".yaml"))
   const traces: Record<string, TraceSnapshot> = {}
@@ -150,9 +153,16 @@ export function runBenchmark(opts: {
     ? Object.values(runtimeTraces).map((t) => t.runtime_recall)
     : undefined
 
+  // Derive adapter_ver and ir_ver from any graph in the input if not explicitly provided
+  const sampleGraph = Object.values(graphs).flat()[0]
+  const resolvedAdapterVer = adapter_ver ?? sampleGraph?.adapter_ver
+  const resolvedIrVer      = sampleGraph?.ir_ver
+
   return {
     timestamp: new Date().toISOString(),
     label,
+    ...(resolvedAdapterVer ? { adapter_ver: resolvedAdapterVer } : {}),
+    ...(resolvedIrVer      ? { ir_ver: resolvedIrVer }           : {}),
     traces,
     ...(runtimeTraces ? { runtime_traces: runtimeTraces } : {}),
     summary: {

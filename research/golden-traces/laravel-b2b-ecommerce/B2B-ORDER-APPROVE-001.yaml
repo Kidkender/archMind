@@ -2,6 +2,7 @@ id: B2B-ORDER-APPROVE-001
 entrypoint: "POST /orders/{order}/dealer-approve"
 framework: laravel
 source_project: laravel-b2b-ecommerce
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Who can approve a dealer order, and is there any ownership check preventing a dealer from approving orders that don't belong to them?"

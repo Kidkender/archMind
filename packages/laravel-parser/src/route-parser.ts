@@ -61,7 +61,9 @@ function processFile(
   let tree: ReturnType<typeof _parser.parse>
   try {
     source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
+    // Large files (> 32KB) require a bigger internal parse buffer
+    const bufferSize = source.length > 32_768 ? 1024 * 1024 : undefined
+    tree = _parser.parse(source, undefined, bufferSize ? { bufferSize } : undefined)
   } catch {
     return
   }

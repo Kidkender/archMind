@@ -47,7 +47,7 @@ export function buildDependencyIndex(
     graphsByEntrypoint.set(graph.entrypoint, graph)
 
     for (const node of graph.nodes) {
-      if (node.type !== "service_call") continue
+      if (node.type !== "ir:service_call" && node.type !== "service_call") continue
 
       const symbol = node.symbol   // e.g. "OrderService::create"
       const cls    = symbol.split("::")[0]  // e.g. "OrderService"
@@ -91,7 +91,7 @@ export function queryDependents(
     if (!graph) continue
 
     const matchingNodes = graph.nodes.filter((n) => {
-      if (n.type !== "service_call") return false
+      if (n.type !== "ir:service_call" && n.type !== "service_call") return false
       if (isExact) return n.symbol === symbol
       return n.symbol.startsWith(`${symbol}::`)
     })

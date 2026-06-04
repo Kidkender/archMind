@@ -2,6 +2,7 @@ id: OBSIDIAN-ROLE-LEVEL-001
 entrypoint: "POST /$toVersionedPath($version, 'role')/"
 framework: laravel
 source_project: obsidian-admin-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Can a user create a role with a higher level number than their own? What business rule enforces this?"

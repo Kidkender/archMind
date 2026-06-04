@@ -54,17 +54,28 @@ type SectionName =
   | "OTHER"
 
 const NODE_SECTION: Record<string, SectionName> = {
-  middleware: "MIDDLEWARE CHAIN",
-  authentication_gate: "MIDDLEWARE CHAIN",
-  authorization_check: "MIDDLEWARE CHAIN",
-  rate_limiter: "MIDDLEWARE CHAIN",
-  controller: "HANDLER",
-  controller_action: "HANDLER",
-  form_request: "VALIDATION",
-  policy: "AUTHORIZATION",
-  permission: "AUTHORIZATION",
-  service_call: "AUTHORIZATION",
-  runtime_injection: "RUNTIME",
+  // IR types
+  "ir:auth_gate":           "MIDDLEWARE CHAIN",
+  "ir:authz_check":         "AUTHORIZATION",
+  "ir:business_handler":    "HANDLER",
+  "ir:validation_gate":     "VALIDATION",
+  "ir:permission_constant": "AUTHORIZATION",
+  "ir:service_call":        "AUTHORIZATION",
+  "ir:runtime_inject":      "RUNTIME",
+  "ir:runtime_consume":     "RUNTIME",
+  "ir:tenant_context":      "RUNTIME",
+  // Legacy types (backward compat)
+  middleware:             "MIDDLEWARE CHAIN",
+  authentication_gate:    "MIDDLEWARE CHAIN",
+  authorization_check:    "MIDDLEWARE CHAIN",
+  rate_limiter:           "MIDDLEWARE CHAIN",
+  controller:             "HANDLER",
+  controller_action:      "HANDLER",
+  form_request:           "VALIDATION",
+  policy:                 "AUTHORIZATION",
+  permission:             "AUTHORIZATION",
+  service_call:           "AUTHORIZATION",
+  runtime_injection:      "RUNTIME",
 }
 
 const SECTION_ORDER: SectionName[] = [

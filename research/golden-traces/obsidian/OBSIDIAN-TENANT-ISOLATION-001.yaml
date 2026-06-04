@@ -2,6 +2,7 @@ id: OBSIDIAN-TENANT-ISOLATION-001
 entrypoint: "GET /$toVersionedPath($version, 'role')/list"
 framework: laravel
 source_project: obsidian-admin-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Can a tenant admin list roles belonging to a different tenant? How is cross-tenant data isolation enforced?"

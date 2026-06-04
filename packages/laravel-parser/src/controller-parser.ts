@@ -232,25 +232,39 @@ function extractAuthorizeCalls(methodNode: Parser.SyntaxNode): AuthorizeCall[] {
 }
 
 function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[]): void {
+  // $this->authorize('ability', $model)
   if (node.type === "member_call_expression") {
     const obj  = node.childForFieldName("object")
     const name = node.childForFieldName("name")
     if (obj?.text === "$this" && name?.text === "authorize") {
-      const argsNode = node.childForFieldName("arguments")
-      if (argsNode) {
-        const argValues = (argsNode.children as Parser.SyntaxNode[])
-          .filter((c) => c.type === "argument")
-          .map((c) => c.firstNamedChild)
-          .filter((c): c is Parser.SyntaxNode => c !== null)
-        const ability = argValues[0] ? resolveStringNode(argValues[0]) : "unknown"
-        results.push({ ability, mechanism: node.text })
-      }
+      pushAuthorizeCall(node, results)
+    }
+  }
+
+  // Gate::authorize('ability', $model) or Gate::allows('ability', $model)
+  // tree-sitter-php uses "scoped_call_expression" with field "scope" for the class
+  if (node.type === "scoped_call_expression") {
+    const cls    = node.childForFieldName("scope")
+    const method = node.childForFieldName("name")
+    if (cls?.text === "Gate" && (method?.text === "authorize" || method?.text === "allows" || method?.text === "check")) {
+      pushAuthorizeCall(node, results)
     }
   }
 
   for (const child of node.children as Parser.SyntaxNode[]) {
     gatherAuthorizeCalls(child, results)
   }
+}
+
+function pushAuthorizeCall(node: Parser.SyntaxNode, results: AuthorizeCall[]): void {
+  const argsNode = node.childForFieldName("arguments")
+  if (!argsNode) return
+  const argValues = (argsNode.children as Parser.SyntaxNode[])
+    .filter((c) => c.type === "argument")
+    .map((c) => c.firstNamedChild)
+    .filter((c): c is Parser.SyntaxNode => c !== null)
+  const ability = argValues[0] ? resolveStringNode(argValues[0]) : "unknown"
+  results.push({ ability, mechanism: node.text })
 }
 
 // ---- Private method call extraction ----------------------------------

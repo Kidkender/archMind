@@ -2,6 +2,7 @@ id: ECOMERCE-DELEGATED-AUTH-001
 entrypoint: "PUT /products/{product}"
 framework: laravel
 source_project: ecomerce-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Is the authorization check on product updates sufficient — who can update a product?"

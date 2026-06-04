@@ -112,6 +112,7 @@ export interface IntermediateExecutionGraph {
   annotations:  GraphAnnotation[]
   framework?:   string            // "laravel" | "nestjs" | "django" — set by adapter, for diagnostics
   ir_ver?:      string            // IR spec version that emitted this graph (from ir.ts IR_VERSION)
+  adapter_ver?: string            // adapter package version that emitted this graph (for regression keying)
 }
 
 export interface RetrievalRequest {

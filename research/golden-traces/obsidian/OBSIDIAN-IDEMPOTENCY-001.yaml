@@ -2,6 +2,7 @@ id: OBSIDIAN-IDEMPOTENCY-001
 entrypoint: "POST /$toVersionedPath($version, 'role')/"
 framework: laravel
 source_project: obsidian-admin-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "If the same role creation request is submitted twice due to a network retry, will a duplicate role be created?"

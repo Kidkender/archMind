@@ -2,6 +2,7 @@ id: LARAVEL-AUTH-002
 entrypoint: "DELETE /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Why are elevated-privilege users blocked from deleting tasks they should be able to delete?"

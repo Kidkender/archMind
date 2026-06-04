@@ -2,6 +2,7 @@ id: EASYGO-ADMIN-AUTH-001
 entrypoint: "PUT /v1/admin/orders/{id}/status"
 framework: laravel
 source_project: easygo-shopping-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Who can update order status, and is the authorization check sufficient?"

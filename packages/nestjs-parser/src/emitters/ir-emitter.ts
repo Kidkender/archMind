@@ -2,6 +2,8 @@ import type { IntermediateExecutionGraph, ExecutionNode, ExecutionEdge } from "@
 import { IR_VERSION, IR_NODE_TYPES } from "@archmind/protocol"
 import type { NestJSSemanticRoute } from "../types.js"
 
+const ADAPTER_VERSION = "0.2.0"
+
 export function emitGraphs(
   routes: NestJSSemanticRoute[],
   globalPipes: boolean = false
@@ -82,6 +84,7 @@ function emitGraph(route: NestJSSemanticRoute, globalPipes: boolean): Intermedia
     annotations: [],
     framework: "nestjs",
     ir_ver: IR_VERSION,
+    adapter_ver: ADAPTER_VERSION,
   }
 }
 

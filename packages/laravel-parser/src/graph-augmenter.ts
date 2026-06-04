@@ -8,6 +8,8 @@ import type {
   ProjectConfig,
 } from "@archmind/protocol"
 import { IR_NODE_TYPES, IR_VERSION } from "@archmind/protocol"
+
+const ADAPTER_VERSION = "0.1.0"
 import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
@@ -241,7 +243,7 @@ export function augmentGraph(
     addIsolationNodes(newNodes, newEdges, ctrlNodeForIso.id, isoResult)
   }
 
-  return { ...graph, nodes: newNodes, edges: newEdges, annotations: newAnnotations, framework: "laravel", ir_ver: IR_VERSION }
+  return { ...graph, nodes: newNodes, edges: newEdges, annotations: newAnnotations, framework: "laravel", ir_ver: IR_VERSION, adapter_ver: ADAPTER_VERSION }
 }
 
 // ---- Event → listener tracing ----------------------------------------
@@ -639,7 +641,7 @@ function addIsolationNodes(
     const id = `iso_write_${callerNodeId}_${idx}`
     nodes.push({
       id,
-      type:   "unscoped_write",
+      type:   IR_NODE_TYPES.UNSCOPED_WRITE,
       symbol: `${w.model}::${w.operation}`,
       role:   "data_access",
     })

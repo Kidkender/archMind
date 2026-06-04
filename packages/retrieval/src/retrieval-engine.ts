@@ -28,6 +28,14 @@ const FOCUS_THRESHOLD: Record<RetrievalFocus, RetrievalRelevance> = {
 // and are safe to merge. Caller-scoped types (service_call, policy, permission,
 // form_request, etc.) must NOT be deduplicated.
 const DEDUP_TYPES = new Set([
+  // IR types
+  "ir:txn_boundary",
+  "ir:txn_write",
+  "ir:txn_escape",
+  "ir:unscoped_query",
+  "ir:unscoped_write",
+  "ir:scoped_query",
+  // Legacy Laravel types (keep during migration window)
   "transaction_boundary",
   "transactional_write",
   "transaction_escape",
@@ -229,6 +237,7 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   transaction_escape:   "HIGH",
   unscoped_query:       "HIGH",
   unscoped_write:       "HIGH",
+  "ir:unscoped_write":  "HIGH",
   tenant_scoped_query:  "MEDIUM",
   form_request:         "HIGH",
   controller_action:    "MEDIUM",

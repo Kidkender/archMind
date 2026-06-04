@@ -2,6 +2,7 @@ id: B2B-ADMIN-REFUND-001
 entrypoint: "POST /aka/payments/{payment}/refund"
 framework: laravel
 source_project: laravel-b2b-ecommerce
+adapter_version: "0.1.0"
 
 retrieval:
   query: "What authorization is required to process a payment refund, and what is the full service chain involved in committing the refund to the database?"

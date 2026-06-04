@@ -2,6 +2,7 @@ id: LARAVEL-AUTH-001
 entrypoint: "PUT /tasks/{id}"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Why is permission checked twice for the same user and task?"

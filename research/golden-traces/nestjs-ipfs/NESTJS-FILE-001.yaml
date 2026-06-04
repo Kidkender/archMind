@@ -2,6 +2,7 @@ id: NESTJS-FILE-001
 entrypoint: "POST /files/copy-file"
 framework: nestjs
 source_project: IPFS-api
+adapter_version: "0.2.0"
 
 retrieval:
   query: "Who can copy a file, and is the copy request validated before processing?"

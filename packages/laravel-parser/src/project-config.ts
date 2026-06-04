@@ -91,8 +91,11 @@ function inferNamespaces(projectRoot: string): Record<string, string> {
   if (!psr4 || typeof psr4 !== "object") return DEFAULT_PROJECT_CONFIG.namespaces
 
   // Normalize: ensure namespace ends with \\ and dir ends with /
+  // PSR-4 dirs can be a string or array of strings — take the first entry when array
   const result: Record<string, string> = {}
-  for (const [ns, dir] of Object.entries(psr4 as Record<string, string>)) {
+  for (const [ns, dirRaw] of Object.entries(psr4 as Record<string, string | string[]>)) {
+    const dir = Array.isArray(dirRaw) ? dirRaw[0] : dirRaw
+    if (typeof dir !== "string") continue
     const normNs  = ns.endsWith("\\")  ? ns  : `${ns}\\`
     const normDir = dir.endsWith("/")   ? dir : `${dir}/`
     result[normNs] = normDir
@@ -100,18 +103,29 @@ function inferNamespaces(projectRoot: string): Record<string, string> {
   return Object.keys(result).length > 0 ? result : DEFAULT_PROJECT_CONFIG.namespaces
 }
 
-/** Scan the routes/ directory for PHP files to use as route file patterns. */
+/** Scan the routes/ directory (and one level of subdirs) for PHP files. */
 function inferRouteFiles(projectRoot: string): string[] {
   const routesDir = join(projectRoot, "routes")
   if (!existsSync(routesDir)) return DEFAULT_PROJECT_CONFIG.routeFiles
 
-  const files = readdirSync(routesDir)
-    .filter((f) => f.endsWith(".php"))
-    .filter((f) => {
-      const abs = join(routesDir, f)
-      return statSync(abs).isFile()
-    })
-    .map((f) => `routes/${f}`)
+  const files: string[] = []
+
+  // Top-level PHP files in routes/
+  for (const f of readdirSync(routesDir)) {
+    const abs = join(routesDir, f)
+    const stat = statSync(abs)
+    if (stat.isFile() && f.endsWith(".php")) {
+      files.push(`routes/${f}`)
+    } else if (stat.isDirectory()) {
+      // One level deep: routes/api/*.php, routes/frontend/*.php, etc.
+      for (const sub of readdirSync(abs)) {
+        const subAbs = join(abs, sub)
+        if (sub.endsWith(".php") && statSync(subAbs).isFile()) {
+          files.push(`routes/${f}/${sub}`)
+        }
+      }
+    }
+  }
 
   return files.length > 0 ? files : DEFAULT_PROJECT_CONFIG.routeFiles
 }

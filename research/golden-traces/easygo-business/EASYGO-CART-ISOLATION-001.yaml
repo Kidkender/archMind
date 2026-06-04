@@ -2,6 +2,7 @@ id: EASYGO-CART-ISOLATION-001
 entrypoint: "GET /v1/cart/"
 framework: laravel
 source_project: easygo-shopping-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "Where is cart data stored? Can one user accidentally see another user's cart items?"

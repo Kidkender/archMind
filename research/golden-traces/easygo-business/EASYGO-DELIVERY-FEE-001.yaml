@@ -2,6 +2,7 @@ id: EASYGO-DELIVERY-FEE-001
 entrypoint: "POST /v1/orders"
 framework: laravel
 source_project: easygo-shopping-laravel
+adapter_version: "0.1.0"
 
 retrieval:
   query: "What is the formula for calculating the delivery fee? Under what conditions is delivery free?"

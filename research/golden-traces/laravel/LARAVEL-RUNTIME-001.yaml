@@ -2,6 +2,7 @@ id: LARAVEL-RUNTIME-001
 entrypoint: "ANY /tasks/*"
 framework: laravel
 source_project: tenant-workspace-api
+adapter_version: "0.1.0"
 
 retrieval:
   query: "What breaks when a route is added outside the ResolveTenant middleware group?"
