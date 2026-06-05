@@ -7,10 +7,10 @@ const AUTH_001_GRAPH: IntermediateExecutionGraph = {
   method:     "PUT",
   path:       "/tasks/{task}",
   nodes: [
-    { id: "mw_0", type: "authentication_gate", symbol: "auth:sanctum",           role: "authentication" },
-    { id: "mw_1", type: "middleware",          symbol: "ResolveTenant",           role: "middleware" },
-    { id: "mw_2", type: "authorization_check", symbol: "permission:task.update",  role: "authorization" },
-    { id: "ctrl", type: "controller_action",   symbol: "TaskController::update",  role: "handler" },
+    { id: "mw_0", type: "ir:auth_gate",        symbol: "auth:sanctum",           role: "authentication" },
+    { id: "mw_1", type: "ir:auth_gate",        symbol: "ResolveTenant",           role: "middleware" },
+    { id: "mw_2", type: "ir:authz_check",      symbol: "permission:task.update",  role: "authorization" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "TaskController::update",  role: "handler" },
   ],
   edges: [
     { from: "mw_0", to: "mw_1", relation: "next_middleware", traceability: "static" },
@@ -74,12 +74,12 @@ describe("retrieve — parameter name normalization", () => {
 const AUGMENTED_GRAPH: IntermediateExecutionGraph = {
   ...AUTH_001_GRAPH,
   nodes: [
-    { id: "mw_0",   type: "authentication_gate", symbol: "auth:sanctum",                 role: "authentication" },
-    { id: "mw_1",   type: "middleware",           symbol: "ResolveTenant",                role: "middleware" },
-    { id: "mw_2",   type: "authorization_check",  symbol: "permission:task.update",       role: "authorization" },
-    { id: "ctrl",   type: "controller_action",    symbol: "TaskController::update",       role: "handler" },
-    { id: "fr",     type: "form_request",         symbol: "UpdateTaskRequest::authorize", role: "validation" },
-    { id: "policy", type: "policy",               symbol: "TaskPolicy::update",           role: "authorization" },
+    { id: "mw_0",   type: "ir:auth_gate",        symbol: "auth:sanctum",                 role: "authentication" },
+    { id: "mw_1",   type: "ir:auth_gate",        symbol: "ResolveTenant",                role: "middleware" },
+    { id: "mw_2",   type: "ir:authz_check",      symbol: "permission:task.update",       role: "authorization" },
+    { id: "ctrl",   type: "ir:business_handler", symbol: "TaskController::update",       role: "handler" },
+    { id: "fr",     type: "ir:validation_gate",  symbol: "UpdateTaskRequest::authorize", role: "validation" },
+    { id: "policy", type: "ir:authz_check",      symbol: "TaskPolicy::update",           role: "authorization" },
   ],
 }
 
@@ -93,12 +93,10 @@ describe("prune — HIGH threshold", () => {
 
   test("only HIGH-classified nodes are kept", () => {
     const types = pruned.nodes.map((n) => n.type)
-    expect(types).toContain("authentication_gate")   // HIGH
-    expect(types).toContain("authorization_check")   // HIGH
-    expect(types).toContain("policy")                // HIGH
-    expect(types).toContain("form_request")          // HIGH (auth gate) — kept
-    expect(types).not.toContain("middleware")         // MEDIUM — pruned
-    expect(types).not.toContain("controller_action")  // MEDIUM — pruned
+    expect(types).toContain("ir:auth_gate")          // HIGH
+    expect(types).toContain("ir:authz_check")        // HIGH
+    expect(types).toContain("ir:validation_gate")    // HIGH
+    expect(types).not.toContain("ir:business_handler") // MEDIUM — pruned
   })
 
   test("token_estimate is lower than R0", () => {
@@ -128,11 +126,17 @@ describe("prune — MEDIUM threshold", () => {
 })
 
 describe("classifyNode", () => {
-  test("policy → HIGH", () => {
-    expect(classifyNode({ id: "x", type: "policy", symbol: "S", role: "r" })).toBe("HIGH")
+  test("ir:authz_check → HIGH", () => {
+    expect(classifyNode({ id: "x", type: "ir:authz_check", symbol: "S", role: "r" })).toBe("HIGH")
   })
-  test("form_request → HIGH", () => {
-    expect(classifyNode({ id: "x", type: "form_request", symbol: "S", role: "r" })).toBe("HIGH")
+  test("ir:validation_gate → HIGH", () => {
+    expect(classifyNode({ id: "x", type: "ir:validation_gate", symbol: "S", role: "r" })).toBe("HIGH")
+  })
+  test("ir:auth_gate → HIGH", () => {
+    expect(classifyNode({ id: "x", type: "ir:auth_gate", symbol: "S", role: "r" })).toBe("HIGH")
+  })
+  test("ir:business_handler → MEDIUM", () => {
+    expect(classifyNode({ id: "x", type: "ir:business_handler", symbol: "S", role: "r" })).toBe("MEDIUM")
   })
   test("unknown type → LOW", () => {
     expect(classifyNode({ id: "x", type: "unknown_type", symbol: "S", role: "r" })).toBe("LOW")
@@ -146,7 +150,7 @@ describe("retrieve — selects correct graph from multiple", () => {
     entrypoint: "DELETE /tasks/{task}",
     method: "DELETE",
     path: "/tasks/{task}",
-    nodes: [{ id: "ctrl_delete", type: "controller_action", symbol: "TaskController::destroy", role: "handler" }],
+    nodes: [{ id: "ctrl_delete", type: "ir:business_handler", symbol: "TaskController::destroy", role: "handler" }],
     edges: [],
     annotations: [],
   }
@@ -163,27 +167,27 @@ const OBSIDIAN_STYLE_RESULT: RetrievalResult = {
   entrypoint: "POST /orders",
   nodes: [
     // Non-dedup types — must survive as distinct nodes
-    { id: "svc_A_check_ctrl",   type: "service_call",        symbol: "IdempotencyService::check" },
-    { id: "svc_A_check_mw",     type: "service_call",        symbol: "IdempotencyService::check" },
-    { id: "policy_1",           type: "policy",              symbol: "OrderPolicy::create" },
+    { id: "svc_A_check_ctrl",   type: "ir:service_call",  symbol: "IdempotencyService::check" },
+    { id: "svc_A_check_mw",     type: "ir:service_call",  symbol: "IdempotencyService::check" },
+    { id: "policy_1",           type: "ir:authz_check",   symbol: "OrderPolicy::create" },
     // Dedup targets — these should be merged
-    { id: "txn_1",  type: "transaction_boundary", symbol: "DB::transaction" },
-    { id: "txn_2",  type: "transaction_boundary", symbol: "DB::transaction" },
-    { id: "txn_3",  type: "transaction_boundary", symbol: "DB::transaction" },
-    { id: "txn_4",  type: "transaction_boundary", symbol: "DB::transaction" },
-    { id: "uq_1",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_2",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_3",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_4",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_5",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_6",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_7",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_8",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_9",   type: "unscoped_query",       symbol: "IdempotencyKey::first" },
-    { id: "uq_10",  type: "unscoped_query",       symbol: "IdempotencyKey::first" },
+    { id: "txn_1",  type: "ir:txn_boundary", symbol: "DB::transaction" },
+    { id: "txn_2",  type: "ir:txn_boundary", symbol: "DB::transaction" },
+    { id: "txn_3",  type: "ir:txn_boundary", symbol: "DB::transaction" },
+    { id: "txn_4",  type: "ir:txn_boundary", symbol: "DB::transaction" },
+    { id: "uq_1",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_2",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_3",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_4",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_5",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_6",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_7",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_8",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_9",   type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
+    { id: "uq_10",  type: "ir:unscoped_query", symbol: "IdempotencyKey::first" },
     // Different args — must NOT be merged with each other
-    { id: "tw_a",   type: "transactional_write",  symbol: "Order::save", args: ["status=pending"] },
-    { id: "tw_b",   type: "transactional_write",  symbol: "Order::save", args: ["status=confirmed"] },
+    { id: "tw_a",   type: "ir:txn_write", symbol: "Order::save", args: ["status=pending"] },
+    { id: "tw_b",   type: "ir:txn_write", symbol: "Order::save", args: ["status=confirmed"] },
   ],
   edges: [
     // Edges that should remap to canonical nodes
@@ -208,40 +212,40 @@ describe("deduplicate — type-aware graph deduplication", () => {
     deduped = deduplicate(OBSIDIAN_STYLE_RESULT)
   })
 
-  test("service_call nodes are NOT merged (caller-scoped invariant)", () => {
-    const svcNodes = deduped.nodes.filter((n) => n.type === "service_call")
+  test("ir:service_call nodes are NOT merged (caller-scoped invariant)", () => {
+    const svcNodes = deduped.nodes.filter((n) => n.type === "ir:service_call")
     expect(svcNodes).toHaveLength(2)
   })
 
-  test("policy nodes are NOT merged", () => {
-    const policyNodes = deduped.nodes.filter((n) => n.type === "policy")
+  test("ir:authz_check nodes are NOT merged", () => {
+    const policyNodes = deduped.nodes.filter((n) => n.type === "ir:authz_check")
     expect(policyNodes).toHaveLength(1)
   })
 
-  test("transaction_boundary nodes with same symbol are merged to one", () => {
-    const txnNodes = deduped.nodes.filter((n) => n.type === "transaction_boundary")
+  test("ir:txn_boundary nodes with same symbol are merged to one", () => {
+    const txnNodes = deduped.nodes.filter((n) => n.type === "ir:txn_boundary")
     expect(txnNodes).toHaveLength(1)
   })
 
-  test("occurrenceCount reflects merged count for transaction_boundary", () => {
-    const txnNode = deduped.nodes.find((n) => n.type === "transaction_boundary")!
+  test("occurrenceCount reflects merged count for ir:txn_boundary", () => {
+    const txnNode = deduped.nodes.find((n) => n.type === "ir:txn_boundary")!
     expect(txnNode.occurrenceCount).toBe(4)
   })
 
-  test("unscoped_query ×10 merges to one node with occurrenceCount=10", () => {
-    const uqNodes = deduped.nodes.filter((n) => n.type === "unscoped_query")
+  test("ir:unscoped_query ×10 merges to one node with occurrenceCount=10", () => {
+    const uqNodes = deduped.nodes.filter((n) => n.type === "ir:unscoped_query")
     expect(uqNodes).toHaveLength(1)
     expect(uqNodes[0].occurrenceCount).toBe(10)
   })
 
-  test("transactional_write with different args are NOT merged", () => {
-    const twNodes = deduped.nodes.filter((n) => n.type === "transactional_write")
+  test("ir:txn_write with different args are NOT merged", () => {
+    const twNodes = deduped.nodes.filter((n) => n.type === "ir:txn_write")
     expect(twNodes).toHaveLength(2)
   })
 
   test("total node count is significantly reduced", () => {
     expect(deduped.nodes.length).toBeLessThan(OBSIDIAN_STYLE_RESULT.nodes.length)
-    // 2 service_call + 1 policy + 1 txn_boundary + 1 unscoped_query + 2 transactional_write = 7
+    // 2 ir:service_call + 1 ir:authz_check + 1 ir:txn_boundary + 1 ir:unscoped_query + 2 ir:txn_write = 7
     expect(deduped.nodes.length).toBe(7)
   })
 
@@ -272,7 +276,7 @@ describe("deduplicate — type-aware graph deduplication", () => {
   })
 
   test("nodes without occurrenceCount set have it as undefined or 1", () => {
-    const policyNode = deduped.nodes.find((n) => n.type === "policy")!
+    const policyNode = deduped.nodes.find((n) => n.type === "ir:authz_check")!
     expect(policyNode.occurrenceCount === undefined || policyNode.occurrenceCount === 1).toBe(true)
   })
 })
@@ -282,11 +286,11 @@ describe("deduplicate — type-aware graph deduplication", () => {
 const RANK_GRAPH: RetrievalResult = {
   entrypoint: "POST /roles/assign",
   nodes: [
-    { id: "ctrl",    type: "controller_action",   symbol: "RoleController::assign" },
-    { id: "policy",  type: "policy",              symbol: "RolePolicy::update" },
-    { id: "mw",      type: "middleware",           symbol: "ResolveTenant::handle" },
-    { id: "svc",     type: "service_call",         symbol: "RoleService::validateRoleLevel" },
-    { id: "perm",    type: "authorization_check",  symbol: "permission:role.assign" },
+    { id: "ctrl",    type: "ir:business_handler", symbol: "RoleController::assign" },
+    { id: "policy",  type: "ir:authz_check",      symbol: "RolePolicy::update" },
+    { id: "mw",      type: "ir:auth_gate",        symbol: "ResolveTenant::handle" },
+    { id: "svc",     type: "ir:service_call",     symbol: "RoleService::validateRoleLevel" },
+    { id: "perm",    type: "ir:authz_check",      symbol: "permission:role.assign" },
   ],
   edges: [],
   token_estimate: 300,

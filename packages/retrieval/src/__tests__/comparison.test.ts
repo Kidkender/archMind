@@ -15,16 +15,16 @@ const AUTH_001_GRAPH: IntermediateExecutionGraph = {
   method:     "PUT",
   path:       "/tasks/{task}",
   nodes: [
-    { id: "mw_0", type: "authentication_gate", symbol: "auth:sanctum",                 role: "authentication" },
-    { id: "mw_1", type: "middleware",           symbol: "ResolveTenant::handle",        role: "middleware",
+    { id: "mw_0", type: "ir:auth_gate",        symbol: "auth:sanctum",                 role: "authentication" },
+    { id: "mw_1", type: "ir:auth_gate",        symbol: "ResolveTenant::handle",        role: "middleware",
       file: "app/Http/Middleware/ResolveTenant.php" },
-    { id: "mw_2", type: "authorization_check",  symbol: "CheckPermission::handle",      role: "authorization",
+    { id: "mw_2", type: "ir:authz_check",      symbol: "CheckPermission::handle",      role: "authorization",
       args: ["task.update"], file: "app/Http/Middleware/CheckPermission.php" },
-    { id: "ctrl", type: "controller_action",    symbol: "TaskController::update",       role: "handler",
+    { id: "ctrl", type: "ir:business_handler", symbol: "TaskController::update",       role: "handler",
       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
-    { id: "fr",   type: "form_request",         symbol: "UpdateTaskRequest::authorize", role: "validation",
+    { id: "fr",   type: "ir:validation_gate",  symbol: "UpdateTaskRequest::authorize", role: "validation",
       file: "app/Modules/Task/Requests/UpdateTaskRequest.php" },
-    { id: "pol",  type: "policy",               symbol: "TaskPolicy::update",           role: "authorization",
+    { id: "pol",  type: "ir:authz_check",      symbol: "TaskPolicy::update",           role: "authorization",
       file: "app/Policies/TaskPolicy.php" },
   ],
   edges: [
@@ -116,8 +116,8 @@ describe("Serializer output — sanity check", () => {
     const output = serialize(result)
     // Should contain key sections
     expect(output).toMatch(/MIDDLEWARE CHAIN|AUTHORIZATION/)
-    // Should NOT contain MEDIUM-only nodes (middleware = MEDIUM, pruned by auth focus)
-    expect(output).not.toMatch(/ResolveTenant/)
+    // Should NOT contain MEDIUM-only nodes (business_handler = MEDIUM, pruned by auth focus)
+    expect(output).not.toMatch(/TaskController::update/)
     // Token count should be shown
     expect(output).toMatch(/~\d+ tokens/)
   })

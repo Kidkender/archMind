@@ -28,20 +28,12 @@ const FOCUS_THRESHOLD: Record<RetrievalFocus, RetrievalRelevance> = {
 // and are safe to merge. Caller-scoped types (service_call, policy, permission,
 // form_request, etc.) must NOT be deduplicated.
 const DEDUP_TYPES = new Set([
-  // IR types
   "ir:txn_boundary",
   "ir:txn_write",
   "ir:txn_escape",
   "ir:unscoped_query",
   "ir:unscoped_write",
   "ir:scoped_query",
-  // Legacy Laravel types (keep during migration window)
-  "transaction_boundary",
-  "transactional_write",
-  "transaction_escape",
-  "unscoped_query",
-  "unscoped_write",
-  "tenant_scoped_query",
 ])
 
 // Rough token budget: if graph exceeds this after dedup, prune by relevance.
@@ -208,7 +200,6 @@ export function prune(
 // Derived from golden trace patterns across all 4 pain cases.
 
 const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
-  // --- IR types (ir: prefix) ---
   "ir:auth_gate":           "HIGH",
   "ir:authz_check":         "HIGH",
   "ir:permission_constant": "HIGH",
@@ -223,29 +214,8 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   "ir:txn_write":           "HIGH",
   "ir:txn_escape":          "HIGH",
   "ir:unscoped_query":      "HIGH",
+  "ir:unscoped_write":      "HIGH",
   "ir:scoped_query":        "MEDIUM",
-
-  // --- Legacy Laravel types (kept for backward compat during migration) ---
-  policy:               "HIGH",
-  permission:           "HIGH",
-  authentication_gate:  "HIGH",
-  authorization_check:  "HIGH",
-  runtime_injection:    "HIGH",
-  service_call:         "HIGH",
-  transaction_boundary: "HIGH",
-  transactional_write:  "HIGH",
-  transaction_escape:   "HIGH",
-  unscoped_query:       "HIGH",
-  unscoped_write:       "HIGH",
-  "ir:unscoped_write":  "HIGH",
-  tenant_scoped_query:  "MEDIUM",
-  form_request:         "HIGH",
-  controller_action:    "MEDIUM",
-  controller:           "MEDIUM",
-  middleware:           "MEDIUM",
-  service_method:       "HIGH",
-  repository_call:      "HIGH",
-  model_operation:      "MEDIUM",
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {

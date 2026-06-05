@@ -26,10 +26,10 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
   "LARAVEL-AUTH-001": {
     entrypoint: "PUT /tasks/{task}", method: "PUT", path: "/tasks/{task}",
     nodes: [
-      { id: "mw_0", type: "authentication_gate", symbol: "auth:sanctum",            role: "authentication" },
-      { id: "mw_1", type: "middleware",           symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
-      { id: "mw_2", type: "authorization_check",  symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php", args: ["task.update"] },
-      { id: "ctrl", type: "controller_action",    symbol: "TaskController::update",  role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
+      { id: "mw_0", type: "ir:auth_gate",        symbol: "auth:sanctum",            role: "authentication" },
+      { id: "mw_1", type: "ir:auth_gate",        symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
+      { id: "mw_2", type: "ir:authz_check",      symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php", args: ["task.update"] },
+      { id: "ctrl", type: "ir:business_handler", symbol: "TaskController::update",  role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
     ],
     edges: [
       { from: "mw_0", to: "mw_1", relation: "next_middleware", traceability: "static" },
@@ -41,10 +41,10 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
   "LARAVEL-AUTH-002": {
     entrypoint: "DELETE /tasks/{task}", method: "DELETE", path: "/tasks/{task}",
     nodes: [
-      { id: "mw_0", type: "authentication_gate", symbol: "auth:sanctum",            role: "authentication" },
-      { id: "mw_1", type: "middleware",           symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
-      { id: "mw_2", type: "authorization_check",  symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php", args: ["task.delete"] },
-      { id: "ctrl", type: "controller_action",    symbol: "TaskController::destroy", role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
+      { id: "mw_0", type: "ir:auth_gate",        symbol: "auth:sanctum",            role: "authentication" },
+      { id: "mw_1", type: "ir:auth_gate",        symbol: "ResolveTenant::handle",   role: "middleware",    file: "app/Http/Middleware/ResolveTenant.php" },
+      { id: "mw_2", type: "ir:authz_check",      symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php", args: ["task.delete"] },
+      { id: "ctrl", type: "ir:business_handler", symbol: "TaskController::destroy", role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
     ],
     edges: [
       { from: "mw_0", to: "mw_1", relation: "next_middleware", traceability: "static" },
@@ -56,8 +56,8 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
   "LARAVEL-VALIDATION-001": {
     entrypoint: "PUT /tasks/{task}", method: "PUT", path: "/tasks/{task}",
     nodes: [
-      { id: "mw_2", type: "authorization_check", symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php" },
-      { id: "ctrl", type: "controller_action",   symbol: "TaskController::update",  role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
+      { id: "mw_2", type: "ir:authz_check",      symbol: "CheckPermission::handle", role: "authorization", file: "app/Http/Middleware/CheckPermission.php" },
+      { id: "ctrl", type: "ir:business_handler", symbol: "TaskController::update",  role: "handler",       file: "app/Modules/Task/Http/Controllers/TaskController.php" },
     ],
     edges: [
       { from: "mw_2", to: "ctrl", relation: "next_middleware", traceability: "static" },

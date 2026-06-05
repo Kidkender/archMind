@@ -7,10 +7,10 @@ const ORDER_CREATE: IntermediateExecutionGraph = {
   entrypoint: "POST /orders",
   method: "POST", path: "/orders",
   nodes: [
-    { id: "ctrl", type: "controller_action", symbol: "OrderController::store", role: "handler" },
-    { id: "svc1", type: "service_call", symbol: "OrderService::create", role: "service" },
-    { id: "svc2", type: "service_call", symbol: "CartService::carts", role: "service" },
-    { id: "svc3", type: "service_call", symbol: "AccountTransactionService::create", role: "service" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "OrderController::store", role: "handler" },
+    { id: "svc1", type: "ir:service_call", symbol: "OrderService::create", role: "service" },
+    { id: "svc2", type: "ir:service_call", symbol: "CartService::carts", role: "service" },
+    { id: "svc3", type: "ir:service_call", symbol: "AccountTransactionService::create", role: "service" },
   ],
   edges: [], annotations: [],
 }
@@ -19,8 +19,8 @@ const ORDER_ADMIN: IntermediateExecutionGraph = {
   entrypoint: "GET /admin/orders",
   method: "GET", path: "/admin/orders",
   nodes: [
-    { id: "ctrl", type: "controller_action", symbol: "AdminOrderController::index", role: "handler" },
-    { id: "svc1", type: "service_call", symbol: "OrderService::list", role: "service" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "AdminOrderController::index", role: "handler" },
+    { id: "svc1", type: "ir:service_call", symbol: "OrderService::list", role: "service" },
   ],
   edges: [], annotations: [],
 }
@@ -29,8 +29,8 @@ const ORDER_SHOW: IntermediateExecutionGraph = {
   entrypoint: "GET /orders/{order}",
   method: "GET", path: "/orders/{order}",
   nodes: [
-    { id: "ctrl", type: "controller_action", symbol: "OrderController::show", role: "handler" },
-    { id: "svc1", type: "service_call", symbol: "OrderService::findById", role: "service" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "OrderController::show", role: "handler" },
+    { id: "svc1", type: "ir:service_call", symbol: "OrderService::findById", role: "service" },
   ],
   edges: [], annotations: [],
 }
@@ -39,9 +39,9 @@ const CART_ROUTE: IntermediateExecutionGraph = {
   entrypoint: "POST /cart/add",
   method: "POST", path: "/cart/add",
   nodes: [
-    { id: "ctrl", type: "controller_action", symbol: "CartController::addToCart", role: "handler" },
-    { id: "svc1", type: "service_call", symbol: "CartService::add", role: "service" },
-    { id: "svc2", type: "service_call", symbol: "CartService::carts", role: "service" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "CartController::addToCart", role: "handler" },
+    { id: "svc1", type: "ir:service_call", symbol: "CartService::add", role: "service" },
+    { id: "svc2", type: "ir:service_call", symbol: "CartService::carts", role: "service" },
   ],
   edges: [], annotations: [],
 }
@@ -50,7 +50,7 @@ const NO_SERVICES: IntermediateExecutionGraph = {
   entrypoint: "GET /health",
   method: "GET", path: "/health",
   nodes: [
-    { id: "ctrl", type: "controller_action", symbol: "HealthController::index", role: "handler" },
+    { id: "ctrl", type: "ir:business_handler", symbol: "HealthController::index", role: "handler" },
   ],
   edges: [], annotations: [],
 }

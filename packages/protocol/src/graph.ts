@@ -1,35 +1,7 @@
 // Core graph types — structural definitions only.
 // Node/edge `type` and `relation` are string, not enum: ontology is still evolving.
-// Use KnownNodeType / KnownEdgeRelation for the stable subset; new types must be
-// added here before being used in production code.
 
 export const PROTOCOL_VERSION = "1.0.0"
-
-// ---------------------------------------------------------------------------
-// Node type registry — stable as of v1.0.0
-// ---------------------------------------------------------------------------
-
-export const NODE_TYPES = {
-  // Auth / validation domain
-  MIDDLEWARE:            "middleware",
-  CONTROLLER_ACTION:     "controller_action",
-  FORM_REQUEST:          "form_request",
-  POLICY:                "policy",
-  SERVICE_CALL:          "service_call",
-  AUTHENTICATION_GATE:   "authentication_gate",
-  AUTHORIZATION_CHECK:   "authorization_check",
-  RUNTIME_INJECTION:     "runtime_injection",
-  PERMISSION:            "permission",
-  // Transaction domain
-  TRANSACTION_BOUNDARY:  "transaction_boundary",
-  TRANSACTIONAL_WRITE:   "transactional_write",
-  TRANSACTION_ESCAPE:    "transaction_escape",
-  // Isolation domain
-  UNSCOPED_QUERY:        "unscoped_query",
-  TENANT_SCOPED_QUERY:   "tenant_scoped_query",
-} as const
-
-export type KnownNodeType = typeof NODE_TYPES[keyof typeof NODE_TYPES]
 
 // ---------------------------------------------------------------------------
 // Edge relation registry — stable as of v1.0.0

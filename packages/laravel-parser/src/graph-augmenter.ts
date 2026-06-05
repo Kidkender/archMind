@@ -55,7 +55,7 @@ export interface AugmentOptions {
 
 /**
  * Augment a skeleton graph with L1 nodes (FormRequest, policy) by analysing
- * the controller method body. Requires the controller_action node to have a
+ * the controller method body. Requires the BUSINESS_HANDLER node to have a
  * `file` field pointing to the controller PHP file (relative to projectRoot).
  *
  * Also extracts service_call nodes from:
@@ -79,7 +79,7 @@ export function augmentGraph(
   const newAnnotations: GraphAnnotation[] = [...graph.annotations]
 
   // ---- Controller L1 pass ------------------------------------------
-  const ctrlNode = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
+  const ctrlNode = graph.nodes.find((n) => n.type === IR_NODE_TYPES.BUSINESS_HANDLER)
   if (ctrlNode?.file) {
     const [ctrlClass, methodName] = ctrlNode.symbol.split("::")
     if (methodName) {
@@ -185,7 +185,7 @@ export function augmentGraph(
   }
 
   // ---- Middleware service_call pass ------------------------------------
-  const mwTypes = new Set(["ir:auth_gate", "ir:authz_check", "middleware", "authorization_check", "authentication_gate"])
+  const mwTypes = new Set<string>([IR_NODE_TYPES.AUTH_GATE, IR_NODE_TYPES.AUTHZ_CHECK])
   for (const mwNode of graph.nodes) {
     if (!mwTypes.has(mwNode.type) || !mwNode.file) continue
     const filePath = join(opts.projectRoot, mwNode.file)
@@ -220,7 +220,7 @@ export function augmentGraph(
   }
 
   // ---- Transaction pass ------------------------------------------------
-  const ctrlNodeForTxn = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
+  const ctrlNodeForTxn = graph.nodes.find((n) => n.type === IR_NODE_TYPES.BUSINESS_HANDLER)
   if (ctrlNodeForTxn?.file) {
     const filePath = join(opts.projectRoot, ctrlNodeForTxn.file)
     const txnResult = parseTransactions(filePath)
@@ -233,7 +233,7 @@ export function augmentGraph(
   traceEventListeners(newNodes, newEdges, opts.projectRoot, config.namespaces)
 
   // ---- Isolation pass --------------------------------------------------
-  const ctrlNodeForIso = graph.nodes.find((n) => (n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"))
+  const ctrlNodeForIso = graph.nodes.find((n) => n.type === IR_NODE_TYPES.BUSINESS_HANDLER)
   if (ctrlNodeForIso?.file) {
     const filePath = join(opts.projectRoot, ctrlNodeForIso.file)
     const isoResult = parseIsolation(filePath, {

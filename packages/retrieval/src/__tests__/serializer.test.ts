@@ -6,12 +6,12 @@ const AUGMENTED_GRAPH: IntermediateExecutionGraph = {
   method:     "PUT",
   path:       "/tasks/{task}",
   nodes: [
-    { id: "mw_0",   type: "authentication_gate", symbol: "auth:sanctum",                 role: "authentication" },
-    { id: "mw_1",   type: "middleware",           symbol: "ResolveTenant::handle",        role: "middleware" },
-    { id: "mw_2",   type: "authorization_check",  symbol: "CheckPermission::handle",      role: "authorization", args: ["task.update"] },
-    { id: "ctrl",   type: "controller_action",    symbol: "TaskController::update",       role: "handler" },
-    { id: "fr",     type: "form_request",         symbol: "UpdateTaskRequest::authorize", role: "validation" },
-    { id: "policy", type: "policy",               symbol: "TaskPolicy::update",           role: "authorization" },
+    { id: "mw_0",   type: "ir:auth_gate",        symbol: "auth:sanctum",                 role: "authentication" },
+    { id: "mw_1",   type: "ir:auth_gate",        symbol: "ResolveTenant::handle",        role: "middleware" },
+    { id: "mw_2",   type: "ir:authz_check",      symbol: "CheckPermission::handle",      role: "authorization", args: ["task.update"] },
+    { id: "ctrl",   type: "ir:business_handler", symbol: "TaskController::update",       role: "handler" },
+    { id: "fr",     type: "ir:validation_gate",  symbol: "UpdateTaskRequest::authorize", role: "validation" },
+    { id: "policy", type: "ir:authz_check",      symbol: "TaskPolicy::update",           role: "authorization" },
   ],
   edges: [
     { from: "mw_0", to: "mw_1",   relation: "next_middleware", traceability: "static" },
@@ -83,8 +83,9 @@ describe("serialize — pruned result", () => {
     const r0     = retrieve({ entrypoint: "PUT /tasks/{task}" }, [AUGMENTED_GRAPH])!
     const pruned = prune(r0, "HIGH")
     const output = serialize(pruned)
-    expect(output).not.toMatch(/ResolveTenant/)      // middleware = MEDIUM — pruned
-    // form_request is HIGH (auth gate) — present after HIGH prune
+    // ir:business_handler is MEDIUM — pruned at HIGH threshold
+    expect(output).not.toMatch(/TaskController::update/)
+    // ir:validation_gate is HIGH — present after HIGH prune
     expect(output).toMatch(/UpdateTaskRequest/)
   })
 })
@@ -94,9 +95,9 @@ describe("retrieve with focus", () => {
     const result = retrieve({ entrypoint: "PUT /tasks/{task}", focus: "auth" }, [AUGMENTED_GRAPH])!
     expect(result.pruned).toBe(true)
     const types = result.nodes.map((n) => n.type)
-    expect(types).toContain("policy")
-    expect(types).toContain("form_request")  // form_request is HIGH — kept at auth focus
-    expect(types).not.toContain("middleware") // middleware is MEDIUM — pruned
+    expect(types).toContain("ir:authz_check")
+    expect(types).toContain("ir:validation_gate")  // validation_gate is HIGH — kept at auth focus
+    expect(types).not.toContain("ir:business_handler") // business_handler is MEDIUM — pruned
   })
 
   test("focus:all returns unpruned result", () => {
