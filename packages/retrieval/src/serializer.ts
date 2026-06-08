@@ -1,34 +1,43 @@
-import type { RetrievalResult, ExecutionNode } from "@archmind/protocol"
+import type { RetrievalResult, ExecutionNode, ExecutionEdge } from "@archmind/protocol"
 
 // ---- Public API -------------------------------------------------------
 
 export function serialize(result: RetrievalResult): string {
+  const body = serializeBody(result.nodes, result.edges, result.pruned)
+  return `Execution flow for ${result.entrypoint}:\n${body}\n~${result.token_estimate} tokens`.trimEnd()
+}
+
+/** Estimate tokens for a set of nodes+edges using the human-readable format. */
+export function estimateSerializedTokens(nodes: ExecutionNode[], edges: ExecutionEdge[]): number {
+  return Math.ceil(serializeBody(nodes, edges, false).length / 4)
+}
+
+// ---- Core body serialization (no entrypoint header, no token footer) --
+
+function serializeBody(nodes: ExecutionNode[], edges: ExecutionEdge[], pruned: boolean): string {
   const lines: string[] = []
 
-  lines.push(`Execution flow for ${result.entrypoint}:`)
-  if (result.pruned) lines.push("(pruned to relevant nodes only)")
+  if (pruned) lines.push("(pruned to relevant nodes only)")
   lines.push("")
 
-  const sections = groupBySemantic(result.nodes)
+  const sections = groupBySemantic(nodes)
 
-  for (const [heading, nodes] of sections) {
-    if (nodes.length === 0) continue
+  for (const [heading, sectionNodes] of sections) {
+    if (sectionNodes.length === 0) continue
     lines.push(`[${heading}]`)
-    for (const node of nodes) {
+    for (const node of sectionNodes) {
       lines.push(formatNode(node))
     }
     lines.push("")
   }
 
-  // Append execution characteristics summary when nodes were deduplicated
-  const summary = buildExecutionSummary(result.nodes)
+  const summary = buildExecutionSummary(nodes)
   if (summary) {
     lines.push(summary)
     lines.push("")
   }
 
-  // Append notable edges (non-next_middleware)
-  const notable = result.edges.filter((e) => e.relation !== "next_middleware")
+  const notable = edges.filter((e) => e.relation !== "next_middleware")
   if (notable.length > 0) {
     lines.push("[CONNECTIONS]")
     for (const e of notable) {
@@ -38,9 +47,7 @@ export function serialize(result: RetrievalResult): string {
     lines.push("")
   }
 
-  lines.push(`~${result.token_estimate} tokens`)
-
-  return lines.join("\n").trimEnd()
+  return lines.join("\n")
 }
 
 // ---- Grouping ---------------------------------------------------------

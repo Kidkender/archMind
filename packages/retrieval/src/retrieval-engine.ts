@@ -7,6 +7,7 @@ import type {
   RetrievalFocus,
 } from "@archmind/protocol"
 import { PROTOCOL_VERSION } from "@archmind/protocol"
+import { estimateSerializedTokens } from "./serializer.js"
 
 export type RetrievalRelevance = "HIGH" | "MEDIUM" | "LOW"
 
@@ -245,5 +246,5 @@ function findGraph(
 // ---- Token estimation -------------------------------------------------
 
 function estimateTokens(nodes: ExecutionNode[], edges: ExecutionEdge[]): number {
-  return Math.ceil(JSON.stringify({ nodes, edges }).length / 4)
+  return estimateSerializedTokens(nodes, edges)
 }

@@ -56,16 +56,14 @@ function inferConfidence(node: ExecutionNode, permission: string | null): Author
 }
 
 const AUTH_NODE_TYPES = new Set([
-  "authorization_check",
-  "authentication_gate",
-  "middleware",
-  "policy",
-  "service_call",
-  "permission",
+  "ir:auth_gate",
+  "ir:authz_check",
+  "ir:service_call",
+  "ir:permission_constant",
 ])
 
-// form_request::authorize is handled by the validation gate extractor, not here
-const EXCLUDED_NODE_TYPES = new Set(["form_request", "controller", "route"])
+// ir:validation_gate::authorize is handled by the validation gate extractor, not here
+const EXCLUDED_NODE_TYPES = new Set(["ir:business_handler", "ir:entrypoint", "ir:validation_gate"])
 
 function isAuthorizationNode(node: ExecutionNode): boolean {
   const t = node.type.toLowerCase()

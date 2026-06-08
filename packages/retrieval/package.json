@@ -12,6 +12,7 @@
     "@archmind/protocol": "*",
     "@archmind/scorer": "*",
     "@archmind/laravel-parser": "*",
+    "@archmind/nestjs-parser": "*",
     "@archmind/runtime-ingest": "*",
     "@archmind/runtime-correlator": "*",
     "js-yaml": "^4.1.0"

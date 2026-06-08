@@ -6,8 +6,8 @@ import { CRITICAL_NODE_TYPES } from "./retrieval-baseline.js"
 // Node types whose GAIN (appearance) is a regression — e.g. an unscoped write
 // appearing means tenant isolation was removed from a previously-scoped operation.
 export const DANGER_NODE_TYPES: ReadonlyArray<string> = [
-  "unscoped_write",
-  "unscoped_query",
+  "ir:unscoped_write",
+  "ir:unscoped_query",
 ]
 
 // ---------------------------------------------------------------------------

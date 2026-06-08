@@ -13,21 +13,13 @@ import { naiveRag } from "./naive-rag.js"
 // When any of these disappear from a route's graph vs. the stored baseline, the verify
 // step flags it as a topology regression (historical-absence detection).
 export const CRITICAL_NODE_TYPES: ReadonlyArray<string> = [
-  // IR types
   "ir:auth_gate",
   "ir:authz_check",
+  "ir:validation_gate",
   "ir:txn_boundary",
   "ir:scoped_query",
+  "ir:unscoped_query",
   "ir:unscoped_write",
-  "ir:validation_gate",
-  // Legacy types (backward compat during migration window)
-  "authentication_gate",
-  "authorization_check",
-  "transaction_boundary",
-  "tenant_scoped_query",
-  "unscoped_write",
-  "policy",
-  "form_request",
 ]
 
 export interface RetrievalBaselineEntry {
