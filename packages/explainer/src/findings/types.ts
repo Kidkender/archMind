@@ -50,6 +50,9 @@ export const FINDING_TYPES = {
   MISSING_TENANT_SCOPE: "missing_tenant_scope",
   DOUBLE_PERMISSION_CHECK: "double_permission_check",
   RUNTIME_CONSUMER_TRACE: "runtime_consumer_trace",
-  RESOURCE_MISMATCH:      "resource_mismatch",
-  RESOURCE_UNPROTECTED:   "resource_unprotected",
+  RESOURCE_MISMATCH:          "resource_mismatch",
+  RESOURCE_UNPROTECTED:       "resource_unprotected",
+  FAT_CONTROLLER:             "fat_controller",
+  EXPOSED_READ_ENDPOINT:      "exposed_read_endpoint",
+  OVER_AUTHORIZED_ROUTE:      "over_authorized_route",
 } as const

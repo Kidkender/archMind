@@ -12,6 +12,9 @@ import { detectRuntimeConsumerTrace } from "./runtime-consumer-trace.js"
 import { detectMissingAuthorization } from "./missing-authorization.js"
 import { detectMissingPolicy } from "./missing-policy.js"
 import { detectResourceMismatch } from "./resource-mismatch.js"
+import { detectFatController } from "./fat-controller.js"
+import { detectExposedReadEndpoint } from "./exposed-read-endpoint.js"
+import { detectOverAuthorizedRoute } from "./over-authorized-route.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -29,6 +32,9 @@ export function detect(
     ...detectMissingPolicy(graph),
     ...detectMissingAuthorization(facts, graph),
     ...detectResourceMismatch(graph),
+    ...detectFatController(graph),
+    ...detectExposedReadEndpoint(graph),
+    ...detectOverAuthorizedRoute(graph),
     ...detectDuplicateAuthorization(facts, graph),
     ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),
