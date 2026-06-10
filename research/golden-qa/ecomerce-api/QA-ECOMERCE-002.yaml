@@ -1,0 +1,29 @@
+id: QA-ECOMERCE-002
+route: "PUT /products/{product}"
+question: "Is authorization duplicated on product update?"
+
+expected_finding: resource_unprotected
+expected_severity: CRITICAL
+expected_intent: auth
+
+expected_evidence_nodes:
+  - symbol: UpdateProductRequest::authorize
+    type: ir:validation_gate
+    role: form_request
+  - symbol: auth:sanctum
+    type: ir:auth_gate
+    role: middleware
+
+expected_answer_contains:
+  - "UpdateProductRequest"
+  - "FormRequest"
+  - "delegated"
+  - "not duplicated"
+
+golden_answer: >
+  Authorization is not duplicated — it is delegated to the FormRequest layer.
+  The route has Sanctum authentication (auth:sanctum middleware) and
+  UpdateProductRequest::authorize() handles the authorization decision via
+  $this->user()?->isAdmin(). There is no separate Policy call. This is a
+  delegation pattern, not duplication — but it means resource-level
+  authorization is bypassed entirely (no ProductPolicy::update consulted).

@@ -1,0 +1,32 @@
+id: QA-ECOMERCE-001
+route: "PUT /products/{product}"
+question: "Who can update a product and is the authorization sufficient?"
+
+expected_finding: resource_unprotected
+expected_severity: CRITICAL
+expected_intent: auth
+
+expected_evidence_nodes:
+  - symbol: Product
+    type: ir:resource
+    role: resource
+  - symbol: ProductController::update
+    type: ir:business_handler
+    role: controller
+  - symbol: UpdateProductRequest::authorize
+    type: ir:validation_gate
+    role: form_request
+
+expected_answer_contains:
+  - "isAdmin"
+  - "UpdateProductRequest"
+  - "no Policy"
+  - "Product"
+
+golden_answer: >
+  Only admin users can update a product. The authorization decision is
+  delegated entirely to UpdateProductRequest::authorize(), which returns
+  $this->user()?->isAdmin(). There is no Policy class consulted — ProductPolicy
+  does not exist. The Product resource accessed via route-model-binding has no
+  ir:authorizes edge, meaning resource-level authorization (e.g. ownership check)
+  is completely absent. Any admin can update any product regardless of ownership.

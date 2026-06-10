@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@archmind/retrieval"
-import { explain } from "@archmind/explainer"
+import { explain, buildEvidencePackage } from "@archmind/explainer"
 import type { RetrievalFocus } from "@archmind/protocol"
 import { PROTOCOL_VERSION } from "@archmind/protocol"
 import { ingestOtlpFile } from "@archmind/runtime-ingest"
@@ -224,6 +224,38 @@ export function createServer(): McpServer {
             ),
           },
         ],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_get_evidence_package",
+    {
+      description:
+        "Build a structured evidence package for a question about a specific route. " +
+        "Returns the minimal set of relevant nodes, execution path, top finding, and a one-paragraph summary — " +
+        "formatted for direct LLM consumption. Prefer this over archmind_get_findings when you need " +
+        "to reason about a specific question rather than enumerate all findings.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
+        entrypoint: z.string().describe('Entrypoint in "METHOD /path" format, e.g. "PUT /products/{product}"'),
+        question: z.string().describe('Natural language question, e.g. "Why is authorization duplicated?" or "Can a guest update this resource?"'),
+      },
+    },
+    async ({ project_root, entrypoint, question }) => {
+      const graphs = getGraphs(project_root)
+      const graph = graphs.find((g) => g.entrypoint === entrypoint)
+      if (!graph) {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: `No graph found for entrypoint: ${entrypoint}` }) }],
+          isError: true,
+        }
+      }
+
+      const pkg = buildEvidencePackage(question, graph)
+
+      return {
+        content: [{ type: "text", text: JSON.stringify(pkg, null, 2) }],
       }
     }
   )

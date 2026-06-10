@@ -17,6 +17,8 @@ export function explain(graph: IntermediateExecutionGraph, query?: string): Find
 }
 
 export { extractFacts, detect, renderMarkdown, rankFindings, classifyQuery, prioritizeByFocus }
+export { buildEvidencePackage } from "./evidence/index.js"
+export type { EvidencePackage, EvidenceItem } from "./evidence/index.js"
 export type { SemanticFact, Finding }
 export * from "./fact-extraction/types.js"
 export * from "./findings/types.js"

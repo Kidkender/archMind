@@ -1,0 +1,32 @@
+id: QA-ECOMERCE-003
+route: "PUT /products/{product}"
+question: "Can a guest user update a product?"
+
+expected_finding: resource_unprotected
+expected_severity: CRITICAL
+expected_intent: auth
+
+expected_evidence_nodes:
+  - symbol: auth:sanctum
+    type: ir:auth_gate
+    role: middleware
+  - symbol: ProductController::update
+    type: ir:business_handler
+    role: controller
+  - symbol: UpdateProductRequest::authorize
+    type: ir:validation_gate
+    role: form_request
+
+expected_answer_contains:
+  - "guest"
+  - "no"
+  - "sanctum"
+  - "authenticated"
+
+golden_answer: >
+  No, a guest cannot update a product. The route is protected by the
+  auth:sanctum middleware, which requires a valid Bearer token. An
+  unauthenticated request will be rejected with HTTP 401 before reaching
+  the controller. However, once authenticated, any admin user can update
+  any product — there is no ownership check because ProductPolicy is never
+  consulted.
