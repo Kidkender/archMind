@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@archmind/retrieval"
-import { explain, buildEvidencePackage } from "@archmind/explainer"
+import { explain, buildEvidencePackage, traceByPattern } from "@archmind/explainer"
+import type { TracePattern } from "@archmind/explainer"
 import type { RetrievalFocus } from "@archmind/protocol"
 import { PROTOCOL_VERSION } from "@archmind/protocol"
 import { ingestOtlpFile } from "@archmind/runtime-ingest"
@@ -256,6 +257,38 @@ export function createServer(): McpServer {
 
       return {
         content: [{ type: "text", text: JSON.stringify(pkg, null, 2) }],
+      }
+    }
+  )
+
+  server.registerTool(
+    "archmind_trace",
+    {
+      description:
+        "Run a cross-route trace query across the entire project. " +
+        "Returns a structured summary of how all routes relate to a specific concern.\n\n" +
+        "Patterns:\n" +
+        "  auth        — auth chains for every route: middleware, policies, form_requests, unprotected resources\n" +
+        "  event       — routes that dispatch events, with unsafe-dispatch detection\n" +
+        "  transaction — routes with DB transaction boundaries, writes, and escapes\n" +
+        "  isolation   — routes with unscoped queries or writes (tenant isolation gaps)\n" +
+        "  request     — full execution path for a single route (requires entrypoint)",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the project root (Laravel or NestJS)"),
+        pattern: z
+          .enum(["auth", "event", "transaction", "isolation", "request"])
+          .describe("Trace pattern to run"),
+        entrypoint: z
+          .string()
+          .optional()
+          .describe('Required for pattern="request". Entrypoint in "METHOD /path" format.'),
+      },
+    },
+    async ({ project_root, pattern, entrypoint }) => {
+      const graphs = getGraphs(project_root)
+      const result = traceByPattern(pattern as TracePattern, graphs, entrypoint)
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       }
     }
   )
