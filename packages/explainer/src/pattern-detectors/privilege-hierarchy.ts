@@ -34,7 +34,9 @@ function detectHierarchyGroups(
     hierarchyNodeIds.add(e.to)
   }
 
-  const policyNodes = graph.nodes.filter((n) => n.type.toLowerCase() === "policy")
+  const policyNodes = graph.nodes.filter(
+    (n) => n.type === "ir:authz_check" || n.type.toLowerCase() === "policy"
+  )
 
   for (const policy of policyNodes) {
     const permEdges = graph.edges.filter(

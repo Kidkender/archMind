@@ -7,10 +7,10 @@ import type {
   GraphAnnotation,
   ProjectConfig,
 } from "@archmind/protocol"
-import { IR_NODE_TYPES, IR_VERSION } from "@archmind/protocol"
+import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@archmind/protocol"
 
 const ADAPTER_VERSION = "0.1.0"
-import { parseControllerMethod, type ServiceCall } from "./controller-parser.js"
+import { parseControllerMethod, type ServiceCall, type ModelParam } from "./controller-parser.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
 import { parseConstantClass } from "./constant-resolver.js"
@@ -139,6 +139,9 @@ export function augmentGraph(
             mechanism:    auth.mechanism,
           })
         }
+
+        // RESOURCE nodes — route-model-binding params (IR v1.1)
+        emitResourceNodes(newNodes, newEdges, ctrlNode, l1.modelParams, addedPolicyNodes, l1.authorizeCalls)
 
         // Constructor middleware pass — inject auth nodes not present at route level
         injectConstructorMiddleware(newNodes, newEdges, ctrlNode.id, l1.constructorMiddleware, methodName)
@@ -661,4 +664,66 @@ function addIsolationNodes(
       })
     }
   })
+}
+
+// ---- RESOURCE node emission (IR v1.1) ---------------------------------
+
+import type { AuthorizeCall } from "./controller-parser.js"
+
+/**
+ * Emit ir:resource nodes for route-model-binding params.
+ *
+ * For each ModelParam:
+ *   - Emit RESOURCE node with role "accessed_resource"
+ *   - Emit ir:accesses edge: BUSINESS_HANDLER → RESOURCE
+ *
+ * For each AuthorizeCall that has a modelVar matching a param:
+ *   - Find the AUTHZ_CHECK node added for that call
+ *   - Emit ir:authorizes edge: AUTHZ_CHECK → RESOURCE
+ */
+function emitResourceNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  ctrlNode: ExecutionNode,
+  modelParams: ModelParam[],
+  policyNodes: ExecutionNode[],
+  authorizeCalls: AuthorizeCall[]
+): void {
+  for (const mp of modelParams) {
+    const resourceId = `resource_${mp.className.toLowerCase()}_${ctrlNode.id}`
+
+    if (!nodes.some((n) => n.id === resourceId)) {
+      nodes.push({
+        id:     resourceId,
+        type:   IR_NODE_TYPES.RESOURCE,
+        symbol: mp.className,
+        role:   "accessed_resource",
+      })
+    }
+
+    // BUSINESS_HANDLER accesses RESOURCE
+    edges.push({
+      from:         ctrlNode.id,
+      to:           resourceId,
+      relation:     IR_EDGE_RELATIONS.ACCESSES,
+      traceability: "static",
+    })
+
+    // Wire AUTHZ_CHECK → RESOURCE for each authorize call that targets this param
+    for (const auth of authorizeCalls) {
+      if (auth.modelVar !== mp.paramName) continue
+      // Find the policy node that corresponds to this authorize call (matched by ability)
+      const policyNode = policyNodes.find(
+        (p) => p.symbol.endsWith(`::${auth.ability}`)
+      )
+      if (!policyNode) continue
+      edges.push({
+        from:         policyNode.id,
+        to:           resourceId,
+        relation:     IR_EDGE_RELATIONS.AUTHORIZES,
+        traceability: "semantic",
+        mechanism:    auth.mechanism,
+      })
+    }
+  }
 }

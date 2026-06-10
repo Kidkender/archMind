@@ -169,11 +169,12 @@ IRAnnotation {
 
 ---
 
-## Resource Semantics (Draft)
+## Resource Semantics (IR v1.1)
 
-> **Status**: Design draft — not yet implemented in any adapter.
-> This section captures the intended model for resource-aware authorization detection.
-> See discuss.txt for the decision to spec this before IR migration.
+> **Status**: Implemented — 2026-06-10.
+> Laravel adapter emits ir:resource nodes for route-model-binding params.
+> ir:resource_mismatch and resource_unprotected detectors run on IR (framework-agnostic).
+> ir_version bumped 1.0 → 1.1 (non-breaking, additive).
 
 ### Problem
 

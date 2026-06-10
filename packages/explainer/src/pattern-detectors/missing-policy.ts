@@ -1,4 +1,5 @@
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import { IR_NODE_TYPES } from "@archmind/protocol"
 import type { Finding } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
@@ -23,8 +24,12 @@ export function detectMissingPolicy(
 
   return missingAnnotations.map((annotation) => {
     const nodeIds = annotation.nodes ?? []
-    const policyNode = graph.nodes.find((n) => nodeIds.includes(n.id) && n.type === "policy")
-    const ctrlNode   = graph.nodes.find((n) => n.type === "controller_action")
+    const policyNode = graph.nodes.find(
+      (n) => nodeIds.includes(n.id) && (n.type === IR_NODE_TYPES.AUTHZ_CHECK || n.type === "policy")
+    )
+    const ctrlNode = graph.nodes.find(
+      (n) => n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"
+    )
 
     const evidence = []
     if (ctrlNode) {

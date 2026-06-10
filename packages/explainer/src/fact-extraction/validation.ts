@@ -2,7 +2,8 @@ import type { IntermediateExecutionGraph, ExecutionNode } from "@archmind/protoc
 import type { ValidationGateFact } from "./types.js"
 
 function isValidationGateNode(node: ExecutionNode): boolean {
-  return node.type.toLowerCase() === "form_request"
+  const t = node.type.toLowerCase()
+  return t === "ir:validation_gate" || t === "form_request"
 }
 
 // A form_request delegates authorization when:
@@ -28,6 +29,10 @@ function hasRealAuthLayers(graph: IntermediateExecutionGraph): boolean {
   return graph.nodes.some((n) => {
     const t = n.type.toLowerCase()
     return (
+      // IR types
+      t === "ir:auth_gate" ||
+      t === "ir:authz_check" ||
+      // Legacy types
       t === "policy" ||
       t === "authorization_check" ||
       t === "authentication_gate" ||

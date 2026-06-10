@@ -4,7 +4,7 @@
 //
 // Spec: research/semantic-ir/spec.md
 
-export const IR_VERSION = "1.0"
+export const IR_VERSION = "1.1"
 
 // ---------------------------------------------------------------------------
 // IR Node Types
@@ -34,6 +34,9 @@ export const IR_NODE_TYPES = {
   TXN_BOUNDARY:        "ir:txn_boundary",
   TXN_WRITE:           "ir:txn_write",
   TXN_ESCAPE:          "ir:txn_escape",
+
+  // Resource domain (IR v1.1)
+  RESOURCE:            "ir:resource",
 } as const
 
 export type IRNodeType = typeof IR_NODE_TYPES[keyof typeof IR_NODE_TYPES]
@@ -52,6 +55,7 @@ export const IR_EDGE_RELATIONS = {
   ACCESSES:          "ir:accesses",
   WRAPS:             "ir:wraps",
   ESCAPES:           "ir:escapes",
+  AUTHORIZES:        "ir:authorizes",
 } as const
 
 export type IREdgeRelation = typeof IR_EDGE_RELATIONS[keyof typeof IR_EDGE_RELATIONS]
@@ -65,9 +69,10 @@ export const IR_ANNOTATION_TYPES = {
   AUTHZ_GAP:     "ir:authz_gap",
   MISSING_POLICY: "ir:missing_policy",
   DOUBLE_CHECK:  "ir:double_check",
-  TXN_ESCAPE:    "ir:txn_escape",
-  MISSING_TXN:   "ir:missing_txn",
-  ISOLATION_RISK: "ir:isolation_risk",
+  TXN_ESCAPE:       "ir:txn_escape",
+  MISSING_TXN:      "ir:missing_txn",
+  ISOLATION_RISK:   "ir:isolation_risk",
+  RESOURCE_MISMATCH: "ir:resource_mismatch",
 } as const
 
 export type IRAnnotationType = typeof IR_ANNOTATION_TYPES[keyof typeof IR_ANNOTATION_TYPES]

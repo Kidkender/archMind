@@ -21,7 +21,8 @@ export function extractRuntimeInjectionFacts(
   const facts: RuntimeInjectionFact[] = []
 
   for (const node of graph.nodes) {
-    if (node.type.toLowerCase() !== "runtime_injection") continue
+    const t = node.type.toLowerCase()
+    if (t !== "runtime_injection" && t !== "ir:runtime_inject" && t !== "ir:runtime_consume") continue
 
     const injectEdge = graph.edges.find(
       (e) => e.to === node.id && (e.relation === "runtime_inject" || e.relation === "side_effect")

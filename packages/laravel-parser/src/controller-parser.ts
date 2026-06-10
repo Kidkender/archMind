@@ -17,6 +17,13 @@ export interface FormRequestParam {
 export interface AuthorizeCall {
   ability:   string   // first string arg, e.g. "update"
   mechanism: string   // full call text, e.g. "$this->authorize('update', $task)"
+  modelVar?: string   // second arg variable name, e.g. "$task"
+}
+
+export interface ModelParam {
+  className: string   // e.g. "Product"
+  classFqcn: string   // e.g. "App\Models\Product"
+  paramName: string   // e.g. "$product"
 }
 
 export interface ServiceCall {
@@ -39,6 +46,7 @@ export interface ControllerL1 {
   authorizeCalls:       AuthorizeCall[]
   serviceCalls:         ServiceCall[]
   constructorMiddleware: ConstructorMiddleware[]
+  modelParams:          ModelParam[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -67,7 +75,7 @@ export function parseControllerMethod(
   const constructorMiddleware = gatherConstructorMiddleware(root)
 
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [] }
   }
 
   const injections = extractConstructorInjections(root, useMap)
@@ -76,7 +84,8 @@ export function parseControllerMethod(
   const allInjections = new Map([...injections, ...methodInjections])
 
   const formRequests   = extractFormRequests(methodNode, useMap)
-  const authorizeCalls = extractAuthorizeCalls(methodNode)
+  const modelParams    = extractModelParams(methodNode, useMap)
+  const authorizeCalls = extractAuthorizeCalls(methodNode, modelParams)
   const serviceCalls   = extractServiceCalls(methodNode, allInjections, useMap)
 
   // Depth-1 private method traversal: follow $this->helper() calls into the
@@ -85,7 +94,7 @@ export function parseControllerMethod(
   for (const name of privateNames) {
     const privateMethod = findMethod(root, name)
     if (!privateMethod) continue
-    authorizeCalls.push(...extractAuthorizeCalls(privateMethod))
+    authorizeCalls.push(...extractAuthorizeCalls(privateMethod, modelParams))
     serviceCalls.push(...extractServiceCalls(privateMethod, allInjections, useMap))
   }
 
@@ -105,6 +114,7 @@ export function parseControllerMethod(
     authorizeCalls,
     serviceCalls: uniqueServiceCalls,
     constructorMiddleware,
+    modelParams,
   }
 }
 
@@ -221,23 +231,65 @@ function extractFormRequests(
   return results
 }
 
-// ---- authorize() extraction -------------------------------------------
+// ---- Model param extraction (route-model-binding) --------------------
+// Suffixes that indicate service/infrastructure classes, not Eloquent models.
+const SERVICE_LIKE_SUFFIXES = new Set([
+  "Service", "Repository", "Manager", "Provider", "Factory",
+  "Contract", "Interface", "Middleware", "Policy", "Gate",
+  "Guard", "Controller", "Handler", "Listener", "Job", "Event",
+  "Mailer", "Notification", "Resource", "Transformer",
+])
 
-function extractAuthorizeCalls(methodNode: Parser.SyntaxNode): AuthorizeCall[] {
-  const results: AuthorizeCall[] = []
-  const body = methodNode.childForFieldName("body")
-  if (!body) return results
-  gatherAuthorizeCalls(body, results)
+function extractModelParams(
+  methodNode: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): ModelParam[] {
+  const results: ModelParam[] = []
+  const paramsNode = methodNode.childForFieldName("parameters")
+  if (!paramsNode) return results
+
+  for (const param of paramsNode.children as Parser.SyntaxNode[]) {
+    if (param.type !== "simple_parameter") continue
+    const typeNode = param.childForFieldName("type")
+    const varNode  = (param.children as Parser.SyntaxNode[]).find(
+      (c) => c.type === "variable_name"
+    )
+    if (!typeNode || !varNode) continue
+
+    const typeName = typeNode.text.trim()
+    if (!typeName || typeName[0] !== typeName[0].toUpperCase() || typeName[0] === typeName[0].toLowerCase()) continue
+    if (SKIP_FQCN.has(typeName)) continue
+    if (typeName.endsWith("Request")) continue
+
+    const suffix = typeName.replace(/.*([A-Z][a-z]+)$/, "$1")
+    if (SERVICE_LIKE_SUFFIXES.has(suffix)) continue
+
+    const classFqcn = useMap.get(typeName) ?? typeName
+    if (SKIP_FQCN.has(classFqcn)) continue
+
+    results.push({ className: typeName, classFqcn, paramName: varNode.text })
+  }
+
   return results
 }
 
-function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[]): void {
+// ---- authorize() extraction -------------------------------------------
+
+function extractAuthorizeCalls(methodNode: Parser.SyntaxNode, modelParams: ModelParam[]): AuthorizeCall[] {
+  const results: AuthorizeCall[] = []
+  const body = methodNode.childForFieldName("body")
+  if (!body) return results
+  gatherAuthorizeCalls(body, results, modelParams)
+  return results
+}
+
+function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[], modelParams: ModelParam[]): void {
   // $this->authorize('ability', $model)
   if (node.type === "member_call_expression") {
     const obj  = node.childForFieldName("object")
     const name = node.childForFieldName("name")
     if (obj?.text === "$this" && name?.text === "authorize") {
-      pushAuthorizeCall(node, results)
+      pushAuthorizeCall(node, results, modelParams)
     }
   }
 
@@ -247,16 +299,16 @@ function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[])
     const cls    = node.childForFieldName("scope")
     const method = node.childForFieldName("name")
     if (cls?.text === "Gate" && (method?.text === "authorize" || method?.text === "allows" || method?.text === "check")) {
-      pushAuthorizeCall(node, results)
+      pushAuthorizeCall(node, results, modelParams)
     }
   }
 
   for (const child of node.children as Parser.SyntaxNode[]) {
-    gatherAuthorizeCalls(child, results)
+    gatherAuthorizeCalls(child, results, modelParams)
   }
 }
 
-function pushAuthorizeCall(node: Parser.SyntaxNode, results: AuthorizeCall[]): void {
+function pushAuthorizeCall(node: Parser.SyntaxNode, results: AuthorizeCall[], modelParams: ModelParam[]): void {
   const argsNode = node.childForFieldName("arguments")
   if (!argsNode) return
   const argValues = (argsNode.children as Parser.SyntaxNode[])
@@ -264,7 +316,18 @@ function pushAuthorizeCall(node: Parser.SyntaxNode, results: AuthorizeCall[]): v
     .map((c) => c.firstNamedChild)
     .filter((c): c is Parser.SyntaxNode => c !== null)
   const ability = argValues[0] ? resolveStringNode(argValues[0]) : "unknown"
-  results.push({ ability, mechanism: node.text })
+
+  // Extract the model variable from the second arg (e.g. "$task" from authorize('update', $task))
+  let modelVar: string | undefined
+  if (argValues[1]?.type === "variable_name") {
+    const varText = argValues[1].text  // e.g. "$task"
+    // Only set modelVar if we have a matching typed model param
+    if (modelParams.some((mp) => mp.paramName === varText)) {
+      modelVar = varText
+    }
+  }
+
+  results.push({ ability, mechanism: node.text, modelVar })
 }
 
 // ---- Private method call extraction ----------------------------------

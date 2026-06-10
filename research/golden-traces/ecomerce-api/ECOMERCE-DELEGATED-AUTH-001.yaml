@@ -3,6 +3,7 @@ entrypoint: "PUT /products/{product}"
 framework: laravel
 source_project: ecomerce-api
 adapter_version: "0.1.0"
+ir_version: "1.1"
 
 retrieval:
   query: "Is the authorization check on product updates sufficient — who can update a product?"
@@ -32,6 +33,14 @@ nodes:
       relevance: HIGH
       compressible: false
 
+  - id: resource_product
+    type: ir:resource
+    symbol: Product
+    role: accessed_resource
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
 edges:
   - from: sanctum
     to: product_controller_update
@@ -41,13 +50,20 @@ edges:
     to: update_product_request
     relation: form_request
 
+  - from: product_controller_update
+    to: resource_product
+    relation: ir:accesses
+    traceability: static
+
 expected_findings:
+  - type: resource_unprotected
+    required_nodes: [resource_product, product_controller_update]
   - type: missing_authorization
     required_nodes: [sanctum, product_controller_update]
   - type: delegated_validation
     required_nodes: [update_product_request]
 
-expected_top_finding: missing_authorization
+expected_top_finding: resource_unprotected
 
 annotations:
   - type: delegated_auth

@@ -42,10 +42,16 @@ function extractPermissionFromMechanism(mechanism: string | undefined): string |
 
 function classifyLayer(node: ExecutionNode): AuthorizationCheckFact["layer"] {
   const t = node.type.toLowerCase()
+  // IR types (preferred)
+  if (t === "ir:auth_gate")           return "middleware"
+  if (t === "ir:authz_check")         return "policy"
+  if (t === "ir:service_call")        return "service"
+  if (t === "ir:permission_constant") return "constant"
+  // Legacy type strings (backwards compat)
   if (t === "middleware" || t === "authorization_check" || t === "authentication_gate") return "middleware"
-  if (t === "policy") return "policy"
+  if (t === "policy")       return "policy"
   if (t === "service_call") return "service"
-  if (t === "permission") return "constant"
+  if (t === "permission")   return "constant"
   return "unknown"
 }
 
@@ -56,14 +62,33 @@ function inferConfidence(node: ExecutionNode, permission: string | null): Author
 }
 
 const AUTH_NODE_TYPES = new Set([
+  // IR types
   "ir:auth_gate",
   "ir:authz_check",
   "ir:service_call",
   "ir:permission_constant",
+  // Legacy types (backwards compat)
+  "middleware",
+  "authentication_gate",
+  "authorization_check",
+  "policy",
+  "service_call",
+  "permission",
 ])
 
-// ir:validation_gate::authorize is handled by the validation gate extractor, not here
-const EXCLUDED_NODE_TYPES = new Set(["ir:business_handler", "ir:entrypoint", "ir:validation_gate"])
+// ir:validation_gate::authorize and form_request are handled by the validation gate extractor
+const EXCLUDED_NODE_TYPES = new Set([
+  // IR types
+  "ir:business_handler",
+  "ir:entrypoint",
+  "ir:validation_gate",
+  "ir:resource",
+  // Legacy types
+  "controller_action",
+  "controller",
+  "form_request",
+  "entrypoint",
+])
 
 function isAuthorizationNode(node: ExecutionNode): boolean {
   const t = node.type.toLowerCase()

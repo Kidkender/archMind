@@ -1,5 +1,6 @@
 import type { SemanticFact, AuthorizationCheckFact } from "../fact-extraction/types.js"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
+import { IR_NODE_TYPES } from "@archmind/protocol"
 import type { Finding, Evidence } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
@@ -17,7 +18,9 @@ export function detectMissingAuthorization(
   facts: SemanticFact[],
   graph: IntermediateExecutionGraph
 ): Finding[] {
-  const ctrlNode = graph.nodes.find((n) => n.type === "controller_action")
+  const ctrlNode = graph.nodes.find(
+    (n) => n.type === IR_NODE_TYPES.BUSINESS_HANDLER || n.type === "controller_action"
+  )
   if (!ctrlNode) return []
 
   // Only fire on mutation methods
@@ -37,7 +40,9 @@ export function detectMissingAuthorization(
   if (hasAuthorization) return [] // properly authorized
 
   // Also check for authorization_check nodes directly (middleware role check)
-  const hasAuthzNode = graph.nodes.some((n) => n.type === "authorization_check")
+  const hasAuthzNode = graph.nodes.some(
+    (n) => n.type === IR_NODE_TYPES.AUTHZ_CHECK || n.type === "authorization_check"
+  )
   if (hasAuthzNode) return []
 
   const gateFact = authFacts.find((f) => f.layer === "middleware")!

@@ -11,6 +11,7 @@ import { detectDoublePermissionCheck } from "./double-permission-check.js"
 import { detectRuntimeConsumerTrace } from "./runtime-consumer-trace.js"
 import { detectMissingAuthorization } from "./missing-authorization.js"
 import { detectMissingPolicy } from "./missing-policy.js"
+import { detectResourceMismatch } from "./resource-mismatch.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -27,6 +28,7 @@ export function detect(
   return [
     ...detectMissingPolicy(graph),
     ...detectMissingAuthorization(facts, graph),
+    ...detectResourceMismatch(graph),
     ...detectDuplicateAuthorization(facts, graph),
     ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),
