@@ -15,6 +15,9 @@ expected_evidence_nodes:
     type: ir:service_call
     role: service
 
+expected_facts:
+  - { type: auth_middleware,  present: false }
+
 expected_answer_contains:
   - "no authentication"
   - "signature"

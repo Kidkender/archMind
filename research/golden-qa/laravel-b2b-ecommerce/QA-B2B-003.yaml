@@ -12,6 +12,13 @@ expected_evidence_nodes:
     type: ir:business_handler
     role: controller
 
+expected_facts:
+  - { type: txn_boundary,     present: true  }
+  - { type: txn_write,        present: true  }
+  - { type: auth_middleware,  present: true  }
+  - { type: ownership_check,  present: false }
+  - { type: resource_bound,   present: true  }
+
 expected_answer_contains:
   - "DB::transaction"
   - "permission"

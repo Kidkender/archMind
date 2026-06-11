@@ -12,6 +12,11 @@ expected_evidence_nodes:
     type: ir:business_handler
     role: controller
 
+expected_facts:
+  - { type: auth_middleware,  present: true  }
+  - { type: ownership_check,  present: false }
+  - { type: resource_bound,   present: true  }
+
 expected_answer_contains:
   - "dealer"
   - "ownership"

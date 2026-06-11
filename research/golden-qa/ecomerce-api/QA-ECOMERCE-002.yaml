@@ -14,6 +14,12 @@ expected_evidence_nodes:
     type: ir:auth_gate
     role: middleware
 
+expected_facts:
+  - { type: auth_middleware,  present: true  }
+  - { type: form_request,     present: true  }
+  - { type: ownership_check,  present: false }
+  - { type: authz_check,      present: false }
+
 expected_answer_contains:
   - "UpdateProductRequest"
   - "FormRequest"

@@ -38,6 +38,11 @@ const PROJECT_PATHS: Record<string, string> = {
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
+interface ExpectedFact {
+  type: string
+  present: boolean
+}
+
 interface GoldenQA {
   id: string
   route: string
@@ -46,6 +51,7 @@ interface GoldenQA {
   expected_finding: string
   expected_severity: string
   expected_intent: string
+  expected_facts?: ExpectedFact[]
   expected_evidence_nodes: Array<{ symbol: string; type: string; role: string }>
   expected_answer_contains: string[]
   golden_answer: string
@@ -54,6 +60,7 @@ interface GoldenQA {
 interface ScoredPair {
   id: string
   evidence_precision: number
+  fact_coverage: number    // diagnostic: expected_facts matched / total expected_facts
   facts_present: boolean   // HIGH-relevance facts were extracted
   finding_match: boolean   // diagnostic only — not in composite
   intent_match: boolean
@@ -96,12 +103,22 @@ function parseProject(projectRoot: string): IntermediateExecutionGraph[] {
 
 // ─── Score a single Q&A pair ───────────────────────────────────────────────
 
+function computeFactCoverage(pkg: ReturnType<typeof buildEvidencePackage>, expected: ExpectedFact[] | undefined): number {
+  if (!expected || expected.length === 0) return 1
+  const matched = expected.filter((ef) => {
+    const actual = pkg.facts.find((f) => f.type === ef.type)
+    if (!actual) return !ef.present  // absent fact expected AND not extracted = match
+    return actual.present === ef.present
+  })
+  return matched.length / expected.length
+}
+
 function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): ScoredPair {
   const graph = graphs.find(
     (g) => g.entrypoint?.toLowerCase() === qa.route.toLowerCase()
   )
   if (!graph) {
-    return { id: qa.id, evidence_precision: 0, facts_present: false, finding_match: false, intent_match: false, composite_score: 0 }
+    return { id: qa.id, evidence_precision: 0, fact_coverage: 0, facts_present: false, finding_match: false, intent_match: false, composite_score: 0 }
   }
 
   const pkg = buildEvidencePackage(qa.question, graph)
@@ -117,6 +134,9 @@ function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): ScoredPa
     ? matched.length / qa.expected_evidence_nodes.length
     : 1
 
+  // Fact coverage: diagnostic — how many expected_facts are correctly extracted
+  const fact_coverage = computeFactCoverage(pkg, qa.expected_facts)
+
   // Facts present: at least one HIGH-relevance fact was extracted
   const facts_present = pkg.facts.some(f => f.relevance === "high")
 
@@ -124,13 +144,13 @@ function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): ScoredPa
   const finding_match = pkg.finding === qa.expected_finding
   const intent_match  = pkg.intent  === qa.expected_intent
 
-  // New composite: intent(0.3) + evidence(0.6) + facts(0.1)
+  // Composite: intent(0.3) + evidence(0.6) + facts(0.1)
   const composite_score =
     evidence_precision * 0.6 +
     (intent_match   ? 0.3 : 0) +
     (facts_present  ? 0.1 : 0)
 
-  return { id: qa.id, evidence_precision, facts_present, finding_match, intent_match, composite_score }
+  return { id: qa.id, evidence_precision, fact_coverage, facts_present, finding_match, intent_match, composite_score }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -205,7 +225,7 @@ for (const [project, pairs] of allQA) {
       console.log(`  ${project}: avg_composite=${avg.toFixed(3)}`)
       scores.forEach((s) =>
         console.log(
-          `    [${s.id}] evidence=${s.evidence_precision.toFixed(2)} facts=${s.facts_present} intent=${s.intent_match} finding=${s.finding_match}(diag) score=${s.composite_score.toFixed(3)}`
+          `    [${s.id}] evidence=${s.evidence_precision.toFixed(2)} fact_cov=${s.fact_coverage.toFixed(2)} facts=${s.facts_present} intent=${s.intent_match} finding=${s.finding_match}(diag) score=${s.composite_score.toFixed(3)}`
         )
       )
       expect(avg).toBeGreaterThanOrEqual(0.60)

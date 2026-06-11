@@ -4,12 +4,17 @@ import { selectEvidenceByIntent, buildExecutionPath } from "./selector.js"
 import { extractFacts } from "./facts.js"
 import type { EvidencePackage } from "./types.js"
 
+export interface EvidencePackageOptions {
+  forceIntent?: EvidencePackage["intent"]
+}
+
 export function buildEvidencePackage(
   question: string,
-  graph: IntermediateExecutionGraph
+  graph: IntermediateExecutionGraph,
+  options: EvidencePackageOptions = {}
 ): EvidencePackage {
   // 1. Extract intent from question — drives everything downstream
-  const intent = detectIntent(question)
+  const intent = options.forceIntent ?? detectIntent(question)
 
   // 2. Build execution path
   const executionPath = buildExecutionPath(graph)

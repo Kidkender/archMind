@@ -17,6 +17,10 @@ expected_evidence_nodes:
     type: ir:validation_gate
     role: form_request
 
+expected_facts:
+  - { type: auth_middleware,  present: true  }
+  - { type: ownership_check,  present: false }
+
 expected_answer_contains:
   - "guest"
   - "no"
