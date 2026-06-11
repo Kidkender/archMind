@@ -10,7 +10,7 @@ import type {
 import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@archmind/protocol"
 
 const ADAPTER_VERSION = "0.1.0"
-import { parseControllerMethod, type ServiceCall, type ModelParam } from "./controller-parser.js"
+import { parseControllerMethod, parseFormRequestAuthorize, type ServiceCall, type ModelParam } from "./controller-parser.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
 import { parseConstantClass } from "./constant-resolver.js"
@@ -90,12 +90,15 @@ export function augmentGraph(
         for (const fr of l1.formRequests) {
           const id = `fr_${fr.shortName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`
           const frFile = fqcnToPath(fr.fqcn, config.namespaces) ?? undefined
+          const frPath = frFile ? join(opts.projectRoot, frFile) : undefined
+          const authzBody = frPath ? parseFormRequestAuthorize(frPath) : undefined
           newNodes.push({
             id,
-            type: IR_NODE_TYPES.VALIDATION_GATE,
+            type:   IR_NODE_TYPES.VALIDATION_GATE,
             symbol: `${fr.shortName}::authorize`,
             role:   "validation",
             file:   frFile,
+            ...(authzBody ? { detail: authzBody } : {}),
           })
           newEdges.push({
             from:         ctrlNode.id,

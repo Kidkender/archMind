@@ -118,6 +118,39 @@ export function parseControllerMethod(
   }
 }
 
+// ---- FormRequest authorize() body extraction --------------------------
+
+/**
+ * Parse a FormRequest PHP file and extract the return expression from authorize().
+ * Returns the raw PHP expression text, e.g. "$this->user()?->isAdmin()"
+ * Returns undefined if the file can't be parsed or has no authorize() method.
+ */
+export function parseFormRequestAuthorize(filePath: string): string | undefined {
+  let source: string
+  let tree: ReturnType<typeof _parser.parse>
+  try {
+    source = readFileSync(filePath, "utf-8")
+    tree = _parser.parse(source)
+  } catch {
+    return undefined
+  }
+  const methodNode = findMethod(tree.rootNode, "authorize")
+  if (!methodNode) return undefined
+
+  const body = methodNode.childForFieldName("body")
+  if (!body) return undefined
+
+  for (const child of body.children) {
+    if (child.type === "return_statement") {
+      const expr = child.children.find(
+        (c) => c.type !== "return" && c.type !== ";" && c.text.trim() !== ""
+      )
+      if (expr) return expr.text.trim()
+    }
+  }
+  return undefined
+}
+
 // ---- Use-statement extraction -----------------------------------------
 
 export function extractUseMap(root: Parser.SyntaxNode): Map<string, string> {

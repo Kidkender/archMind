@@ -163,6 +163,17 @@ Question: ${question}
 Answer concisely and accurately based on the graph data above.`
 }
 
+const FINDING_DESCRIPTIONS: Record<string, string> = {
+  resource_unprotected:  "resource accessed via route-model-binding has no per-resource ownership check (authentication may still exist)",
+  resource_mismatch:     "authorization check guards a different resource than the one accessed by the handler",
+  missing_authorization: "no authentication or authorization gate on the route",
+  missing_policy:        "controller calls authorize() but the Policy class does not exist",
+  fat_controller:        "controller action injects many services directly — possible SRP violation",
+  exposed_read_endpoint: "GET endpoint with business logic has no authentication",
+  over_authorized_route: "route has many overlapping authorization layers",
+  none:                  "no specific security issue detected",
+}
+
 function buildArchmindPrompt(question: string, pkg: EvidencePackage): string {
   // Sort facts: high relevance first, then present before absent within same tier
   const sortedFacts = [...pkg.facts].sort((a, b) => {
@@ -178,19 +189,25 @@ function buildArchmindPrompt(question: string, pkg: EvidencePackage): string {
     return `  ${mark} ${f.type}${val}`
   }).join("\n")
 
-  const evidenceList = pkg.evidence.map((e) =>
-    `- [${e.role}] ${e.symbol}`
-  ).join("\n")
+  const evidenceList = pkg.evidence.map((e) => {
+    const detail = e.detail ? ` | ${e.detail}` : ""
+    return `- [${e.role}] ${e.symbol}${detail}`
+  }).join("\n")
 
   const pathText = pkg.execution_path.length > 0
     ? pkg.execution_path.join(" → ")
     : "(unavailable)"
 
+  const findingDesc = FINDING_DESCRIPTIONS[pkg.finding] ?? pkg.finding
+  const findingLine = pkg.finding !== "none"
+    ? `Detected issue: ${pkg.finding} — ${findingDesc} (${pkg.severity})`
+    : `No specific issue detected.`
+
   return `You are a Laravel security expert. Answer the following question using the structured evidence below.
 
 Question: ${question}
 Intent: ${pkg.intent}
-Detected issue: ${pkg.finding} (${pkg.severity})
+${findingLine}
 
 Facts (✓ = present, ✗ = absent):
 ${factsText}

@@ -27,6 +27,7 @@ function nodeRole(node: ExecutionNode): string {
 }
 
 function nodeDetail(node: ExecutionNode): string | undefined {
+  if ((node as { detail?: string }).detail) return (node as { detail?: string }).detail
   if (node.role && node.role !== nodeRole(node)) return node.role
   if (node.args && node.args.length > 0) return node.args.join(", ")
   return undefined

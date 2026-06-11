@@ -92,7 +92,12 @@ export function extractFacts(
   const byType = (t: string) => graph.nodes.filter(n => n.type === t)
 
   const authGates    = byType("ir:auth_gate")
-  const authzChecks  = byType("ir:authz_check")
+  // FormRequest nodes with ::authorize() count as delegated authz_check (not just validation)
+  const explicitAuthz    = byType("ir:authz_check")
+  const formReqAuthzNodes = byType("ir:validation_gate").filter(n =>
+    n.symbol.toLowerCase().includes("authorize")
+  )
+  const authzChecks  = [...explicitAuthz, ...formReqAuthzNodes]
   const permissions  = byType("ir:permission_constant")
   const resources    = byType("ir:resource")
   const formReqs     = byType("ir:validation_gate")

@@ -18,7 +18,7 @@ expected_facts:
   - { type: auth_middleware,  present: true  }
   - { type: form_request,     present: true  }
   - { type: ownership_check,  present: false }
-  - { type: authz_check,      present: false }
+  - { type: authz_check,      present: true  }
 
 expected_answer_contains:
   - "UpdateProductRequest"
