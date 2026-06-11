@@ -15,6 +15,8 @@ import { detectResourceMismatch } from "./resource-mismatch.js"
 import { detectFatController } from "./fat-controller.js"
 import { detectExposedReadEndpoint } from "./exposed-read-endpoint.js"
 import { detectOverAuthorizedRoute } from "./over-authorized-route.js"
+import { detectDeadMiddleware } from "./dead-middleware.js"
+import { detectCircularDependency } from "./circular-dependency.js"
 
 function getAuthNodeIds(facts: SemanticFact[]): string[] {
   return facts
@@ -35,6 +37,8 @@ export function detect(
     ...detectFatController(graph),
     ...detectExposedReadEndpoint(graph),
     ...detectOverAuthorizedRoute(graph),
+    ...detectDeadMiddleware(graph),
+    ...detectCircularDependency(graph),
     ...detectDuplicateAuthorization(facts, graph),
     ...detectDelegatedValidation(facts, authNodeIds, graph),
     ...detectHiddenRuntimeDependency(facts, graph),

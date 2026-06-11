@@ -55,4 +55,6 @@ export const FINDING_TYPES = {
   FAT_CONTROLLER:             "fat_controller",
   EXPOSED_READ_ENDPOINT:      "exposed_read_endpoint",
   OVER_AUTHORIZED_ROUTE:      "over_authorized_route",
+  DEAD_MIDDLEWARE:            "dead_middleware",
+  CIRCULAR_DEPENDENCY:        "circular_dependency",
 } as const

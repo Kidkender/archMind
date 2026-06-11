@@ -13,11 +13,12 @@ const FOCUS_FINDING_TYPES: Partial<Record<Exclude<QueryFocus, "all">, ReadonlySe
     FINDING_TYPES.RESOURCE_UNPROTECTED,
     FINDING_TYPES.EXPOSED_READ_ENDPOINT,
     FINDING_TYPES.OVER_AUTHORIZED_ROUTE,
+    FINDING_TYPES.DEAD_MIDDLEWARE,
   ]),
   validation:   new Set([FINDING_TYPES.DELEGATED_VALIDATION]),
   runtime:      new Set([FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY, FINDING_TYPES.RUNTIME_CONSUMER_TRACE]),
   transaction:  new Set([FINDING_TYPES.EVENT_BEFORE_COMMIT]),
-  isolation:    new Set([FINDING_TYPES.MISSING_TENANT_SCOPE]),
+  isolation:    new Set([FINDING_TYPES.MISSING_TENANT_SCOPE, FINDING_TYPES.CIRCULAR_DEPENDENCY]),
 }
 
 export function prioritizeByFocus(findings: Finding[], focus: QueryFocus): Finding[] {
