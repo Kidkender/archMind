@@ -3,10 +3,10 @@
  * Comparative Reasoning Benchmark v2 — LLM comparison
  *
  * Compares two modes for each Q&A pair:
- *   Mode A (naive):    Claude + raw graph node list (no curation)
- *   Mode B (archmind): Claude + curated EvidencePackage
+ *   Mode A (naive):    LLM + raw graph node list (no curation)
+ *   Mode B (archmind): LLM + curated EvidencePackage
  *
- * Scoring uses an LLM judge (Claude) that rates each answer 0.0–1.0
+ * Scoring uses an LLM judge that rates each answer 0.0–1.0
  * against the golden_answer for the pair.
  *
  * Metrics per pair:
@@ -14,24 +14,17 @@
  *   - prompt_tokens_a / prompt_tokens_b             (token efficiency)
  *   - latency_ms_a / latency_ms_b                  (response latency)
  *
- * Requires: ANTHROPIC_API_KEY environment variable
+ * Requires: OPENAI_API_KEY in .env or environment
  *
  * Usage (from repo root):
  *   node --loader ts-node/esm packages/retrieval/src/scripts/run-llm-comparison.ts \
  *     <project-name> [label]
- *
- * Examples:
- *   ANTHROPIC_API_KEY=sk-... node --loader ts-node/esm \
- *     packages/retrieval/src/scripts/run-llm-comparison.ts ecomerce-api ecomerce-v2
- *
- *   ANTHROPIC_API_KEY=sk-... node --loader ts-node/esm \
- *     packages/retrieval/src/scripts/run-llm-comparison.ts laravel-b2b-ecommerce b2b-v2
  */
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
-import { writeFileSync, mkdirSync, readdirSync, readFileSync } from "fs"
+import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from "fs"
 import yaml from "js-yaml"
-import Anthropic from "@anthropic-ai/sdk"
+import OpenAI from "openai"
 import { parseRouteFile, augmentGraph, loadProjectConfig, resolveAliasMap } from "@archmind/laravel-parser"
 import { buildEvidencePackage } from "@archmind/explainer"
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
@@ -41,6 +34,15 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname  = dirname(__filename)
 const REPO_ROOT  = join(__dirname, "../../../..")
 const SNAP_DIR   = join(REPO_ROOT, "benchmarks/snapshots")
+
+// Load .env from repo root
+const envPath = join(REPO_ROOT, ".env")
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, "utf-8").split(/\r?\n/)) {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.+)$/)
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim()
+  }
+}
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
@@ -64,16 +66,16 @@ if (!projectRoot) {
   process.exit(1)
 }
 
-const apiKey = process.env["ANTHROPIC_API_KEY"]
+const apiKey = process.env["OPENAI_API_KEY"]
 if (!apiKey) {
-  console.error("ANTHROPIC_API_KEY environment variable is required")
+  console.error("OPENAI_API_KEY is required (set in .env or environment)")
   process.exit(1)
 }
 
-const client  = new Anthropic({ apiKey })
+const client  = new OpenAI({ apiKey })
 const QA_DIR  = join(REPO_ROOT, "research/golden-qa", projectName)
-const MODEL   = "claude-haiku-4-5-20251001"  // cheaper for candidate answers
-const JUDGE   = "claude-sonnet-4-6"           // better reasoning for judge
+const MODEL   = process.env["OPENAI_MODEL"] ?? "gpt-4o-mini"  // cheaper for candidate answers
+const JUDGE   = "gpt-4o"                                        // better reasoning for judge
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -162,24 +164,43 @@ Answer concisely and accurately based on the graph data above.`
 }
 
 function buildArchmindPrompt(question: string, pkg: EvidencePackage): string {
+  // Sort facts: high relevance first, then present before absent within same tier
+  const sortedFacts = [...pkg.facts].sort((a, b) => {
+    const tier = { high: 0, medium: 1, low: 2 }
+    const t = tier[a.relevance] - tier[b.relevance]
+    if (t !== 0) return t
+    return (b.present ? 1 : 0) - (a.present ? 1 : 0)
+  })
+
+  const factsText = sortedFacts.map((f) => {
+    const mark = f.present ? "✓" : "✗"
+    const val  = f.value ? ` = ${f.value}` : ""
+    return `  ${mark} ${f.type}${val}`
+  }).join("\n")
+
   const evidenceList = pkg.evidence.map((e) =>
-    `- [${e.type}] ${e.symbol} (${e.role})`
+    `- [${e.role}] ${e.symbol}`
   ).join("\n")
 
-  return `You are a Laravel security expert. Answer the following question using the structured evidence package below.
+  const pathText = pkg.execution_path.length > 0
+    ? pkg.execution_path.join(" → ")
+    : "(unavailable)"
+
+  return `You are a Laravel security expert. Answer the following question using the structured evidence below.
 
 Question: ${question}
-
 Intent: ${pkg.intent}
-Top Finding: ${pkg.finding} (${pkg.severity}, confidence: ${pkg.confidence})
-Finding Summary: ${pkg.supporting_text}
+Detected issue: ${pkg.finding} (${pkg.severity})
 
-Execution Path: ${pkg.execution_path.join(" → ")}
+Facts (✓ = present, ✗ = absent):
+${factsText}
 
-Evidence:
+Execution path: ${pathText}
+
+Execution nodes:
 ${evidenceList}
 
-Answer concisely and accurately based on the evidence package above.`
+Answer concisely and accurately. Use the facts above — do not invent information not supported by the evidence.`
 }
 
 function buildJudgePrompt(question: string, goldenAnswer: string, candidateAnswer: string): string {
@@ -206,22 +227,19 @@ Respond ONLY with a JSON object:
 
 async function callLLM(prompt: string, model: string): Promise<LLMCallResult> {
   const start = Date.now()
-  const response = await client.messages.create({
+  const response = await client.chat.completions.create({
     model,
     max_tokens: 512,
     messages: [{ role: "user", content: prompt }],
   })
   const latency_ms = Date.now() - start
 
-  const answer = response.content
-    .filter((c): c is Anthropic.TextBlock => c.type === "text")
-    .map((c) => c.text)
-    .join("")
+  const answer = response.choices[0]?.message?.content ?? ""
 
   return {
     answer,
-    prompt_tokens:     response.usage.input_tokens,
-    completion_tokens: response.usage.output_tokens,
+    prompt_tokens:     response.usage?.prompt_tokens     ?? 0,
+    completion_tokens: response.usage?.completion_tokens ?? 0,
     latency_ms,
   }
 }

@@ -102,11 +102,11 @@ describe("Phase 16.5 — Reasoning Benchmark (ecomerce-api)", () => {
         expect(pkg.execution_path.length).toBeGreaterThan(0)
       })
 
-      it("supporting_text is non-empty", () => {
+      it("facts contain at least one HIGH-relevance entry", () => {
         const graph = allGraphs.find((g) => g.entrypoint?.toLowerCase() === qa.route.toLowerCase())
         if (!graph) return
         const pkg = buildEvidencePackage(qa.question, graph)
-        expect(pkg.supporting_text.length).toBeGreaterThan(10)
+        expect(pkg.facts.some(f => f.relevance === "high")).toBe(true)
       })
     })
   }

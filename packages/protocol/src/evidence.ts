@@ -12,17 +12,29 @@ export interface EvidenceItem {
   detail?: string  // mechanism, annotation text, or relevant metadata
 }
 
+// Structured fact extracted from the graph for a given intent.
+// Preserves the distinction between "absent fact" and "present fact"
+// without lossy NL summaries.
+export interface FactEntry {
+  type: string                        // "auth_middleware" | "ownership_check" | "txn_boundary" | ...
+  present: boolean
+  value?: string                      // concrete value e.g. "auth:sanctum", "permission:orders"
+  relevance: "high" | "medium" | "low"
+}
+
 export interface EvidencePackage {
   question: string
   intent: QueryFocusType
-  // Top finding driving the evidence selection
+  // Structured facts extracted per intent — replaces supporting_text
+  facts: FactEntry[]
+  // Ordered node IDs from entrypoint to handler (execution flow)
+  execution_path: string[]
+  // Nodes directly relevant to the intent + question
+  evidence: EvidenceItem[]
+  // Top detected finding — metadata only, no longer drives evidence selection
   finding: string        // e.g. "resource_unprotected"
   severity: string       // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO"
   confidence: string     // "HIGH" | "MEDIUM" | "LOW"
-  // Ordered node IDs from entrypoint to handler (execution flow)
-  execution_path: string[]
-  // Nodes directly relevant to the finding + question
-  evidence: EvidenceItem[]
-  // 1-2 sentence human-readable summary for LLM prompt context
-  supporting_text: string
+  /** @deprecated Use facts[] instead — retained for backward compat */
+  supporting_text?: string
 }

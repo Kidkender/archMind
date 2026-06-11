@@ -1,40 +1,37 @@
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
 import { explain } from "../index.js"
-import { selectEvidence, buildExecutionPath } from "./selector.js"
+import { selectEvidenceByIntent, buildExecutionPath } from "./selector.js"
+import { extractFacts } from "./facts.js"
 import type { EvidencePackage } from "./types.js"
-
-const NO_FINDING_PACKAGE = (question: string): EvidencePackage => ({
-  question,
-  intent: "all",
-  finding: "none",
-  severity: "INFO",
-  confidence: "LOW",
-  execution_path: [],
-  evidence: [],
-  supporting_text: "No findings detected for this route.",
-})
 
 export function buildEvidencePackage(
   question: string,
   graph: IntermediateExecutionGraph
 ): EvidencePackage {
-  const findings = explain(graph, question)
-  if (findings.length === 0) return NO_FINDING_PACKAGE(question)
-
-  const top = findings[0]
+  // 1. Extract intent from question — drives everything downstream
   const intent = detectIntent(question)
-  const executionPath = buildExecutionPath(graph)
-  const evidence = selectEvidence(top, graph, intent)
 
+  // 2. Build execution path
+  const executionPath = buildExecutionPath(graph)
+
+  // 3. Intent-first evidence selection (finding is secondary enrichment)
+  const findings = explain(graph, question)
+  const top = findings[0]
+  const evidence = selectEvidenceByIntent(graph, intent, top)
+
+  // 4. Extract structured facts per intent — replaces supporting_text
+  const facts = extractFacts(graph, intent)
+
+  // 5. Attach finding as metadata (not driver)
   return {
     question,
     intent,
-    finding: top.type,
-    severity: top.severity,
-    confidence: top.confidence,
+    facts,
     execution_path: executionPath,
     evidence,
-    supporting_text: top.summary,
+    finding:    top?.type      ?? "none",
+    severity:   top?.severity  ?? "INFO",
+    confidence: top?.confidence ?? "LOW",
   }
 }
 

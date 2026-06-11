@@ -10,13 +10,22 @@ export interface EvidenceItem {
   detail?: string
 }
 
+export interface FactEntry {
+  type: string
+  present: boolean
+  value?: string
+  relevance: "high" | "medium" | "low"
+}
+
 export interface EvidencePackage {
   question: string
   intent: QueryFocus
+  facts: FactEntry[]
+  execution_path: string[]
+  evidence: EvidenceItem[]
   finding: string
   severity: string
   confidence: string
-  execution_path: string[]
-  evidence: EvidenceItem[]
-  supporting_text: string
+  /** @deprecated Use facts[] instead */
+  supporting_text?: string
 }

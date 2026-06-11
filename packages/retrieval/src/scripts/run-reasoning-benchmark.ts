@@ -126,12 +126,12 @@ function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): QAResult
       package: {
         question: qa.question,
         intent: "all",
+        facts: [],
         finding: "none",
         severity: "INFO",
         confidence: "LOW",
         execution_path: [],
         evidence: [],
-        supporting_text: "No graph found.",
       },
     }
   }

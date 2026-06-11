@@ -5,14 +5,16 @@
  * parses each project that exists on disk, and validates EvidencePackage quality.
  *
  * Metrics per pair:
- *   - finding_match:        expected_finding === package.finding
- *   - intent_match:         expected_intent === package.intent
- *   - evidence_precision:   % expected_evidence_nodes present in package
- *   - composite_score:      0.5*evidence_precision + 0.3*finding_match + 0.2*intent_match
+ *   - intent_match:        expected_intent === package.intent          (weight 0.3)
+ *   - evidence_precision:  % expected_evidence_nodes present in package (weight 0.6)
+ *   - facts_present:       HIGH-relevance facts extracted for the intent (weight 0.1)
+ *   - composite_score:     0.6*evidence_precision + 0.3*intent_match + 0.1*facts_present
+ *
+ * Note: finding_match removed from composite — finding is now metadata, not the objective.
+ * Finding is still asserted individually as a diagnostic check but does not gate the score.
  *
  * Global assertions:
- *   - avg_composite_score >= 0.70
- *   - avg_evidence_precision >= 0.80
+ *   - avg_composite_score >= 0.60
  */
 
 import { join, dirname } from "path"
@@ -52,7 +54,8 @@ interface GoldenQA {
 interface ScoredPair {
   id: string
   evidence_precision: number
-  finding_match: boolean
+  facts_present: boolean   // HIGH-relevance facts were extracted
+  finding_match: boolean   // diagnostic only — not in composite
   intent_match: boolean
   composite_score: number
 }
@@ -98,12 +101,12 @@ function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): ScoredPa
     (g) => g.entrypoint?.toLowerCase() === qa.route.toLowerCase()
   )
   if (!graph) {
-    return { id: qa.id, evidence_precision: 0, finding_match: false, intent_match: false, composite_score: 0 }
+    return { id: qa.id, evidence_precision: 0, facts_present: false, finding_match: false, intent_match: false, composite_score: 0 }
   }
 
   const pkg = buildEvidencePackage(qa.question, graph)
 
-  // Evidence precision
+  // Evidence precision: % of expected nodes present in package
   const evidenceSymbols = pkg.evidence.map((e) => e.symbol.toLowerCase())
   const matched = qa.expected_evidence_nodes.filter((n) =>
     evidenceSymbols.some(
@@ -114,12 +117,20 @@ function scorePair(qa: GoldenQA, graphs: IntermediateExecutionGraph[]): ScoredPa
     ? matched.length / qa.expected_evidence_nodes.length
     : 1
 
+  // Facts present: at least one HIGH-relevance fact was extracted
+  const facts_present = pkg.facts.some(f => f.relevance === "high")
+
+  // finding_match: diagnostic only — not included in composite
   const finding_match = pkg.finding === qa.expected_finding
   const intent_match  = pkg.intent  === qa.expected_intent
 
-  const composite_score = evidence_precision * 0.5 + (finding_match ? 0.3 : 0) + (intent_match ? 0.2 : 0)
+  // New composite: intent(0.3) + evidence(0.6) + facts(0.1)
+  const composite_score =
+    evidence_precision * 0.6 +
+    (intent_match   ? 0.3 : 0) +
+    (facts_present  ? 0.1 : 0)
 
-  return { id: qa.id, evidence_precision, finding_match, intent_match, composite_score }
+  return { id: qa.id, evidence_precision, facts_present, finding_match, intent_match, composite_score }
 }
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
@@ -194,7 +205,7 @@ for (const [project, pairs] of allQA) {
       console.log(`  ${project}: avg_composite=${avg.toFixed(3)}`)
       scores.forEach((s) =>
         console.log(
-          `    [${s.id}] evidence=${s.evidence_precision.toFixed(2)} finding=${s.finding_match} intent=${s.intent_match} score=${s.composite_score.toFixed(3)}`
+          `    [${s.id}] evidence=${s.evidence_precision.toFixed(2)} facts=${s.facts_present} intent=${s.intent_match} finding=${s.finding_match}(diag) score=${s.composite_score.toFixed(3)}`
         )
       )
       expect(avg).toBeGreaterThanOrEqual(0.60)

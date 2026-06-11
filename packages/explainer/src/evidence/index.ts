@@ -1,3 +1,4 @@
 export { buildEvidencePackage } from "./builder.js"
-export { selectEvidence, buildExecutionPath } from "./selector.js"
-export type { EvidencePackage, EvidenceItem } from "./types.js"
+export { selectEvidence, selectEvidenceByIntent, buildExecutionPath } from "./selector.js"
+export { extractFacts } from "./facts.js"
+export type { EvidencePackage, EvidenceItem, FactEntry } from "./types.js"

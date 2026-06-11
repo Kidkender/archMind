@@ -45,41 +45,51 @@ const FOCUS_NODE_TYPES: Record<string, string[]> = {
   all:         [],
 }
 
-export function selectEvidence(
-  finding: Finding,
+// Intent-first evidence selection — no longer driven by a Finding.
+// Includes all nodes matching the intent's focus types.
+// Optionally enriches with finding-specific nodes as secondary evidence.
+export function selectEvidenceByIntent(
   graph: IntermediateExecutionGraph,
-  focus = "all"
+  focus = "all",
+  finding?: Finding
 ): EvidenceItem[] {
-  // Gather unique node IDs from finding evidence + supporting nodes
-  const nodeIds = new Set<string>([
-    ...finding.provenance.supporting_nodes,
-    ...finding.evidence.map((e) => e.nodeId),
-  ])
-
-  // Enrich with all nodes relevant to the query focus (union, not replace)
   const focusTypes = new Set(FOCUS_NODE_TYPES[focus] ?? [])
+  const nodeIds = new Set<string>()
+
+  // Primary: intent-driven traversal
   for (const node of graph.nodes) {
-    if (focusTypes.has(node.type)) nodeIds.add(node.id)
+    if (focus === "all" || focusTypes.has(node.type)) nodeIds.add(node.id)
+  }
+
+  // Secondary: finding nodes as supplemental evidence (not the driver)
+  if (finding) {
+    for (const id of finding.provenance.supporting_nodes) nodeIds.add(id)
+    for (const e of finding.evidence) nodeIds.add(e.nodeId)
   }
 
   const items: EvidenceItem[] = []
-
   for (const id of nodeIds) {
     const node = graph.nodes.find((n) => n.id === id)
     if (!node) continue
-
-    const evidenceEntry = finding.evidence.find((e) => e.nodeId === id)
-
+    const fe = finding?.evidence.find((e) => e.nodeId === id)
     items.push({
       nodeId: node.id,
       symbol: node.symbol,
       type: node.type,
       role: nodeRole(node),
-      detail: evidenceEntry?.detail ?? nodeDetail(node),
+      detail: fe?.detail ?? nodeDetail(node),
     })
   }
-
   return items
+}
+
+// Legacy: finding-first selection — kept for backward compat with existing callers.
+export function selectEvidence(
+  finding: Finding,
+  graph: IntermediateExecutionGraph,
+  focus = "all"
+): EvidenceItem[] {
+  return selectEvidenceByIntent(graph, focus, finding)
 }
 
 // BFS from entrypoint (or first node) following directed edges to produce
