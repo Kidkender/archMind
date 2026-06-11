@@ -1,0 +1,30 @@
+id: QA-B2B-002
+route: "POST /bank-integrations/payment/response"
+project: laravel-b2b-ecommerce
+question: "How is the bank payment callback authenticated before the payload is processed?"
+
+expected_finding: fat_controller
+expected_severity: MEDIUM
+expected_intent: auth
+
+expected_evidence_nodes:
+  - symbol: BankIntegrationController::paymentResponse
+    type: ir:business_handler
+    role: controller
+  - symbol: PaymentCallbackSecurityService::verifyPaymentSignature
+    type: ir:service_call
+    role: service
+
+expected_answer_contains:
+  - "no authentication"
+  - "signature"
+  - "rate limit"
+
+golden_answer: >
+  The payment callback endpoint has no authentication middleware — only rate limiting
+  (throttle:payment-callback and throttle:webhook). There is no auth gate that verifies
+  the request is from a trusted bank. The only security mechanism is an HMAC signature
+  check inside PaymentCallbackSecurityService::verifyPaymentSignature, which is called
+  after the request is already accepted. If the bank omits HASH or HASHPARAMS fields,
+  verifySignature returns true (passthrough). This endpoint is publicly accessible to
+  any caller that knows the URL.

@@ -1,0 +1,25 @@
+id: QA-B2B-001
+route: "POST /orders/{order}/dealer-approve"
+project: laravel-b2b-ecommerce
+question: "Who can approve a dealer order, and is there an ownership check preventing a dealer from approving orders that belong to another dealer?"
+
+expected_finding: resource_unprotected
+expected_severity: HIGH
+expected_intent: auth
+
+expected_evidence_nodes:
+  - symbol: OrderController::dealerApprove
+    type: ir:business_handler
+    role: controller
+
+expected_answer_contains:
+  - "dealer"
+  - "ownership"
+  - "no policy"
+
+golden_answer: >
+  Any authenticated dealer (auth:web,subdealer) can call this endpoint.
+  The route binds the {order} parameter via route-model-binding but has no
+  authorization check — there is no policy or $this->authorize() call that
+  verifies the authenticated dealer is the assigned dealer for the order.
+  Any dealer can approve pending orders belonging to other dealers.

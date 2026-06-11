@@ -1,0 +1,27 @@
+id: QA-B2B-003
+route: "POST /aka/payments/{payment}/refund"
+project: laravel-b2b-ecommerce
+question: "What database operations are committed in a transaction when an admin processes a payment refund, and what are the authorization requirements?"
+
+expected_finding: resource_unprotected
+expected_severity: HIGH
+expected_intent: transaction
+
+expected_evidence_nodes:
+  - symbol: PaymentReportController::updateRefundStatus
+    type: ir:business_handler
+    role: controller
+
+expected_answer_contains:
+  - "DB::transaction"
+  - "permission"
+  - "refund"
+
+golden_answer: >
+  The admin refund endpoint has authentication (AdminAuditTrailMiddleware) and
+  permission:Ödeme Raporları middleware, but the {payment} route-model-binding
+  parameter has no $this->authorize() policy check — any admin with the permission
+  can refund any payment without ownership verification. Inside the transaction
+  boundary, DB::transaction wraps the payment status update and account transaction
+  credit. No events are dispatched inside the closure — there is no transaction
+  escape risk.
