@@ -174,6 +174,9 @@ const FINDING_DESCRIPTIONS: Record<string, string> = {
   none:                  "no specific security issue detected",
 }
 
+// Max execution path length shown in prompt. Longer paths are truncated.
+const MAX_PATH_NODES = 6
+
 function buildArchmindPrompt(question: string, pkg: EvidencePackage): string {
   // Sort facts: high relevance first, then present before absent within same tier
   const sortedFacts = [...pkg.facts].sort((a, b) => {
@@ -183,20 +186,46 @@ function buildArchmindPrompt(question: string, pkg: EvidencePackage): string {
     return (b.present ? 1 : 0) - (a.present ? 1 : 0)
   })
 
-  const factsText = sortedFacts.map((f) => {
-    const mark = f.present ? "✓" : "✗"
-    const val  = f.value ? ` = ${f.value}` : ""
-    return `  ${mark} ${f.type}${val}`
-  }).join("\n")
+  // Collect HIGH-relevance fact values to detect duplicates in LOW facts
+  const highValueSet = new Set(
+    sortedFacts
+      .filter((f) => f.relevance === "high" && f.value)
+      .map((f) => f.value!)
+  )
 
-  const evidenceList = pkg.evidence.map((e) => {
+  const factsText = sortedFacts
+    .filter((f) => {
+      // Drop LOW-relevance present facts whose value is already captured by a HIGH fact
+      if (f.relevance === "low" && f.present && f.value && highValueSet.has(f.value)) return false
+      return true
+    })
+    .map((f) => {
+      const mark = f.present ? "✓" : "✗"
+      const val  = f.value ? ` = ${f.value}` : ""
+      return `  ${mark} ${f.type}${val}`
+    }).join("\n")
+
+  // Dedup evidence by (symbol, role): repeated entries become "symbol (×N)"
+  const evidenceMap = new Map<string, { item: typeof pkg.evidence[0]; count: number }>()
+  for (const e of pkg.evidence) {
+    const key = `${e.role}|${e.symbol}`
+    const existing = evidenceMap.get(key)
+    if (existing) existing.count++
+    else evidenceMap.set(key, { item: e, count: 1 })
+  }
+  const evidenceList = [...evidenceMap.values()].map(({ item: e, count }) => {
     const detail = e.detail ? ` | ${e.detail}` : ""
-    return `- [${e.role}] ${e.symbol}${detail}`
+    const times  = count > 1 ? ` (×${count})` : ""
+    return `- [${e.role}] ${e.symbol}${detail}${times}`
   }).join("\n")
 
-  const pathText = pkg.execution_path.length > 0
-    ? pkg.execution_path.join(" → ")
-    : "(unavailable)"
+  // Cap execution path to avoid token bloat on complex routes
+  const path = pkg.execution_path
+  const pathText = path.length === 0
+    ? "(unavailable)"
+    : path.length <= MAX_PATH_NODES
+      ? path.join(" → ")
+      : `${path.slice(0, MAX_PATH_NODES).join(" → ")} … (+${path.length - MAX_PATH_NODES} more)`
 
   const findingDesc = FINDING_DESCRIPTIONS[pkg.finding] ?? pkg.finding
   const findingLine = pkg.finding !== "none"
