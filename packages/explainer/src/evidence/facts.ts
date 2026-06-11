@@ -1,11 +1,14 @@
 import type { IntermediateExecutionGraph } from "@archmind/protocol"
 import type { FactEntry } from "./types.js"
 
+export type RelevanceTier = "high" | "medium" | "low"
+const TIER: Record<RelevanceTier, number> = { high: 3, medium: 2, low: 1 }
+
 // Relevance of each fact type per intent.
 // HIGH = critical to answering the question, always include even if absent.
 // MEDIUM = supporting context, include if present.
 // LOW = background noise for this intent, omit if absent.
-const FACT_RELEVANCE: Record<string, Record<string, "high" | "medium" | "low">> = {
+export const FACT_RELEVANCE: Record<string, Record<string, RelevanceTier>> = {
   auth: {
     auth_middleware:  "high",
     authz_check:      "high",
@@ -51,11 +54,27 @@ function joinSymbols(nodes: Array<{ symbol: string }>): string | undefined {
   return s || undefined
 }
 
+// Merge relevance maps for multiple intents — take max tier per fact type.
+export function mergeRelevanceMaps(intents: string[]): Record<string, RelevanceTier> {
+  const merged: Record<string, RelevanceTier> = {}
+  for (const intent of intents) {
+    const rel = FACT_RELEVANCE[intent] ?? {}
+    for (const [type, relevance] of Object.entries(rel)) {
+      const current = merged[type]
+      if (!current || TIER[relevance] > TIER[current]) merged[type] = relevance
+    }
+  }
+  return merged
+}
+
 export function extractFacts(
   graph: IntermediateExecutionGraph,
-  intent: string
+  intent: string | string[]
 ): FactEntry[] {
-  const rel = FACT_RELEVANCE[intent] ?? {}
+  const intents = Array.isArray(intent) ? intent : [intent]
+  const rel = intents.length === 1
+    ? (FACT_RELEVANCE[intents[0]] ?? {})
+    : mergeRelevanceMaps(intents)
 
   const fact = (
     type: string,

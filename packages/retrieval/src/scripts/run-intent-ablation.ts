@@ -127,27 +127,52 @@ if (qa.expected_facts?.length) {
 }
 console.log()
 
-console.log(`${"Intent".padEnd(15)} ${"fact_cov".padEnd(12)} ${"ev_prec".padEnd(12)} ${"facts extracted"}`)
-console.log(`${"-".repeat(80)}`)
+console.log(`${"Intent".padEnd(22)} ${"fact_cov".padEnd(12)} ${"ev_prec".padEnd(12)} ${"facts extracted"}`)
+console.log(`${"-".repeat(90)}`)
+
+// First row: actual multi-intent auto-detect (no forceIntent)
+{
+  const pkg = buildEvidencePackage(qa.question, graph)
+  const fact_coverage      = computeFactCoverage(pkg, qa.expected_facts)
+  const evidence_precision = computeEvidencePrecision(pkg, qa.expected_evidence_nodes)
+  const intentsLabel = pkg.intents
+    ? pkg.intents.map((i) => `${i.intent}(${i.score.toFixed(2)})`).join("+")
+    : pkg.intent
+  const factsLine = pkg.facts.map((f) => `${f.present ? "✓" : "✗"}${f.type}(${f.relevance[0]})`).join(" ")
+  console.log(`${"multi-intent [auto]".padEnd(22)} ${fact_coverage.toFixed(2).padEnd(12)} ${evidence_precision.toFixed(2).padEnd(12)} ${factsLine}`)
+  console.log(`  active intents: ${intentsLabel}`)
+  console.log()
+  console.log(`  --- Facts detail (multi-intent) ---`)
+  for (const f of pkg.facts) {
+    const mark = f.present ? "✓" : "✗"
+    const val  = f.value ? ` = ${f.value}` : ""
+    console.log(`    [${f.relevance}] ${mark} ${f.type}${val}`)
+  }
+  console.log()
+}
+
+console.log(`${"-".repeat(90)}`)
+console.log(`Single-intent forced rows (for comparison):`)
+console.log()
 
 for (const intent of INTENTS) {
   const pkg = buildEvidencePackage(qa.question, graph, { forceIntent: intent })
   const fact_coverage      = computeFactCoverage(pkg, qa.expected_facts)
   const evidence_precision = computeEvidencePrecision(pkg, qa.expected_evidence_nodes)
 
-  const marker = intent === qa.expected_intent ? " ← auto" : ""
+  const marker = intent === qa.expected_intent ? " ← expected" : ""
   const factsLine = pkg.facts
     .map((f) => `${f.present ? "✓" : "✗"}${f.type}`)
     .join(" ")
 
   console.log(
-    `${(intent + marker).padEnd(20)} ${fact_coverage.toFixed(2).padEnd(12)} ${evidence_precision.toFixed(2).padEnd(12)} ${factsLine}`
+    `${(intent + marker).padEnd(22)} ${fact_coverage.toFixed(2).padEnd(12)} ${evidence_precision.toFixed(2).padEnd(12)} ${factsLine}`
   )
 
   // Detail view for the default intent
   if (intent === qa.expected_intent) {
     console.log()
-    console.log(`  --- Facts detail (intent=${intent}) ---`)
+    console.log(`  --- Facts detail (forced intent=${intent}) ---`)
     for (const f of pkg.facts) {
       const mark = f.present ? "✓" : "✗"
       const val  = f.value   ? ` = ${f.value}` : ""

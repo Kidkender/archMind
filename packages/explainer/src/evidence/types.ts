@@ -17,9 +17,15 @@ export interface FactEntry {
   relevance: "high" | "medium" | "low"
 }
 
+export interface IntentScore {
+  intent: QueryFocus
+  score: number
+}
+
 export interface EvidencePackage {
   question: string
-  intent: QueryFocus
+  intent: QueryFocus          // primary (highest score) intent
+  intents?: IntentScore[]     // all active intents with scores (multi-intent diagnostic)
   facts: FactEntry[]
   execution_path: string[]
   evidence: EvidenceItem[]
