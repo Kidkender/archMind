@@ -282,6 +282,82 @@ describe("augmentGraph — ir:api_resource nodes (OrderController::show)", () =>
   })
 })
 
+// ---- Standalone dispatch nodes (18B.2) -----------------------------------
+
+describe("augmentGraph — ir:queue_job nodes (JobDispatchController::store)", () => {
+  let aug: IntermediateExecutionGraph
+
+  const SKELETON_JOB: IntermediateExecutionGraph = {
+    entrypoint: "POST /job-orders",
+    method: "POST",
+    path: "/job-orders",
+    nodes: [
+      {
+        id:     "ctrl_jobdispatch_store",
+        type:   "ir:business_handler",
+        symbol: "JobDispatchController::store",
+        role:   "handler",
+        file:   "app/Http/Controllers/JobDispatchController.php",
+      },
+    ],
+    edges:       [],
+    annotations: [],
+  }
+
+  beforeAll(() => {
+    aug = augmentGraph(SKELETON_JOB, { projectRoot: FIXTURES })
+  })
+
+  test("emits ir:queue_job nodes for job dispatches", () => {
+    const jobNodes = aug.nodes.filter((n) => n.type === "ir:queue_job")
+    expect(jobNodes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test("ProcessPaymentJob emits ir:queue_job node", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:queue_job" && n.symbol.includes("ProcessPaymentJob"))
+    expect(node).toBeDefined()
+    expect(node!.symbol).toBe("ProcessPaymentJob::dispatch")
+    expect(node!.role).toBe("async_execution")
+  })
+
+  test("SendInvoiceJob emits ir:queue_job node", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:queue_job" && n.symbol.includes("SendInvoiceJob"))
+    expect(node).toBeDefined()
+  })
+
+  test("ir:dispatches edge connects handler to queue_job", () => {
+    const jobNode = aug.nodes.find((n) => n.type === "ir:queue_job" && n.symbol.includes("ProcessPaymentJob"))
+    const edge = aug.edges.find(
+      (e) => e.from === "ctrl_jobdispatch_store" && e.to === jobNode?.id && e.relation === "ir:dispatches"
+    )
+    expect(edge).toBeDefined()
+    expect(edge!.traceability).toBe("static")
+  })
+
+  test("emits ir:event_dispatch node for OrderCreated", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:event_dispatch")
+    expect(node).toBeDefined()
+    expect(node!.symbol).toBe("OrderCreated::dispatch")
+    expect(node!.role).toBe("event_emission")
+  })
+
+  test("ir:dispatches edge connects handler to event_dispatch", () => {
+    const evtNode = aug.nodes.find((n) => n.type === "ir:event_dispatch")
+    const edge = aug.edges.find(
+      (e) => e.from === "ctrl_jobdispatch_store" && e.to === evtNode?.id && e.relation === "ir:dispatches"
+    )
+    expect(edge).toBeDefined()
+  })
+
+  test("transaction-internal dispatches are NOT re-emitted as ir:queue_job", () => {
+    // TaskController::store dispatches TaskCreated inside DB::transaction()
+    // It should only appear as ir:txn_escape, not as a duplicate ir:queue_job
+    const jobNodes = aug.nodes.filter((n) => n.type === "ir:queue_job")
+    const hasTaskCreated = jobNodes.some((n) => n.symbol.includes("TaskCreated"))
+    expect(hasTaskCreated).toBe(false)
+  })
+})
+
 describe("augmentGraph — ir:api_resource nodes (OrderController::index, collection)", () => {
   let aug: IntermediateExecutionGraph
 

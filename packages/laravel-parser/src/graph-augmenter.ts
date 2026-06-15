@@ -10,7 +10,8 @@ import type {
 import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@archmind/protocol"
 
 const ADAPTER_VERSION = "0.1.0"
-import { parseControllerMethod, parseFormRequestAuthorize, type ServiceCall, type ModelParam } from "./controller-parser.js"
+import { parseControllerMethod, parseFormRequestAuthorize, type ServiceCall, type ModelParam, type StandaloneDispatch } from "./controller-parser.js"
+import type { ListenerEntry } from "./event-listener-mapper.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
 import { parseConstantClass } from "./constant-resolver.js"
@@ -149,6 +150,9 @@ export function augmentGraph(
 
         // API_RESOURCE nodes — JsonResource returns (IR v1.2)
         emitApiResourceNodes(newNodes, newEdges, ctrlNode, l1.returnedResources, opts.projectRoot, config)
+
+        // Standalone dispatch nodes — Jobs/Events dispatched outside DB::transaction() (IR v1.3)
+        emitStandaloneDispatchNodes(newNodes, newEdges, ctrlNode, l1.standaloneDispatches, opts.projectRoot, config.namespaces)
 
         // Constructor middleware pass — inject auth nodes not present at route level
         injectConstructorMiddleware(newNodes, newEdges, ctrlNode.id, l1.constructorMiddleware, methodName)
@@ -730,6 +734,95 @@ function emitResourceNodes(
         relation:     IR_EDGE_RELATIONS.AUTHORIZES,
         traceability: "semantic",
         mechanism:    auth.mechanism,
+      })
+    }
+  }
+}
+
+// ─── Standalone dispatch nodes (IR v1.3) ─────────────────────────────────────
+
+/**
+ * Emit ir:queue_job / ir:event_dispatch nodes for Job::dispatch() and
+ * event(new Event()) calls found OUTSIDE DB::transaction() closures.
+ *
+ * For event dispatches, attempt to trace into listeners via EventServiceProvider.
+ */
+function emitStandaloneDispatchNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  ctrlNode: ExecutionNode,
+  dispatches: StandaloneDispatch[],
+  projectRoot: string,
+  namespaces: Record<string, string>
+): void {
+  if (dispatches.length === 0) return
+
+  // Lazy-load listener map only if there are events to trace
+  const hasEvents = dispatches.some((d) => d.kind === "event")
+  const listenerMap = hasEvents ? parseEventListeners(projectRoot, namespaces) : new Map()
+
+  const seen = new Set<string>()
+
+  for (const d of dispatches) {
+    const slug = d.className.toLowerCase().replace(/[^a-z0-9]/g, "_")
+
+    if (d.kind === "job") {
+      const id = `job_${slug}_${ctrlNode.id}`
+      if (seen.has(id)) continue
+      seen.add(id)
+
+      const file = d.fqcn.includes("\\") ? (fqcnToPath(d.fqcn, namespaces) ?? undefined) : undefined
+      nodes.push({
+        id,
+        type:   IR_NODE_TYPES.QUEUE_JOB,
+        symbol: `${d.className}::dispatch`,
+        role:   "async_execution",
+        ...(file ? { file } : {}),
+      })
+      edges.push({
+        from:         ctrlNode.id,
+        to:           id,
+        relation:     IR_EDGE_RELATIONS.DISPATCHES,
+        traceability: "static",
+      })
+
+    } else if (d.kind === "event") {
+      const id = `evt_${slug}_${ctrlNode.id}`
+      if (seen.has(id)) continue
+      seen.add(id)
+
+      nodes.push({
+        id,
+        type:   IR_NODE_TYPES.EVENT_DISPATCH,
+        symbol: `${d.className}::dispatch`,
+        role:   "event_emission",
+      })
+      edges.push({
+        from:         ctrlNode.id,
+        to:           id,
+        relation:     IR_EDGE_RELATIONS.DISPATCHES,
+        traceability: "static",
+      })
+
+      // Trace into listeners
+      const listeners = listenerMap.get(d.className) ?? []
+      listeners.forEach((entry: ListenerEntry, idx: number) => {
+        const short     = entry.listenerFqcn.split("\\").pop() ?? entry.listenerFqcn
+        const listenId  = `listener_${id}_${idx}`
+        nodes.push({
+          id:     listenId,
+          type:   IR_NODE_TYPES.SERVICE_CALL,
+          symbol: `${short}::handle`,
+          role:   "listener",
+          ...(entry.listenerFile ? { file: entry.listenerFile } : {}),
+          ...(entry.isAfterCommitSafe ? { args: ["afterCommit"] } : {}),
+        })
+        edges.push({
+          from:         id,
+          to:           listenId,
+          relation:     "calls",
+          traceability: "semantic",
+        })
       })
     }
   }

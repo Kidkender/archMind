@@ -3,6 +3,7 @@ import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
 import { extractReturnedResources } from "./resource-parser.js"
+import { classifyDispatch } from "./transaction-parser.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -47,6 +48,13 @@ export interface ReturnedResource {
   isCollection: boolean  // true if ::collection() call
 }
 
+export interface StandaloneDispatch {
+  className: string            // e.g. "ProcessPaymentJob"
+  fqcn:      string            // e.g. "App\Jobs\ProcessPaymentJob"
+  kind:      "job" | "event" | "unknown"
+  callText:  string
+}
+
 export interface ControllerL1 {
   useMap:               Map<string, string>
   formRequests:         FormRequestParam[]
@@ -55,6 +63,7 @@ export interface ControllerL1 {
   constructorMiddleware: ConstructorMiddleware[]
   modelParams:          ModelParam[]
   returnedResources:    ReturnedResource[]
+  standaloneDispatches: StandaloneDispatch[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -83,7 +92,7 @@ export function parseControllerMethod(
   const constructorMiddleware = gatherConstructorMiddleware(root)
 
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [], returnedResources: [] }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [], returnedResources: [], standaloneDispatches: [] }
   }
 
   const injections = extractConstructorInjections(root, useMap)
@@ -91,11 +100,12 @@ export function parseControllerMethod(
   // Merge: method params take precedence over constructor for same var name
   const allInjections = new Map([...injections, ...methodInjections])
 
-  const formRequests       = extractFormRequests(methodNode, useMap)
-  const modelParams        = extractModelParams(methodNode, useMap)
-  const authorizeCalls     = extractAuthorizeCalls(methodNode, modelParams)
-  const serviceCalls       = extractServiceCalls(methodNode, allInjections, useMap)
-  const returnedResources  = extractReturnedResources(methodNode, useMap)
+  const formRequests         = extractFormRequests(methodNode, useMap)
+  const modelParams          = extractModelParams(methodNode, useMap)
+  const authorizeCalls       = extractAuthorizeCalls(methodNode, modelParams)
+  const serviceCalls         = extractServiceCalls(methodNode, allInjections, useMap)
+  const returnedResources    = extractReturnedResources(methodNode, useMap)
+  const standaloneDispatches = extractStandaloneDispatches(methodNode, useMap)
 
   // Depth-1 private method traversal: follow $this->helper() calls into the
   // same class, but do not recurse further to avoid graph blow-up.
@@ -125,6 +135,7 @@ export function parseControllerMethod(
     constructorMiddleware,
     modelParams,
     returnedResources,
+    standaloneDispatches,
   }
 }
 
@@ -480,6 +491,83 @@ function collectMiddlewareCalls(node: Parser.SyntaxNode, results: ConstructorMid
   for (const child of node.children as Parser.SyntaxNode[]) {
     collectMiddlewareCalls(child, results)
   }
+}
+
+// ---- Standalone dispatch extraction (18B.2) --------------------------
+
+/**
+ * Detect Job::dispatch() / event(new Event()) / dispatch(new Job()) calls
+ * in a method body, EXCLUDING those inside DB::transaction() closures
+ * (those are already captured as ir:txn_escape nodes by transaction-parser).
+ */
+function extractStandaloneDispatches(
+  methodNode: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): StandaloneDispatch[] {
+  const body = methodNode.childForFieldName("body")
+  if (!body) return []
+  const results: StandaloneDispatch[] = []
+  gatherStandaloneDispatches(body, useMap, results)
+  return results
+}
+
+function gatherStandaloneDispatches(
+  node: Parser.SyntaxNode,
+  useMap: Map<string, string>,
+  results: StandaloneDispatch[]
+): void {
+  // Skip DB::transaction() closures — those are handled by transaction-parser
+  if (node.type === "scoped_call_expression") {
+    const cls  = (node.children as Parser.SyntaxNode[])[0]
+    const name = node.childForFieldName("name")
+    if (cls?.text.replace(/^\\/, "") === "DB" && name?.text === "transaction") return
+
+    // ClassName::dispatch() — static dispatch
+    if (name?.text === "dispatch") {
+      const clsText = cls?.text.replace(/^\\/, "") ?? ""
+      if (clsText && clsText !== "DB" && clsText !== "Bus") {
+        const fqcn = useMap.get(clsText) ?? clsText
+        results.push({ className: clsText, fqcn, kind: classifyDispatch(clsText), callText: node.text })
+        return
+      }
+    }
+  }
+
+  // dispatch(new ClassName()) — global function helper
+  if (node.type === "function_call_expression") {
+    const fn = node.childForFieldName("function")
+    if (fn?.text === "dispatch" || fn?.text === "event") {
+      const arg = firstArgClassName(node, useMap)
+      if (arg) {
+        results.push(arg)
+        return
+      }
+    }
+  }
+
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    gatherStandaloneDispatches(child, useMap, results)
+  }
+}
+
+function firstArgClassName(
+  callNode: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): StandaloneDispatch | null {
+  const argsNode = callNode.childForFieldName("arguments")
+  if (!argsNode) return null
+  for (const arg of argsNode.children as Parser.SyntaxNode[]) {
+    if (arg.type !== "argument") continue
+    const val = arg.firstNamedChild
+    if (val?.type === "object_creation_expression") {
+      const clsNode = val.childForFieldName("class") ?? val.namedChildren[0]
+      const clsText = clsNode?.text.replace(/^\\/, "") ?? ""
+      if (!clsText) continue
+      const fqcn = useMap.get(clsText) ?? clsText
+      return { className: clsText, fqcn, kind: classifyDispatch(clsText), callText: callNode.text }
+    }
+  }
+  return null
 }
 
 function extractStringArrayValues(arrayNode: Parser.SyntaxNode): string[] {

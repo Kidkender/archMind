@@ -244,6 +244,45 @@ describe("parseControllerMethod — OrderController::index returnedResources (co
   })
 })
 
+// ---- standaloneDispatches — JobDispatchController (18B.2) ----------------
+
+const JOB_CTRL = join(FIXTURES, "app/Http/Controllers/JobDispatchController.php")
+
+describe("parseControllerMethod — JobDispatchController::store standaloneDispatches", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(JOB_CTRL, "store")
+  })
+
+  test("returns non-null result", () => {
+    expect(result).not.toBeNull()
+  })
+
+  test("detects 3 standalone dispatches total", () => {
+    expect(result!.standaloneDispatches).toHaveLength(3)
+  })
+
+  test("ProcessPaymentJob classified as job (static dispatch)", () => {
+    const d = result!.standaloneDispatches.find((d) => d.className === "ProcessPaymentJob")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("job")
+    expect(d!.fqcn).toBe("App\\Jobs\\ProcessPaymentJob")
+  })
+
+  test("SendInvoiceJob classified as job (global dispatch() helper)", () => {
+    const d = result!.standaloneDispatches.find((d) => d.className === "SendInvoiceJob")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("job")
+  })
+
+  test("OrderCreated classified as event", () => {
+    const d = result!.standaloneDispatches.find((d) => d.className === "OrderCreated")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("event")
+  })
+})
+
 describe("parseControllerMethod — OrderController::store returnedResources", () => {
   let result: ReturnType<typeof parseControllerMethod>
 

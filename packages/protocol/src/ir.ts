@@ -40,6 +40,10 @@ export const IR_NODE_TYPES = {
 
   // API Response domain (IR v1.2)
   API_RESOURCE:        "ir:api_resource",
+
+  // Async dispatch domain (IR v1.3)
+  QUEUE_JOB:           "ir:queue_job",
+  EVENT_DISPATCH:      "ir:event_dispatch",
 } as const
 
 export type IRNodeType = typeof IR_NODE_TYPES[keyof typeof IR_NODE_TYPES]
@@ -60,6 +64,7 @@ export const IR_EDGE_RELATIONS = {
   ESCAPES:           "ir:escapes",
   AUTHORIZES:        "ir:authorizes",
   RETURNS:           "ir:returns",
+  DISPATCHES:        "ir:dispatches",
 } as const
 
 export type IREdgeRelation = typeof IR_EDGE_RELATIONS[keyof typeof IR_EDGE_RELATIONS]

@@ -94,6 +94,15 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
     edges: [],
     annotations: [],
   },
+  "LARAVEL-QUEUE-JOB-001": {
+    entrypoint: "POST /job-orders",
+    method: "POST", path: "/job-orders",
+    nodes: [
+      { id: "ctrl", type: "ir:business_handler", symbol: "JobDispatchController::store", role: "handler", file: "app/Http/Controllers/JobDispatchController.php" },
+    ],
+    edges: [],
+    annotations: [],
+  },
 }
 
 function buildAugmentedGraphs(): Record<string, IntermediateExecutionGraph[]> {
@@ -122,8 +131,8 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
     })
   })
 
-  test("snapshot covers all 7 traces", () => {
-    expect(snapshot.summary.total_traces).toBe(7)
+  test("snapshot covers all 8 traces", () => {
+    expect(snapshot.summary.total_traces).toBe(8)
   })
 
   test("AUTH-001 recall holds >= P2.7 level (>= 0.71)", () => {
@@ -156,6 +165,10 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
 
   test("API-RESOURCE-001 recall captures ir:api_resource node (>= 0.50)", () => {
     expect(snapshot.traces["LARAVEL-API-RESOURCE-001"]!.r0_recall).toBeGreaterThanOrEqual(0.50)
+  })
+
+  test("QUEUE-JOB-001 recall captures ir:queue_job nodes (>= 0.50)", () => {
+    expect(snapshot.traces["LARAVEL-QUEUE-JOB-001"]!.r0_recall).toBeGreaterThanOrEqual(0.50)
   })
 
   test("avg recall improves over P2.7 baseline (was ~0.83)", () => {

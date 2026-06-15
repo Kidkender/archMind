@@ -1,0 +1,51 @@
+id: LARAVEL-QUEUE-JOB-001
+entrypoint: "POST /job-orders"
+framework: laravel
+source_project: laravel-io
+adapter_version: "0.1.0"
+
+retrieval:
+  query: "What happens asynchronously after an order is placed — which jobs and events are triggered?"
+
+nodes:
+  - id: job_dispatch_controller_store
+    type: ir:business_handler
+    symbol: JobDispatchController::store
+    file: app/Http/Controllers/JobDispatchController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: process_payment_job
+    type: ir:queue_job
+    symbol: ProcessPaymentJob::dispatch
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: send_invoice_job
+    type: ir:queue_job
+    symbol: SendInvoiceJob::dispatch
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: order_created_event
+    type: ir:event_dispatch
+    symbol: OrderCreated::dispatch
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: job_dispatch_controller_store
+    to: process_payment_job
+    relation: ir:dispatches
+
+  - from: job_dispatch_controller_store
+    to: send_invoice_job
+    relation: ir:dispatches
+
+  - from: job_dispatch_controller_store
+    to: order_created_event
+    relation: ir:dispatches
