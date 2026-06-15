@@ -47,12 +47,8 @@ edges:
     relation: ir:returns
 
 expected_findings:
-  - type: ir:resource_mismatch
+  - type: sensitive_field_exposed
     required_nodes: [order_resource]
-    description: >
-      OrderResource exposes sensitive field 'token' conditionally.
-      Conditional exposure depends on runtime $this->isAdmin() check
-      which ArchMind cannot statically verify — flag as potential data leak.
 
 annotations:
   - type: sensitive_field_exposure

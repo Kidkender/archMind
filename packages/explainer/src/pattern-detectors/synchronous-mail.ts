@@ -9,9 +9,10 @@ interface MailDetail {
   queued?:    boolean
 }
 
-function parseDetail(raw: string | undefined): MailDetail | null {
+function parseDetail(raw: unknown): MailDetail | null {
   if (!raw) return null
-  try { return JSON.parse(raw) as MailDetail } catch { return null }
+  if (typeof raw === "object") return raw as MailDetail
+  try { return JSON.parse(raw as string) as MailDetail } catch { return null }
 }
 
 /**

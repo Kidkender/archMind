@@ -20,6 +20,8 @@ const TRACE_FILES = [
   join(TRACES_DIR, "LARAVEL-AUTH-002.yaml"),
   join(TRACES_DIR, "LARAVEL-VALIDATION-001.yaml"),
   join(TRACES_DIR, "LARAVEL-RUNTIME-001.yaml"),
+  join(TRACES_DIR, "LARAVEL-NOTIFICATION-001.yaml"),
+  join(TRACES_DIR, "LARAVEL-API-RESOURCE-001.yaml"),
 ]
 
 describe("goldenTraceToGraph", () => {

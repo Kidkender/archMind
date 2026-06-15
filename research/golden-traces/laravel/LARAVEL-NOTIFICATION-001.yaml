@@ -33,6 +33,9 @@ nodes:
   - id: order_confirmation_mail
     type: ir:mail
     symbol: OrderConfirmationMail::build
+    detail:
+      className: OrderConfirmationMail
+      queued: false
     retrieval:
       relevance: MEDIUM
       compressible: true
@@ -40,6 +43,9 @@ nodes:
   - id: admin_alert_mail
     type: ir:mail
     symbol: AdminAlertMail::build
+    detail:
+      className: AdminAlertMail
+      queued: true
     retrieval:
       relevance: MEDIUM
       compressible: true
@@ -60,3 +66,9 @@ edges:
   - from: notification_ctrl_notify
     to: admin_alert_mail
     relation: ir:sends
+
+expected_findings:
+  - type: synchronous_mail
+    required_nodes: [order_confirmation_mail]
+
+expected_top_finding: synchronous_mail

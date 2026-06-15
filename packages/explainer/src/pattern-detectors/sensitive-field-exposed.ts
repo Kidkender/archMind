@@ -11,9 +11,10 @@ interface ResourceDetail {
   isCollection?:     boolean
 }
 
-function parseDetail(raw: string | undefined): ResourceDetail | null {
+function parseDetail(raw: unknown): ResourceDetail | null {
   if (!raw) return null
-  try { return JSON.parse(raw) as ResourceDetail } catch { return null }
+  if (typeof raw === "object") return raw as ResourceDetail
+  try { return JSON.parse(raw as string) as ResourceDetail } catch { return null }
 }
 
 /**
