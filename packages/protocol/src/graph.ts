@@ -53,6 +53,7 @@ export interface ExecutionNode {
   file?:            string    // relative path from project root
   args?:            string[]  // e.g. ["task.update"] for CheckPermission
   role?:            string    // semantic hint: "auth_layer_1", "tenant_resolver", etc.
+  detail?:          string    // JSON-serialized node-specific metadata (e.g. api_resource field list)
   occurrenceCount?: number    // set by deduplicate() when multiple nodes are merged into one
 }
 

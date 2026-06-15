@@ -191,3 +191,69 @@ describe("extractUseMap from controller file", () => {
     )
   })
 })
+
+// ---- returnedResources — OrderController (18B.1) -------------------------
+
+const ORDER_CTRL = join(FIXTURES, "app/Http/Controllers/OrderController.php")
+
+describe("parseControllerMethod — OrderController::show returnedResources", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(ORDER_CTRL, "show")
+  })
+
+  test("returns non-null result", () => {
+    expect(result).not.toBeNull()
+  })
+
+  test("detects one returned resource", () => {
+    expect(result!.returnedResources).toHaveLength(1)
+  })
+
+  test("shortName is OrderResource", () => {
+    expect(result!.returnedResources[0].shortName).toBe("OrderResource")
+  })
+
+  test("fqcn resolved via use map", () => {
+    expect(result!.returnedResources[0].fqcn).toBe("App\\Http\\Resources\\OrderResource")
+  })
+
+  test("isCollection is false for new OrderResource()", () => {
+    expect(result!.returnedResources[0].isCollection).toBe(false)
+  })
+})
+
+describe("parseControllerMethod — OrderController::index returnedResources (collection)", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(ORDER_CTRL, "index")
+  })
+
+  test("detects one returned resource", () => {
+    expect(result!.returnedResources).toHaveLength(1)
+  })
+
+  test("shortName is OrderResource", () => {
+    expect(result!.returnedResources[0].shortName).toBe("OrderResource")
+  })
+
+  test("isCollection is true for ::collection() call", () => {
+    expect(result!.returnedResources[0].isCollection).toBe(true)
+  })
+})
+
+describe("parseControllerMethod — OrderController::store returnedResources", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(ORDER_CTRL, "store")
+  })
+
+  test("detects resource return after create", () => {
+    expect(result!.returnedResources).toHaveLength(1)
+    expect(result!.returnedResources[0].shortName).toBe("OrderResource")
+    expect(result!.returnedResources[0].isCollection).toBe(false)
+  })
+})

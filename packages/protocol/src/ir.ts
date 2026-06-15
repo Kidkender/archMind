@@ -37,6 +37,9 @@ export const IR_NODE_TYPES = {
 
   // Resource domain (IR v1.1)
   RESOURCE:            "ir:resource",
+
+  // API Response domain (IR v1.2)
+  API_RESOURCE:        "ir:api_resource",
 } as const
 
 export type IRNodeType = typeof IR_NODE_TYPES[keyof typeof IR_NODE_TYPES]
@@ -56,6 +59,7 @@ export const IR_EDGE_RELATIONS = {
   WRAPS:             "ir:wraps",
   ESCAPES:           "ir:escapes",
   AUTHORIZES:        "ir:authorizes",
+  RETURNS:           "ir:returns",
 } as const
 
 export type IREdgeRelation = typeof IR_EDGE_RELATIONS[keyof typeof IR_EDGE_RELATIONS]

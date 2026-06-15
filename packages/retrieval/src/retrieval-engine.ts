@@ -217,6 +217,7 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   "ir:unscoped_query":      "HIGH",
   "ir:unscoped_write":      "HIGH",
   "ir:scoped_query":        "MEDIUM",
+  "ir:api_resource":        "HIGH",
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {

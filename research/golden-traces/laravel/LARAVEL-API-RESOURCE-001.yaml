@@ -1,0 +1,62 @@
+id: LARAVEL-API-RESOURCE-001
+entrypoint: "GET /orders/{order}"
+framework: laravel
+source_project: crater
+adapter_version: "0.1.0"
+
+retrieval:
+  query: "What data does the order detail endpoint expose, and does it leak any sensitive fields?"
+
+nodes:
+  - id: order_controller_show
+    type: ir:business_handler
+    symbol: OrderController::show
+    file: app/Http/Controllers/OrderController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: order_policy_view
+    type: ir:authz_check
+    symbol: OrderPolicy::view
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: order_resource
+    type: ir:api_resource
+    symbol: OrderResource::toArray
+    file: app/Http/Resources/OrderResource.php
+    retrieval:
+      relevance: HIGH
+      compressible: false
+    detail:
+      fields: [id, status, total, created_at, token]
+      sensitiveFields: [token]
+      conditionalFields: [token]
+      isCollection: false
+
+edges:
+  - from: order_controller_show
+    to: order_policy_view
+    relation: policy_check
+    via: "$this->authorize('view', $order)"
+
+  - from: order_controller_show
+    to: order_resource
+    relation: ir:returns
+
+expected_findings:
+  - type: ir:resource_mismatch
+    required_nodes: [order_resource]
+    description: >
+      OrderResource exposes sensitive field 'token' conditionally.
+      Conditional exposure depends on runtime $this->isAdmin() check
+      which ArchMind cannot statically verify — flag as potential data leak.
+
+annotations:
+  - type: sensitive_field_exposure
+    nodes: [order_resource]
+    description: >
+      'token' field is conditionally included via $this->when().
+      Static analysis cannot confirm the guard condition is always safe.

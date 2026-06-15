@@ -2,6 +2,7 @@ import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { extractReturnedResources } from "./resource-parser.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -40,6 +41,12 @@ export interface ConstructorMiddleware {
   only:   string[]  // if non-empty, middleware only applies to these methods
 }
 
+export interface ReturnedResource {
+  shortName:    string   // e.g. "UserResource"
+  fqcn:         string   // e.g. "App\Http\Resources\UserResource"
+  isCollection: boolean  // true if ::collection() call
+}
+
 export interface ControllerL1 {
   useMap:               Map<string, string>
   formRequests:         FormRequestParam[]
@@ -47,6 +54,7 @@ export interface ControllerL1 {
   serviceCalls:         ServiceCall[]
   constructorMiddleware: ConstructorMiddleware[]
   modelParams:          ModelParam[]
+  returnedResources:    ReturnedResource[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -75,7 +83,7 @@ export function parseControllerMethod(
   const constructorMiddleware = gatherConstructorMiddleware(root)
 
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [] }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [], returnedResources: [] }
   }
 
   const injections = extractConstructorInjections(root, useMap)
@@ -83,10 +91,11 @@ export function parseControllerMethod(
   // Merge: method params take precedence over constructor for same var name
   const allInjections = new Map([...injections, ...methodInjections])
 
-  const formRequests   = extractFormRequests(methodNode, useMap)
-  const modelParams    = extractModelParams(methodNode, useMap)
-  const authorizeCalls = extractAuthorizeCalls(methodNode, modelParams)
-  const serviceCalls   = extractServiceCalls(methodNode, allInjections, useMap)
+  const formRequests       = extractFormRequests(methodNode, useMap)
+  const modelParams        = extractModelParams(methodNode, useMap)
+  const authorizeCalls     = extractAuthorizeCalls(methodNode, modelParams)
+  const serviceCalls       = extractServiceCalls(methodNode, allInjections, useMap)
+  const returnedResources  = extractReturnedResources(methodNode, useMap)
 
   // Depth-1 private method traversal: follow $this->helper() calls into the
   // same class, but do not recurse further to avoid graph blow-up.
@@ -115,6 +124,7 @@ export function parseControllerMethod(
     serviceCalls: uniqueServiceCalls,
     constructorMiddleware,
     modelParams,
+    returnedResources,
   }
 }
 

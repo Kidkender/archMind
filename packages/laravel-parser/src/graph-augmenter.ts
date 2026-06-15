@@ -19,6 +19,7 @@ import { buildHierarchyEdges } from "./permission-extractor/hierarchy.js"
 import { parseTransactions } from "./transaction-parser.js"
 import { parseIsolation } from "./isolation-parser.js"
 import { DEFAULT_PROJECT_CONFIG, fqcnToPath, resolvePolicyFile } from "./project-config.js"
+import { parseApiResource } from "./resource-parser.js"
 
 // ---- Public API -------------------------------------------------------
 
@@ -145,6 +146,9 @@ export function augmentGraph(
 
         // RESOURCE nodes — route-model-binding params (IR v1.1)
         emitResourceNodes(newNodes, newEdges, ctrlNode, l1.modelParams, addedPolicyNodes, l1.authorizeCalls)
+
+        // API_RESOURCE nodes — JsonResource returns (IR v1.2)
+        emitApiResourceNodes(newNodes, newEdges, ctrlNode, l1.returnedResources, opts.projectRoot, config)
 
         // Constructor middleware pass — inject auth nodes not present at route level
         injectConstructorMiddleware(newNodes, newEdges, ctrlNode.id, l1.constructorMiddleware, methodName)
@@ -728,5 +732,62 @@ function emitResourceNodes(
         mechanism:    auth.mechanism,
       })
     }
+  }
+}
+
+// ─── API Resource nodes (IR v1.2) ────────────────────────────────────────────
+
+function emitApiResourceNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  ctrlNode: ExecutionNode,
+  returnedResources: Array<{ shortName: string; fqcn: string; isCollection: boolean }>,
+  projectRoot: string,
+  config: ProjectConfig,
+): void {
+  const seen = new Set<string>()
+
+  for (const rr of returnedResources) {
+    if (seen.has(rr.fqcn)) continue
+    seen.add(rr.fqcn)
+
+    const id = `api_res_${rr.shortName.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${ctrlNode.id}`
+
+    // Try to resolve the Resource file so we can parse toArray()
+    const resourceFile = fqcnToPath(rr.fqcn, config.namespaces) ?? undefined
+    const resourcePath = resourceFile ? join(projectRoot, resourceFile) : undefined
+
+    // Parse toArray() to get field list
+    let fields: string[] = []
+    let sensitiveFields: string[] = []
+    let conditionalFields: string[] = []
+    let isCollection = rr.isCollection
+
+    if (resourcePath && existsSync(resourcePath)) {
+      const info = parseApiResource(resourcePath)
+      if (info) {
+        fields            = info.fields.map(f => f.key)
+        sensitiveFields   = info.fields.filter(f => f.isSensitive).map(f => f.key)
+        conditionalFields = info.conditionalFields
+        isCollection      = isCollection || info.isCollection
+      }
+    }
+
+    const node: ExecutionNode = {
+      id,
+      type:   "ir:api_resource",
+      symbol: `${rr.shortName}::toArray`,
+      role:   "response_shape",
+      file:   resourceFile,
+      ...(fields.length > 0 ? { detail: JSON.stringify({ fields, sensitiveFields, conditionalFields, isCollection }) } : {}),
+    }
+
+    nodes.push(node)
+    edges.push({
+      from:         ctrlNode.id,
+      to:           id,
+      relation:     "ir:returns",
+      traceability: "static",
+    })
   }
 }

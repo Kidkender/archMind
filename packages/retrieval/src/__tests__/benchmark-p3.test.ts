@@ -85,6 +85,15 @@ const SKELETONS: Record<string, IntermediateExecutionGraph> = {
     ],
     annotations: [],
   },
+  "LARAVEL-API-RESOURCE-001": {
+    entrypoint: "GET /orders/{order}",
+    method: "GET", path: "/orders/{order}",
+    nodes: [
+      { id: "ctrl", type: "ir:business_handler", symbol: "OrderController::show", role: "handler", file: "app/Http/Controllers/OrderController.php" },
+    ],
+    edges: [],
+    annotations: [],
+  },
 }
 
 function buildAugmentedGraphs(): Record<string, IntermediateExecutionGraph[]> {
@@ -113,8 +122,8 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
     })
   })
 
-  test("snapshot covers all 6 traces", () => {
-    expect(snapshot.summary.total_traces).toBe(6)
+  test("snapshot covers all 7 traces", () => {
+    expect(snapshot.summary.total_traces).toBe(7)
   })
 
   test("AUTH-001 recall holds >= P2.7 level (>= 0.71)", () => {
@@ -143,6 +152,10 @@ describe("runBenchmark — P3 semantic baseline (with permission constant extrac
 
   test("ISO-001 recall covers all high nodes — unscoped_query + tenant_injection (>= 0.80)", () => {
     expect(snapshot.traces["LARAVEL-ISO-001"]!.r0_recall).toBeGreaterThanOrEqual(0.80)
+  })
+
+  test("API-RESOURCE-001 recall captures ir:api_resource node (>= 0.50)", () => {
+    expect(snapshot.traces["LARAVEL-API-RESOURCE-001"]!.r0_recall).toBeGreaterThanOrEqual(0.50)
   })
 
   test("avg recall improves over P2.7 baseline (was ~0.83)", () => {

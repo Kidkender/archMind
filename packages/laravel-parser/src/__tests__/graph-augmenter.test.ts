@@ -210,3 +210,109 @@ describe("augmentGraph — event→listener tracing (P1)", () => {
     expect(edge?.traceability).toBe("semantic")
   })
 })
+
+// ---- API Resource emission (18B.1) ----------------------------------------
+
+describe("augmentGraph — ir:api_resource nodes (OrderController::show)", () => {
+  let aug: IntermediateExecutionGraph
+
+  const SKELETON_ORDER: IntermediateExecutionGraph = {
+    entrypoint: "GET /orders/{order}",
+    method: "GET",
+    path: "/orders/{order}",
+    nodes: [
+      {
+        id:     "ctrl_ordercontroller_show",
+        type:   "ir:business_handler",
+        symbol: "OrderController::show",
+        role:   "handler",
+        file:   "app/Http/Controllers/OrderController.php",
+      },
+    ],
+    edges:       [],
+    annotations: [],
+  }
+
+  beforeAll(() => {
+    aug = augmentGraph(SKELETON_ORDER, { projectRoot: FIXTURES })
+  })
+
+  test("emits an ir:api_resource node", () => {
+    expect(aug.nodes.some((n) => n.type === "ir:api_resource")).toBe(true)
+  })
+
+  test("api_resource symbol is OrderResource::toArray", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    expect(node?.symbol).toBe("OrderResource::toArray")
+  })
+
+  test("api_resource role is response_shape", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    expect(node?.role).toBe("response_shape")
+  })
+
+  test("api_resource detail contains parsed fields", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    expect(node?.detail).toBeDefined()
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.fields).toContain("id")
+    expect(detail.fields).toContain("status")
+    expect(detail.fields).toContain("total")
+  })
+
+  test("api_resource detail flags sensitive field 'token'", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.sensitiveFields).toContain("token")
+  })
+
+  test("ir:returns edge connects business_handler to api_resource", () => {
+    const resNode = aug.nodes.find((n) => n.type === "ir:api_resource")
+    const edge = aug.edges.find(
+      (e) => e.from === "ctrl_ordercontroller_show" && e.to === resNode?.id && e.relation === "ir:returns"
+    )
+    expect(edge).toBeDefined()
+    expect(edge?.traceability).toBe("static")
+  })
+
+  test("isCollection false for show()", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.isCollection).toBe(false)
+  })
+})
+
+describe("augmentGraph — ir:api_resource nodes (OrderController::index, collection)", () => {
+  let aug: IntermediateExecutionGraph
+
+  const SKELETON_INDEX: IntermediateExecutionGraph = {
+    entrypoint: "GET /orders",
+    method: "GET",
+    path: "/orders",
+    nodes: [
+      {
+        id:     "ctrl_ordercontroller_index",
+        type:   "ir:business_handler",
+        symbol: "OrderController::index",
+        role:   "handler",
+        file:   "app/Http/Controllers/OrderController.php",
+      },
+    ],
+    edges:       [],
+    annotations: [],
+  }
+
+  beforeAll(() => {
+    aug = augmentGraph(SKELETON_INDEX, { projectRoot: FIXTURES })
+  })
+
+  test("emits an ir:api_resource node for collection", () => {
+    expect(aug.nodes.some((n) => n.type === "ir:api_resource")).toBe(true)
+  })
+
+  test("isCollection true for index()", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:api_resource")
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.isCollection).toBe(true)
+  })
+})

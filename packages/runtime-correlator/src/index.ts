@@ -1,3 +1,5 @@
 export { correlateSession, spansForNode, infraUnderNode } from "./correlate.js"
 export { detectNPlusOne } from "./detectors/n-plus-one.js"
 export { detectSlowQuery } from "./detectors/slow-query.js"
+export { generateGapReport, formatGapReport } from "./gap-classifier.js"
+export type { SpanCategory, SpanCategoryBreakdown, GapReport } from "./gap-classifier.js"
