@@ -57,4 +57,8 @@ export const FINDING_TYPES = {
   OVER_AUTHORIZED_ROUTE:      "over_authorized_route",
   DEAD_MIDDLEWARE:            "dead_middleware",
   CIRCULAR_DEPENDENCY:        "circular_dependency",
+  // Phase 19 — side-effect + resource detectors
+  SENSITIVE_FIELD_EXPOSED:    "sensitive_field_exposed",
+  SYNCHRONOUS_MAIL:           "synchronous_mail",
+  API_RESOURCE_UNPROTECTED:   "api_resource_unprotected",
 } as const
