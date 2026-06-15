@@ -4,7 +4,7 @@
 //
 // Spec: research/semantic-ir/spec.md
 
-export const IR_VERSION = "1.1"
+export const IR_VERSION = "1.4"
 
 // ---------------------------------------------------------------------------
 // IR Node Types
@@ -44,6 +44,10 @@ export const IR_NODE_TYPES = {
   // Async dispatch domain (IR v1.3)
   QUEUE_JOB:           "ir:queue_job",
   EVENT_DISPATCH:      "ir:event_dispatch",
+
+  // Side-effect domain (IR v1.4)
+  NOTIFICATION:        "ir:notification",
+  MAIL:                "ir:mail",
 } as const
 
 export type IRNodeType = typeof IR_NODE_TYPES[keyof typeof IR_NODE_TYPES]
@@ -65,6 +69,7 @@ export const IR_EDGE_RELATIONS = {
   AUTHORIZES:        "ir:authorizes",
   RETURNS:           "ir:returns",
   DISPATCHES:        "ir:dispatches",
+  SENDS:             "ir:sends",
 } as const
 
 export type IREdgeRelation = typeof IR_EDGE_RELATIONS[keyof typeof IR_EDGE_RELATIONS]

@@ -296,3 +296,51 @@ describe("parseControllerMethod — OrderController::store returnedResources", (
     expect(result!.returnedResources[0].isCollection).toBe(false)
   })
 })
+
+// ---- standaloneNotifications — NotificationController (18B.3) ------------
+
+const NOTIF_CTRL = join(FIXTURES, "app/Http/Controllers/NotificationController.php")
+
+describe("parseControllerMethod — NotificationController::notify standaloneNotifications", () => {
+  let result: ReturnType<typeof parseControllerMethod>
+
+  beforeAll(() => {
+    result = parseControllerMethod(NOTIF_CTRL, "notify")
+  })
+
+  test("returns non-null result", () => {
+    expect(result).not.toBeNull()
+  })
+
+  test("detects 4 standalone notifications total", () => {
+    expect(result!.standaloneNotifications).toHaveLength(4)
+  })
+
+  test("WelcomeNotification classified as notification (Notification::send)", () => {
+    const d = result!.standaloneNotifications.find((d) => d.className === "WelcomeNotification")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("notification")
+    expect(d!.queued).toBe(false)
+    expect(d!.fqcn).toBe("App\\Notifications\\WelcomeNotification")
+  })
+
+  test("OrderShippedNotification classified as notification ($user->notify)", () => {
+    const d = result!.standaloneNotifications.find((d) => d.className === "OrderShippedNotification")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("notification")
+  })
+
+  test("OrderConfirmationMail classified as mail (Mail::to()->send)", () => {
+    const d = result!.standaloneNotifications.find((d) => d.className === "OrderConfirmationMail")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("mail")
+    expect(d!.queued).toBe(false)
+  })
+
+  test("AdminAlertMail classified as mail and queued (Mail::to()->queue)", () => {
+    const d = result!.standaloneNotifications.find((d) => d.className === "AdminAlertMail")
+    expect(d).toBeDefined()
+    expect(d!.kind).toBe("mail")
+    expect(d!.queued).toBe(true)
+  })
+})

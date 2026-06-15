@@ -10,7 +10,7 @@ import type {
 import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@archmind/protocol"
 
 const ADAPTER_VERSION = "0.1.0"
-import { parseControllerMethod, parseFormRequestAuthorize, type ServiceCall, type ModelParam, type StandaloneDispatch } from "./controller-parser.js"
+import { parseControllerMethod, parseFormRequestAuthorize, type ServiceCall, type ModelParam, type StandaloneDispatch, type NotificationDispatch } from "./controller-parser.js"
 import type { ListenerEntry } from "./event-listener-mapper.js"
 import { middlewareToNode } from "./middleware-mapper.js"
 import { parseEventListeners } from "./event-listener-mapper.js"
@@ -153,6 +153,9 @@ export function augmentGraph(
 
         // Standalone dispatch nodes — Jobs/Events dispatched outside DB::transaction() (IR v1.3)
         emitStandaloneDispatchNodes(newNodes, newEdges, ctrlNode, l1.standaloneDispatches, opts.projectRoot, config.namespaces)
+
+        // Notification + Mail side-effect nodes (IR v1.4)
+        emitNotificationNodes(newNodes, newEdges, ctrlNode, l1.standaloneNotifications)
 
         // Constructor middleware pass — inject auth nodes not present at route level
         injectConstructorMiddleware(newNodes, newEdges, ctrlNode.id, l1.constructorMiddleware, methodName)
@@ -880,6 +883,46 @@ function emitApiResourceNodes(
       from:         ctrlNode.id,
       to:           id,
       relation:     "ir:returns",
+      traceability: "static",
+    })
+  }
+}
+
+// ─── Notification + Mail nodes (IR v1.4) ─────────────────────────────────────
+
+function emitNotificationNodes(
+  nodes: ExecutionNode[],
+  edges: ExecutionEdge[],
+  ctrlNode: ExecutionNode,
+  notifications: NotificationDispatch[]
+): void {
+  const seen = new Set<string>()
+
+  for (const n of notifications) {
+    if (seen.has(n.fqcn)) continue
+    seen.add(n.fqcn)
+
+    const slug = n.className.toLowerCase().replace(/[^a-z0-9]/g, "_")
+    const id   = n.kind === "notification"
+      ? `notif_${slug}_${ctrlNode.id}`
+      : `mail_${slug}_${ctrlNode.id}`
+
+    const nodeType = n.kind === "notification"
+      ? IR_NODE_TYPES.NOTIFICATION
+      : IR_NODE_TYPES.MAIL
+
+    nodes.push({
+      id,
+      type:   nodeType,
+      symbol: `${n.className}::${n.kind === "mail" ? "build" : "via"}`,
+      role:   "side_effect",
+      detail: JSON.stringify({ className: n.className, queued: n.queued }),
+    })
+
+    edges.push({
+      from:         ctrlNode.id,
+      to:           id,
+      relation:     IR_EDGE_RELATIONS.SENDS,
       traceability: "static",
     })
   }

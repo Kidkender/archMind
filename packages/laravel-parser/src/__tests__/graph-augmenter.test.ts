@@ -358,6 +358,85 @@ describe("augmentGraph — ir:queue_job nodes (JobDispatchController::store)", (
   })
 })
 
+// ---- Notification + Mail nodes (18B.3) ----------------------------------
+
+describe("augmentGraph — ir:notification + ir:mail nodes (NotificationController::notify)", () => {
+  let aug: IntermediateExecutionGraph
+
+  const SKELETON_NOTIF: IntermediateExecutionGraph = {
+    entrypoint: "POST /notify",
+    method: "POST",
+    path: "/notify",
+    nodes: [
+      {
+        id:     "ctrl_notif_notify",
+        type:   "ir:business_handler",
+        symbol: "NotificationController::notify",
+        role:   "handler",
+        file:   "app/Http/Controllers/NotificationController.php",
+      },
+    ],
+    edges:       [],
+    annotations: [],
+  }
+
+  beforeAll(() => {
+    aug = augmentGraph(SKELETON_NOTIF, { projectRoot: FIXTURES })
+  })
+
+  test("emits ir:notification nodes", () => {
+    const nodes = aug.nodes.filter((n) => n.type === "ir:notification")
+    expect(nodes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test("WelcomeNotification emits ir:notification node", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:notification" && n.symbol.includes("WelcomeNotification"))
+    expect(node).toBeDefined()
+    expect(node!.role).toBe("side_effect")
+  })
+
+  test("OrderShippedNotification emits ir:notification node", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:notification" && n.symbol.includes("OrderShippedNotification"))
+    expect(node).toBeDefined()
+  })
+
+  test("ir:sends edge connects handler to ir:notification", () => {
+    const notifNode = aug.nodes.find((n) => n.type === "ir:notification" && n.symbol.includes("WelcomeNotification"))
+    const edge = aug.edges.find(
+      (e) => e.from === "ctrl_notif_notify" && e.to === notifNode?.id && e.relation === "ir:sends"
+    )
+    expect(edge).toBeDefined()
+    expect(edge!.traceability).toBe("static")
+  })
+
+  test("emits ir:mail nodes", () => {
+    const nodes = aug.nodes.filter((n) => n.type === "ir:mail")
+    expect(nodes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test("OrderConfirmationMail emits ir:mail node (queued=false)", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:mail" && n.symbol.includes("OrderConfirmationMail"))
+    expect(node).toBeDefined()
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.queued).toBe(false)
+  })
+
+  test("AdminAlertMail emits ir:mail node (queued=true)", () => {
+    const node = aug.nodes.find((n) => n.type === "ir:mail" && n.symbol.includes("AdminAlertMail"))
+    expect(node).toBeDefined()
+    const detail = JSON.parse(node!.detail!)
+    expect(detail.queued).toBe(true)
+  })
+
+  test("ir:sends edge connects handler to ir:mail", () => {
+    const mailNode = aug.nodes.find((n) => n.type === "ir:mail" && n.symbol.includes("OrderConfirmationMail"))
+    const edge = aug.edges.find(
+      (e) => e.from === "ctrl_notif_notify" && e.to === mailNode?.id && e.relation === "ir:sends"
+    )
+    expect(edge).toBeDefined()
+  })
+})
+
 describe("augmentGraph — ir:api_resource nodes (OrderController::index, collection)", () => {
   let aug: IntermediateExecutionGraph
 

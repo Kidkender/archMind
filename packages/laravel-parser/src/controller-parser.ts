@@ -55,15 +55,24 @@ export interface StandaloneDispatch {
   callText:  string
 }
 
+export interface NotificationDispatch {
+  className: string            // e.g. "WelcomeNotification"
+  fqcn:      string            // e.g. "App\Notifications\WelcomeNotification"
+  kind:      "notification" | "mail"
+  queued:    boolean           // true for Mail::queue() / ->queue()
+  callText:  string
+}
+
 export interface ControllerL1 {
-  useMap:               Map<string, string>
-  formRequests:         FormRequestParam[]
-  authorizeCalls:       AuthorizeCall[]
-  serviceCalls:         ServiceCall[]
-  constructorMiddleware: ConstructorMiddleware[]
-  modelParams:          ModelParam[]
-  returnedResources:    ReturnedResource[]
-  standaloneDispatches: StandaloneDispatch[]
+  useMap:                  Map<string, string>
+  formRequests:            FormRequestParam[]
+  authorizeCalls:          AuthorizeCall[]
+  serviceCalls:            ServiceCall[]
+  constructorMiddleware:   ConstructorMiddleware[]
+  modelParams:             ModelParam[]
+  returnedResources:       ReturnedResource[]
+  standaloneDispatches:    StandaloneDispatch[]
+  standaloneNotifications: NotificationDispatch[]
 }
 
 // Classes that must NOT be treated as FormRequest nodes
@@ -92,7 +101,7 @@ export function parseControllerMethod(
   const constructorMiddleware = gatherConstructorMiddleware(root)
 
   if (!methodNode) {
-    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [], returnedResources: [], standaloneDispatches: [] }
+    return { useMap, formRequests: [], authorizeCalls: [], serviceCalls: [], constructorMiddleware, modelParams: [], returnedResources: [], standaloneDispatches: [], standaloneNotifications: [] }
   }
 
   const injections = extractConstructorInjections(root, useMap)
@@ -104,8 +113,9 @@ export function parseControllerMethod(
   const modelParams          = extractModelParams(methodNode, useMap)
   const authorizeCalls       = extractAuthorizeCalls(methodNode, modelParams)
   const serviceCalls         = extractServiceCalls(methodNode, allInjections, useMap)
-  const returnedResources    = extractReturnedResources(methodNode, useMap)
-  const standaloneDispatches = extractStandaloneDispatches(methodNode, useMap)
+  const returnedResources      = extractReturnedResources(methodNode, useMap)
+  const standaloneDispatches   = extractStandaloneDispatches(methodNode, useMap)
+  const standaloneNotifications = extractNotificationDispatches(methodNode, useMap)
 
   // Depth-1 private method traversal: follow $this->helper() calls into the
   // same class, but do not recurse further to avoid graph blow-up.
@@ -136,6 +146,7 @@ export function parseControllerMethod(
     modelParams,
     returnedResources,
     standaloneDispatches,
+    standaloneNotifications,
   }
 }
 
@@ -747,4 +758,114 @@ function extractStringCallArgs(argsNode: Parser.SyntaxNode): string[] {
       }
       return []
     })
+}
+
+// ---- Notification + Mail dispatch extraction (18B.3) -----------------
+
+function extractNotificationDispatches(
+  methodNode: Parser.SyntaxNode,
+  useMap: Map<string, string>
+): NotificationDispatch[] {
+  const body = methodNode.childForFieldName("body")
+  if (!body) return []
+  const results: NotificationDispatch[] = []
+  gatherNotificationDispatches(body, useMap, results)
+  return results
+}
+
+function gatherNotificationDispatches(
+  node: Parser.SyntaxNode,
+  useMap: Map<string, string>,
+  results: NotificationDispatch[]
+): void {
+  if (node.type === "scoped_call_expression") {
+    const cls  = node.childForFieldName("scope")
+    const name = node.childForFieldName("name")
+    const clsText = cls?.text.replace(/^\\/, "") ?? ""
+
+    // Notification::send($notifiable, new FooNotification())
+    if (clsText === "Notification" && name?.text === "send") {
+      const argsNode = node.childForFieldName("arguments")
+      const argList  = (argsNode?.children as Parser.SyntaxNode[] ?? []).filter(c => c.type === "argument")
+      const notifArg = argList[1]?.firstNamedChild
+      if (notifArg?.type === "object_creation_expression") {
+        const entry = objCreationToDispatch(notifArg, useMap, "notification", false, node.text)
+        if (entry) { results.push(entry); return }
+      }
+    }
+
+    // Mail::queue(new FooMail()) or Mail::send(new FooMail())
+    if (clsText === "Mail" && (name?.text === "queue" || name?.text === "send")) {
+      const entry = firstArgToDispatch(node, useMap, "mail", name.text === "queue")
+      if (entry) { results.push(entry); return }
+    }
+  }
+
+  if (node.type === "member_call_expression") {
+    const name = node.childForFieldName("name")
+
+    // $user->notify(new FooNotification()) or $user->notifyNow(...)
+    if (name?.text === "notify" || name?.text === "notifyNow") {
+      const entry = firstArgToDispatch(node, useMap, "notification", false)
+      if (entry) { results.push(entry); return }
+    }
+
+    // Mail::to(...)->send(new FooMail()) or ->queue(new FooMail())
+    if (name?.text === "send" || name?.text === "queue") {
+      const obj = node.childForFieldName("object")
+      if (isMailFluentChain(obj)) {
+        const entry = firstArgToDispatch(node, useMap, "mail", name.text === "queue")
+        if (entry) { results.push(entry); return }
+      }
+    }
+  }
+
+  for (const child of node.children as Parser.SyntaxNode[]) {
+    gatherNotificationDispatches(child, useMap, results)
+  }
+}
+
+function isMailFluentChain(node: Parser.SyntaxNode | null | undefined): boolean {
+  if (!node) return false
+  if (node.type === "scoped_call_expression") {
+    const cls  = node.childForFieldName("scope")
+    const name = node.childForFieldName("name")
+    return (cls?.text.replace(/^\\/, "") === "Mail") &&
+           (name?.text === "to" || name?.text === "cc" || name?.text === "bcc")
+  }
+  if (node.type === "member_call_expression") {
+    return isMailFluentChain(node.childForFieldName("object"))
+  }
+  return false
+}
+
+function firstArgToDispatch(
+  callNode: Parser.SyntaxNode,
+  useMap: Map<string, string>,
+  kind: "notification" | "mail",
+  queued: boolean
+): NotificationDispatch | null {
+  const argsNode = callNode.childForFieldName("arguments")
+  if (!argsNode) return null
+  for (const arg of argsNode.children as Parser.SyntaxNode[]) {
+    if (arg.type !== "argument") continue
+    const val = arg.firstNamedChild
+    if (val?.type === "object_creation_expression") {
+      return objCreationToDispatch(val, useMap, kind, queued, callNode.text)
+    }
+  }
+  return null
+}
+
+function objCreationToDispatch(
+  creationNode: Parser.SyntaxNode,
+  useMap: Map<string, string>,
+  kind: "notification" | "mail",
+  queued: boolean,
+  callText: string
+): NotificationDispatch | null {
+  const clsNode = creationNode.childForFieldName("class") ?? creationNode.namedChildren[0]
+  const clsText = clsNode?.text.replace(/^\\/, "") ?? ""
+  if (!clsText) return null
+  return { className: clsText, fqcn: useMap.get(clsText) ?? clsText, kind, queued, callText }
 }

@@ -1,0 +1,62 @@
+id: LARAVEL-NOTIFICATION-001
+entrypoint: "POST /notify"
+framework: laravel
+source_project: laravel-io
+adapter_version: "0.1.0"
+
+retrieval:
+  query: "What notifications and emails are sent after this action completes?"
+
+nodes:
+  - id: notification_ctrl_notify
+    type: ir:business_handler
+    symbol: NotificationController::notify
+    file: app/Http/Controllers/NotificationController.php
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: welcome_notification
+    type: ir:notification
+    symbol: WelcomeNotification::via
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: order_shipped_notification
+    type: ir:notification
+    symbol: OrderShippedNotification::via
+    retrieval:
+      relevance: HIGH
+      compressible: false
+
+  - id: order_confirmation_mail
+    type: ir:mail
+    symbol: OrderConfirmationMail::build
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+  - id: admin_alert_mail
+    type: ir:mail
+    symbol: AdminAlertMail::build
+    retrieval:
+      relevance: MEDIUM
+      compressible: true
+
+edges:
+  - from: notification_ctrl_notify
+    to: welcome_notification
+    relation: ir:sends
+
+  - from: notification_ctrl_notify
+    to: order_shipped_notification
+    relation: ir:sends
+
+  - from: notification_ctrl_notify
+    to: order_confirmation_mail
+    relation: ir:sends
+
+  - from: notification_ctrl_notify
+    to: admin_alert_mail
+    relation: ir:sends

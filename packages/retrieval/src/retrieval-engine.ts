@@ -220,6 +220,8 @@ const NODE_TYPE_RELEVANCE: Record<string, RetrievalRelevance> = {
   "ir:api_resource":        "HIGH",
   "ir:queue_job":           "HIGH",
   "ir:event_dispatch":      "MEDIUM",
+  "ir:notification":        "HIGH",
+  "ir:mail":                "MEDIUM",
 }
 
 const RELEVANCE_ORDER: Record<RetrievalRelevance, number> = {
