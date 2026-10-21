@@ -37,6 +37,8 @@ export interface RequestTraceEntry {
     symbol: string
     type: string
     role: string
+    file?: string   // relative to project root; present when the parser recorded it
+    line?: number
   }>
 }
 

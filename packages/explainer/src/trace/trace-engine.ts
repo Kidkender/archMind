@@ -175,6 +175,8 @@ function traceRequest(
       symbol: node.symbol,
       type: node.type,
       role: TYPE_ROLE[node.type] ?? node.type.replace("ir:", ""),
+      ...(node.file !== undefined && { file: node.file }),
+      ...(node.line !== undefined && { line: node.line }),
     }
   })
 

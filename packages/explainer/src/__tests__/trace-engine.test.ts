@@ -196,6 +196,29 @@ describe("traceByPattern('request')", () => {
   })
 })
 
+describe("traceByPattern('request') locations", () => {
+  const located: IntermediateExecutionGraph = {
+    ...noAuthGraph,
+    entrypoint: "GET /located",
+    nodes: [
+      { id: "h", type: "ir:business_handler", symbol: "characterHandler.Sheet", file: "internal/handler/character.go", line: 42 },
+      { id: "n", type: "ir:validation_gate", symbol: "bind" },
+    ],
+    edges: [{ from: "h", to: "n", relation: "form_request", traceability: "static" }],
+  }
+
+  it("includes file and line when the node has them", () => {
+    const path = traceByPattern("request", [located], "GET /located").results[0].execution_path
+    expect(path[0]).toMatchObject({ file: "internal/handler/character.go", line: 42 })
+  })
+
+  it("omits file and line when the node has none", () => {
+    const path = traceByPattern("request", [located], "GET /located").results[0].execution_path
+    expect(path[1]).not.toHaveProperty("file")
+    expect(path[1]).not.toHaveProperty("line")
+  })
+})
+
 // ---- trace-side_effects (Phase 23) ----------------------------------------
 
 const invoiceGraph: IntermediateExecutionGraph = {

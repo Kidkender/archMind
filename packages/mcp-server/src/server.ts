@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
+import { summarizeEntrypoints } from "./entrypoints.js"
 import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@kidkender/archmind-retrieval"
 import { explain, buildEvidencePackage, traceByPattern } from "@kidkender/archmind-explainer"
 import type { TracePattern } from "@kidkender/archmind-explainer"
@@ -39,20 +40,22 @@ export function createServer(): McpServer {
   server.registerTool(
     "archmind_list_entrypoints",
     {
-      description: "List all HTTP entrypoints (routes) in a Laravel, NestJS, or Go/Gin project, with method, path, and node count. Framework is auto-detected from the project root.",
+      description:
+        "List HTTP routes (Laravel, NestJS, Go/Gin) with the handler's file and line. " +
+        "Use it to find which route and handler file serve an endpoint, then Read that file. " +
+        "Pass `filter` (e.g. 'inventory', 'character.go') to narrow the list; an unfiltered call on a large API returns every route. " +
+        "Routes only: it does not locate services, helpers, DTOs, tests or non-HTTP code (websocket, game loops, background workers) - use grep for those.",
       inputSchema: {
         project_root: z.string().describe("Absolute path to the project root (Laravel, NestJS, or Go/Gin)"),
+        filter: z
+          .string()
+          .optional()
+          .describe("Case-insensitive substring matched against 'METHOD /path' and the handler file"),
       },
     },
-    async ({ project_root }) => {
+    async ({ project_root, filter }) => {
       const graphs = getGraphs(project_root)
-      const entrypoints = graphs.map((g) => ({
-        entrypoint: g.entrypoint,
-        method: g.method,
-        path: g.path,
-        node_count: g.nodes.length,
-        edge_count: g.edges.length,
-      }))
+      const entrypoints = summarizeEntrypoints(graphs, filter)
       return {
         content: [
           {
@@ -266,7 +269,10 @@ export function createServer(): McpServer {
     {
       description:
         "Run a cross-route trace query across the entire project. " +
-        "Returns a structured summary of how all routes relate to a specific concern.\n\n" +
+        "Returns a structured summary of how all routes relate to a specific concern. " +
+        "Use pattern=request with an entrypoint to see one route's execution path (each step has file:line when known; " +
+        "for Go it stops at the handler and one service hop, so it does not reach deeper service code, DTOs or tests). " +
+        "The other patterns are audit queries (auth, transactions, isolation, side effects), not file-finding.\n\n" +
         "Patterns:\n" +
         "  auth         — auth chains for every route: middleware, policies, form_requests, unprotected resources\n" +
         "  event        — routes that dispatch events, with unsafe-dispatch detection\n" +
@@ -298,10 +304,12 @@ export function createServer(): McpServer {
     "archmind_get_dependents",
     {
       description:
-        "Find all routes that depend on a service class, method, queue job, mail, notification, event, or API resource. " +
-        "Use to answer 'What breaks if I change X?' or 'Which routes dispatch GenerateInvoicePdfJob?'. " +
+        "Find routes that depend on a service class, method, queue job, mail, notification, event, or API resource. " +
+        "Answers 'which routes break if I change X?', not 'which files reference X'. " +
         "Pass a class name (e.g. 'OrderService', 'GenerateInvoicePdfJob') for all usages, or a full symbol " +
-        "(e.g. 'OrderService::create', 'InvoiceViewedMail::build') for a specific method.",
+        "(e.g. 'OrderService::create') for a specific method. " +
+        "Currently indexes Laravel and NestJS service calls only: on Go/Gin projects it returns no results, which means " +
+        "'not indexed', not 'no dependents' - use grep there.",
       inputSchema: {
         project_root: z.string().describe("Absolute path to the project root (Laravel, NestJS, or Go/Gin)"),
         symbol: z
@@ -323,7 +331,7 @@ export function createServer(): McpServer {
         project_root,
         dependent_routes: hits.map((h) => ({
           entrypoint:     h.entrypoint,
-          matching_nodes: h.matchingNodes.map((n) => ({ symbol: n.symbol, type: n.type, file: n.file })),
+          matching_nodes: h.matchingNodes.map((n) => ({ symbol: n.symbol, type: n.type, file: n.file, line: n.line })),
         })),
         total_dependents: hits.length,
         index_stats: {
