@@ -11,3 +11,4 @@ export * from "./config.js"
 
 // Re-export version as named convenience
 export { PROTOCOL_VERSION } from "./graph.js"
+export * from "./config-loader.js"
