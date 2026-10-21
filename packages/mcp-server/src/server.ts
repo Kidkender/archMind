@@ -5,7 +5,7 @@ import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@ki
 import { explain, buildEvidencePackage, traceByPattern } from "@kidkender/archmind-explainer"
 import type { TracePattern } from "@kidkender/archmind-explainer"
 import type { RetrievalFocus } from "@kidkender/archmind-protocol"
-import { PROTOCOL_VERSION } from "@kidkender/archmind-protocol"
+import { PROTOCOL_VERSION, loadUserConfig } from "@kidkender/archmind-protocol"
 import { ingestOtlpFile } from "@kidkender/archmind-runtime-ingest"
 import { correlateSession, detectNPlusOne, detectSlowQuery } from "@kidkender/archmind-runtime-correlator"
 
@@ -164,7 +164,7 @@ export function createServer(): McpServer {
         }
       }
 
-      const staticFindings = explain(graph, query)
+      const staticFindings = explain(graph, query, { ignore: loadUserConfig(project_root)?.ignoreFindings })
 
       // Runtime findings (optional)
       let runtimeFindings: Array<{ source: "runtime"; type: string; severity: string; evidence: string; nodeIds: string[]; count?: number }> = []

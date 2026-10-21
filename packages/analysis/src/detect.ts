@@ -7,6 +7,14 @@ export function detectFindings(
   route: Omit<RouteInfo, "findings">,
   userConfig?: ArchMindUserConfig
 ): FindingInfo[] {
+  const ignored = new Set(userConfig?.ignoreFindings ?? [])
+  return findAll(route, userConfig).filter((f) => !ignored.has(f.type))
+}
+
+function findAll(
+  route: Omit<RouteInfo, "findings">,
+  userConfig?: ArchMindUserConfig
+): FindingInfo[] {
   const { method, path, authGates, authzChecks, services, symbol, isPublic, throttled } = route
 
   if (isPublic) return []

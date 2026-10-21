@@ -8,9 +8,15 @@ import { rankFindings } from "./ranking/rank-findings.js"
 import { classifyQuery } from "./query/classify.js"
 import { prioritizeByFocus } from "./query/prioritize.js"
 
-export function explain(graph: IntermediateExecutionGraph, query?: string): Finding[] {
+export interface ExplainOptions {
+  /** Finding types to drop from the result (archmind.json `ignoreFindings`). */
+  ignore?: string[]
+}
+
+export function explain(graph: IntermediateExecutionGraph, query?: string, options: ExplainOptions = {}): Finding[] {
   const facts = extractFacts(graph)
-  const ranked = rankFindings(detect(facts, graph))
+  const ignored = new Set(options.ignore ?? [])
+  const ranked = rankFindings(detect(facts, graph).filter((f) => !ignored.has(f.type)))
   if (!query) return ranked
   const ctx = classifyQuery(query)
   return prioritizeByFocus(ranked, ctx.focus)

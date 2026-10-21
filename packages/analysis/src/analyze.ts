@@ -1,17 +1,8 @@
 import { existsSync, readFileSync } from "fs"
 import { join } from "path"
+import { loadUserConfig } from "@kidkender/archmind-protocol"
 import type { RouteInfo, ArchMindUserConfig } from "@kidkender/archmind-protocol"
 import { detectFindings } from "./detect.js"
-
-function loadUserConfig(projectRoot: string): ArchMindUserConfig | undefined {
-  const configPath = join(projectRoot, "archmind.json")
-  if (!existsSync(configPath)) return undefined
-  try {
-    return JSON.parse(readFileSync(configPath, "utf-8")) as ArchMindUserConfig
-  } catch {
-    return undefined
-  }
-}
 
 const THROTTLE_RE = /throttl|ratelimit|rate.?limit/i
 

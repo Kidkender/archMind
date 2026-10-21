@@ -1,5 +1,6 @@
 import { explain } from "@kidkender/archmind-explainer"
 import type { Finding } from "@kidkender/archmind-explainer"
+import { loadUserConfig } from "@kidkender/archmind-protocol"
 import { parseProject, requireProject } from "../utils/parse-project.js"
 
 const SEVERITY_ORDER = ["critical", "high", "medium", "low", "info"]
@@ -18,6 +19,7 @@ export function runFindings(flags: Record<string, string>, positional: string[])
   const isJson      = "json" in flags
 
   const { graphs } = parseProject(projectRoot)
+  const ignore = loadUserConfig(projectRoot)?.ignoreFindings
 
   let allFindings: Array<{ route: string; finding: Finding }> = []
 
@@ -29,7 +31,7 @@ export function runFindings(flags: Record<string, string>, positional: string[])
         continue
       }
     }
-    const findings = explain(g)
+    const findings = explain(g, undefined, { ignore })
     for (const f of findings) {
       allFindings.push({ route: routeKey, finding: f })
     }
