@@ -11,6 +11,16 @@ import { findTransactionBoundaries } from "./transaction-parser.js"
 
 const ADAPTER_VERSION = "0.1.0"
 
+export interface ParseGinOptions extends ExtractRoutesOptions {
+  /**
+   * Names of the functions that resolve the calling user's own record (e.g.
+   * "currentCharacter"). A handler that calls one of them is treated as
+   * authorizing by ownership — for self-service APIs that scope every query
+   * to the caller instead of checking a role.
+   */
+  ownershipSources?: string[]
+}
+
 interface ParsedFile {
   path: string
   root: SyntaxNode
@@ -188,12 +198,66 @@ function transactionBoundaryNode(
   return null
 }
 
+/**
+ * Resolves the ir:authz_check node for ownership authorization: the handler
+ * method calls one of the configured identity-resolving functions, either in
+ * its own body or — one hop — in a helper method on the same receiver
+ * (`h.respond(c, ...)`), the way handlers that share a prologue are written.
+ * A handler that never resolves the caller (e.g. one that acts on a URL `:id`)
+ * gets no node, which is what keeps the missing_authorization finding
+ * meaningful.
+ */
+function ownershipCheckNode(
+  route: RouteInfo,
+  methodRegistry: ReturnType<typeof buildMethodRegistry>,
+  sources: ReadonlySet<string>
+): ExecutionNode | null {
+  if (sources.size === 0) return null
+  const method = resolveHandlerMethod(route, methodRegistry)
+  if (!method) return null
+
+  const direct = findIdentityCall(method, sources)
+  if (direct) return direct
+
+  const body = method.node.childForFieldName("body")
+  if (!body || !route.handlerReceiverType) return null
+  for (const node of findCalls(body)) {
+    const parts = callParts(node)
+    // `h.helper(...)`: a single-identifier receiver, resolved on the same type.
+    if (!parts?.receiver || parts.receiver.includes(".")) continue
+    const helper = methodRegistry.get(`${route.handlerReceiverType}.${parts.method}`)
+    const found = helper && helper !== method ? findIdentityCall(helper, sources) : null
+    if (found) return found
+  }
+  return null
+}
+
+/** The ownership node for the first configured identity call in a method's own body. */
+function findIdentityCall(method: HandlerMethod, sources: ReadonlySet<string>): ExecutionNode | null {
+  const body = method.node.childForFieldName("body")
+  if (!body) return null
+  for (const node of findCalls(body)) {
+    const parts = callParts(node)
+    if (!parts || !sources.has(parts.method)) continue
+    return {
+      id:     "ownership",
+      type:   IR_NODE_TYPES.AUTHZ_CHECK,
+      symbol: `ownership:${parts.method}`,
+      file:   method.file,
+      line:   node.startPosition.row + 1,
+      role:   "authorization",
+    }
+  }
+  return null
+}
+
 function routeToGraph(
   route: RouteInfo,
   skipListIndex: Map<string, SkipEntry[]>,
   constRegistry: Map<string, string>,
   methodRegistry: ReturnType<typeof buildMethodRegistry>,
-  parsed: ParsedFile[]
+  parsed: ParsedFile[],
+  ownershipSources: ReadonlySet<string>
 ): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   const edges: ExecutionEdge[] = []
@@ -223,7 +287,18 @@ function routeToGraph(
   const txnNode = transactionBoundaryNode(route, methodRegistry, parsed)
   if (txnNode) nodes.push(txnNode)
 
-  const chain = [...mwNodes, ...(validationNode ? [validationNode] : []), handlerNode, ...(txnNode ? [txnNode] : [])]
+  // Ownership is resolved inside the handler, so like the transaction it
+  // follows the handler node in the chain.
+  const ownershipNode = ownershipCheckNode(route, methodRegistry, ownershipSources)
+  if (ownershipNode) nodes.push(ownershipNode)
+
+  const chain = [
+    ...mwNodes,
+    ...(validationNode ? [validationNode] : []),
+    handlerNode,
+    ...(ownershipNode ? [ownershipNode] : []),
+    ...(txnNode ? [txnNode] : []),
+  ]
   for (let i = 0; i < chain.length - 1; i++) {
     edges.push({
       from:         chain[i].id,
@@ -254,7 +329,7 @@ function routeToGraph(
  * into a directly-called service method). Isolation (tenant scoping) is not
  * implemented yet.
  */
-export function parseGinProject(files: GoSourceFile[], opts: ExtractRoutesOptions = {}): IntermediateExecutionGraph[] {
+export function parseGinProject(files: GoSourceFile[], opts: ParseGinOptions = {}): IntermediateExecutionGraph[] {
   const routes = extractRoutes(files, opts)
   if (routes.length === 0) return []
 
@@ -265,5 +340,7 @@ export function parseGinProject(files: GoSourceFile[], opts: ExtractRoutesOption
   const constRegistry   = buildConstRegistry(files)
   const methodRegistry  = buildMethodRegistry(parsed)
 
-  return routes.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed))
+  const ownershipSources = new Set(opts.ownershipSources ?? [])
+
+  return routes.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed, ownershipSources))
 }

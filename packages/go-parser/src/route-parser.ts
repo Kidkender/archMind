@@ -192,6 +192,11 @@ function handleStatement(
     const right = stmt.childForFieldName("right") ?? stmt.namedChildren[1]
     const targetName = left?.namedChildren[0]?.text
     const rhsExpr = right?.namedChildren[0]
+    // `h := pkg.NewXxx(...)` / `h := &pkg.Xxx{}` — a handler built as a local
+    // rather than received as a typed parameter. Recorded so its methods can
+    // be resolved the same way as a parameter's.
+    const builtType = targetName && rhsExpr ? constructedTypeName(rhsExpr) : undefined
+    if (targetName && builtType) paramTypes.set(targetName, builtType)
     if (targetName && rhsExpr?.type === "call_expression") {
       const parts = callParts(rhsExpr)
       if (parts && isEngineConstructor(parts)) {
@@ -287,6 +292,23 @@ function resolveDelegationArgs(
     }
   })
   return childInitial
+}
+
+/**
+ * The bare type a constructor-style expression builds: `pkg.NewXxx(...)` →
+ * "Xxx", `&pkg.Xxx{...}` or `Xxx{...}` → "Xxx". Anything else is undefined.
+ */
+function constructedTypeName(expr: SyntaxNode): string | undefined {
+  if (expr.type === "call_expression") {
+    const parts = callParts(expr)
+    const match = parts?.method.match(/^New([A-Z]\w*)$/)
+    return match?.[1]
+  }
+  const literal = expr.type === "unary_expression" ? expr.childForFieldName("operand") : expr
+  if (literal?.type !== "composite_literal") return undefined
+  const typeNode = literal.namedChildren.find((c) => c.type === "qualified_type" || c.type === "type_identifier")
+  if (!typeNode) return undefined
+  return typeNode.type === "qualified_type" ? typeNode.childForFieldName("name")?.text : typeNode.text
 }
 
 /**
