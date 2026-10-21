@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- **Ownership authorization for self-service APIs (Go/Gin).** The `missing_authorization` heuristic assumes authorization means a role or policy, so a game or personal app that scopes every query to the caller flagged every authenticated mutation (55 of 119 routes on a real Gin+GORM game API). `archmind.json` now accepts `authorization.ownershipSources`, the names of the functions that resolve the calling user's own record (e.g. `["currentCharacter", "UserId"]`). A handler that calls one — in its own body or one hop into a helper method on the same receiver — gets an `ir:authz_check` node (`ownership:<name>`), so the detector no longer fires; a handler that acts on a URL `:id` without resolving the caller still does. Measured on that API: 57 findings → 5, and the remaining `missing_authorization` is a handler that really never resolves the caller.
+- `archmind.json` `ignoreFindings`: finding types to drop from the report, honored by `archmind findings`, the MCP `archmind_get_findings` tool and the LSP analysis.
+- `@kidkender/archmind-protocol`: `loadUserConfig(projectRoot)`, one shared reader for `archmind.json` (a missing or malformed file yields `undefined`, never an error). Used by the Go adapter, `analysis`, the CLI and the MCP server; the Spring Boot and NestJS adapters still carry their own copies.
+- `@kidkender/archmind-explainer`: `explain(graph, query?, { ignore })`.
+
+### Fixed
+- `@kidkender/archmind-go-parser`: a handler wired up as a local variable — `h := handler.NewXxxHandler(...)` or `h := &handler.Xxx{}` inside the registrar — was never resolved to its type (only typed function parameters were), so its `validation_gate`, `txn_boundary` and ownership check were silently missing. Both forms are now resolved; on the Gin game API above, routes like `POST /npcs/:npcId/buy` now show their `NPCService.Buy` transaction.
+
+### Release notes
+- Needs a `protocol` release before `go-parser`, `analysis`, `explainer`, the CLI and the MCP server (they import `loadUserConfig` / the new `explain` option). `visualize` still calls `explain()` without the config.
+
 ## [0.8.2] - 2026-09-03
 
 ### Fixed

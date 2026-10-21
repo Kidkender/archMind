@@ -209,7 +209,22 @@ DELETE /api/vaults/{id}
 - `RequireRole`/`RequireSystemRole`-style authorization checks, with Go `const` role/permission arguments resolved to their declared value
 - `ShouldBindJSON`/`ShouldBindQuery`/`ShouldBindUri` resolved to the bound DTO struct's `binding:"..."` validation tags
 - GORM `db.Transaction(func(tx *gorm.DB) error {...})` closures, including one hop into a directly-called service method (handlers are typically thin; the transaction usually lives in the service layer)
+- Handlers wired as typed parameters (`func RegisterX(r gin.IRouter, h *handler.XHandler)`) or built as locals (`h := handler.NewXHandler(...)`, `h := &handler.XHandler{}`)
+- Ownership authorization for self-service APIs (see below)
 - Scoped to a Gin + GORM + `internal/{handler,service,middleware,model,dto}` project layout Tenant/isolation scoping isn't implemented yet.
+
+#### Ownership authorization (`archmind.json`)
+
+`missing_authorization` treats "authorized" as "has a role or policy check". An API that scopes every query to the caller — a game, a personal app — authorizes by *ownership* instead, and would be flagged on every authenticated mutation. Tell ArchMind which functions resolve the caller's own record:
+
+```json
+{
+  "authorization": { "ownershipSources": ["currentCharacter", "UserId"] },
+  "ignoreFindings": []
+}
+```
+
+A handler that calls one of them (directly, or one hop into a helper method on the same receiver) is treated as authorized by ownership. A handler that acts on a URL `:id` without resolving the caller is still reported — that is the case worth looking at. `ignoreFindings` drops whole finding types (e.g. `["missing_authorization"]`) for a project where the rule does not apply at all.
 
 ---
 
