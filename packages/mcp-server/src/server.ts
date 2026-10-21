@@ -2,6 +2,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { summarizeEntrypoints } from "./entrypoints.js"
+import {
+  computeCoChange,
+  readCommits,
+  DEFAULT_MIN_COUNT,
+  DEFAULT_LIMIT,
+  DEFAULT_MAX_FILES_PER_COMMIT,
+} from "./co-change.js"
+
+const DEFAULT_HISTORY_COMMITS = 2000
+const MAX_HISTORY_COMMITS = 20000
 import { retrieve, buildDependencyIndex, queryDependents, indexStats } from "@kidkender/archmind-retrieval"
 import { explain, buildEvidencePackage, traceByPattern } from "@kidkender/archmind-explainer"
 import type { TracePattern } from "@kidkender/archmind-explainer"
@@ -392,6 +402,53 @@ export function createServer(): McpServer {
 
       const ctx = buildFn(graph, [])
       return { content: [{ type: "text", text: JSON.stringify(ctx, null, 2) }] }
+    }
+  )
+
+  server.registerTool(
+    "archmind_co_changed_files",
+    {
+      description:
+        "Files that usually change in the same commit as a given file or directory, from git history. " +
+        "Use it after you know one file you will edit, to find the tests, DTOs, docs and changelog that tend to move with it. " +
+        "Language-independent (works for Go, GDScript, PHP, ...) and needs no parsing, but only reflects past habits: " +
+        "a file that never changed together before will not appear. Bulk commits are ignored. Returns an empty list outside a git repository.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the project root (a subdirectory of a git repository is fine)"),
+        path: z
+          .string()
+          .describe("File ('internal/service/boss_swing.go') or directory ('internal/service') relative to project_root"),
+        min_count: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(`Only list files seen together at least this many times (default ${DEFAULT_MIN_COUNT})`),
+        limit: z.number().int().min(1).max(100).optional().describe(`Maximum files to return (default ${DEFAULT_LIMIT})`),
+        max_commits: z
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_HISTORY_COMMITS)
+          .optional()
+          .describe(`How many recent commits to scan (default ${DEFAULT_HISTORY_COMMITS})`),
+      },
+    },
+    async ({ project_root, path, min_count, limit, max_commits }) => {
+      const commits = readCommits(project_root, max_commits ?? DEFAULT_HISTORY_COMMITS)
+      const result = computeCoChange(commits, path, {
+        minCount: min_count ?? DEFAULT_MIN_COUNT,
+        limit: limit ?? DEFAULT_LIMIT,
+        maxFilesPerCommit: DEFAULT_MAX_FILES_PER_COMMIT,
+      })
+      const payload = {
+        path,
+        commits_scanned: commits.length,
+        commits_touching_path: result.target_commits,
+        often_changed_with: result.files.map((f) => ({ file: f.file, count: f.count, ratio: Number(f.ratio.toFixed(2)) })),
+        ...(commits.length === 0 && { note: "No commits found: not a git repository, or it has no history." }),
+      }
+      return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] }
     }
   )
 
