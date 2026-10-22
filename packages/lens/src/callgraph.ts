@@ -4,7 +4,8 @@ import { collectFacts, elementTypeName, type Decl, type FieldElems, type FieldNa
 
 export type { GoFile } from "./parse.js"
 
-export type EdgeVia = "call" | "go" | "callback"
+/** How an edge arises: a written call, a `go` statement, a call through a func-typed field, or a function/method used as a value (called later, somewhere else). */
+export type EdgeVia = "call" | "go" | "callback" | "ref"
 
 export interface FuncDef {
   /** `${file}:${key}` */
@@ -309,6 +310,49 @@ function resolveSelector(fn: SyntaxNode, r: Resolver): { targets: FuncDef[]; via
   return { targets: r.index.callbacksByField.get(name) ?? [], via: "callback" }
 }
 
+/** True for the places where a function or method used as a value is handed on: an argument, a keyed field, a return, an assignment. */
+function isHandedOn(node: SyntaxNode): boolean {
+  const parent = node.parent
+  if (!parent) return false
+  if (parent.type === "argument_list") return true
+  if (parent.type === "literal_element") return parent.parent?.type === "keyed_element" && parent.parent.namedChildren[1] === parent
+  if (parent.type === "return_statement") return true
+  if (parent.type !== "expression_list") return false
+  const owner = parent.parent
+  if (owner?.type === "return_statement") return true
+  return (owner?.type === "assignment_statement" || owner?.type === "short_var_declaration") && owner.childForFieldName("right") === parent
+}
+
+/** Every name the declaration binds as a parameter, whatever its type. */
+function parameterNames(decl: Decl): Set<string> {
+  const names = new Set<string>()
+  for (const list of [decl.node.childForFieldName("parameters"), decl.node.childForFieldName("receiver")]) {
+    for (const p of list?.namedChildren ?? []) for (const id of p.namedChildren) if (id.type === "identifier") names.add(id.text)
+  }
+  return names
+}
+
+/**
+ * The function or method a selector or identifier names when it is used as a value (`h.respond(h.fs.Accept)`,
+ * `return s.hub.In`, `run(worker)`), or none. Only exact matches count: a method needs a known receiver type.
+ */
+function resolveReference(node: SyntaxNode, r: Resolver, params: Set<string>): FuncDef[] {
+  if (!isHandedOn(node)) return []
+  if (node.type === "identifier") {
+    const name = node.text
+    if (params.has(name) || r.locals.has(name) || r.localElems.has(name)) return []
+    return r.index.funcsByDir.get(`${dirOf(r.ff.file)}${name}`) ?? []
+  }
+  const operand = node.childForFieldName("operand")
+  const name = node.childForFieldName("field")?.text
+  if (!operand || !name) return []
+  if (operand.type === "identifier" && isPackageName(operand, r)) {
+    return packageFuncKeys(r, r.ff.imports.get(operand.text)!, name).flatMap((k) => r.index.funcsByDir.get(k) ?? [])
+  }
+  const type = operandType(operand, r)
+  return type ? (r.index.methodsByRecv.get(`${type}.${name}`) ?? []) : []
+}
+
 function resolveCall(call: SyntaxNode, r: Resolver): { targets: FuncDef[]; via: EdgeVia } {
   const fn = call.childForFieldName("function")
   if (!fn) return { targets: [], via: "call" }
@@ -333,10 +377,12 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
       const ownerId = `${decl.file}:${decl.recv ? `${decl.recv}.${decl.name}` : decl.name}`
       const resolver: Resolver = { ff, decl, fieldTypes, fieldElems, fieldNames, packageVars, index, locals: new Map(), localElems: new Map() }
       inferLocals(resolver)
+      const params = parameterNames(decl)
       for (const call of walk(decl.node)) {
-        if (call.type !== "call_expression") continue
+        const isCall = call.type === "call_expression"
+        if (!isCall && call.type !== "selector_expression" && call.type !== "identifier") continue
         const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
-        const { targets, via } = resolveCall(call, resolver)
+        const { targets, via } = isCall ? resolveCall(call, resolver) : { targets: resolveReference(call, resolver, params), via: "ref" as EdgeVia }
         const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
         for (const t of targets) {
           if (t.id === edgeOwner) continue

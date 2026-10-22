@@ -332,3 +332,63 @@ func (h *H) Do() { h.a.sight() }
     expect(httpRoutes(entriesOf(files, "onlyB", route))).toEqual([])
   })
 })
+
+describe("functions and methods used as values", () => {
+  const route = (h: string) => ({ [h]: ["POST /x"] })
+
+  it("links a method value passed as an argument that the callee calls through its parameter", () => {
+    const files = [f("s/s.go", `package s
+type FS struct{}
+func (f *FS) Accept(id uint) error { return nil }
+type H struct{ fs *FS }
+func (h *H) respond(act func(uint) error) { act(1) }
+func (h *H) Accept() { h.respond(h.fs.Accept) }
+`)]
+    expect(httpRoutes(entriesOf(files, "FS.Accept", route("H.Accept")))).toEqual(["POST /x"])
+  })
+
+  it("links a method value that a function returns", () => {
+    const files = [f("s/s.go", `package s
+type Hub struct{}
+func (h *Hub) In(z string) bool { return true }
+type S struct{ hub *Hub }
+func (s *S) presence() func(string) bool { return s.hub.In }
+func (s *S) Do() { use(s.presence()) }
+func use(f func(string) bool) { f("a") }
+type H struct{ s *S }
+func (h *H) Go() { h.s.Do() }
+`)]
+    expect(httpRoutes(entriesOf(files, "Hub.In", route("H.Go")))).toEqual(["POST /x"])
+  })
+
+  it("links a package function passed as an argument", () => {
+    const files = [f("s/s.go", `package s
+func worker() {}
+func run(f func()) { f() }
+type H struct{}
+func (h *H) Go() { run(worker) }
+`)]
+    expect(httpRoutes(entriesOf(files, "worker", route("H.Go")))).toEqual(["POST /x"])
+  })
+
+  it("does not link a parameter that has the name of a function", () => {
+    const files = [f("s/s.go", `package s
+func worker() {}
+func sink(n int) {}
+type H struct{}
+func (h *H) Go(worker int) { sink(worker) }
+`)]
+    expect(httpRoutes(entriesOf(files, "worker", route("H.Go")))).toEqual([])
+  })
+
+  it("does not link a method that is only named in a selector read, not used as a value of a call or return", () => {
+    const files = [f("s/s.go", `package s
+type FS struct{ Accept int }
+type S struct{}
+func (s *S) Accept() {}
+type H struct{ fs *FS }
+func (h *H) Go() int { n := h.fs.Accept; return n }
+`)]
+    expect(httpRoutes(entriesOf(files, "S.Accept", route("H.Go")))).toEqual([])
+  })
+})
