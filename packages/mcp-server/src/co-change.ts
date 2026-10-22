@@ -20,7 +20,7 @@ export interface CoChangeResult {
   files: CoChangedFile[]
 }
 
-const DEFAULT_MIN_COUNT = 2
+const DEFAULT_MIN_COUNT = 1
 const DEFAULT_LIMIT = 15
 const DEFAULT_MAX_FILES_PER_COMMIT = 50
 const GIT_MAX_BUFFER = 64 * 1024 * 1024
