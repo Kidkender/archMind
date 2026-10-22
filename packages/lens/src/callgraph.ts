@@ -53,6 +53,8 @@ interface Index {
   methodsByRecv: Map<string, FuncDef[]>
   funcsByDir: Map<string, FuncDef[]>
   callbacksByField: Map<string, FuncDef[]>
+  /** `Type.Field` to the func literals stored in that field of a composite literal. */
+  callbacksByTypeField: Map<string, FuncDef[]>
   /** `${dir}${name}` or `${Recv}.${name}` to the bare type of its first result. */
   returns: Map<string, string>
 }
@@ -77,16 +79,35 @@ function isInTransaction(call: SyntaxNode): boolean {
   return false
 }
 
-/** The `x.Field = func(...) {...}` assignments inside a declaration. */
-function callbackLiterals(decl: Decl): Map<string, { field: string; literal: SyntaxNode }> {
-  const out = new Map<string, { field: string; literal: SyntaxNode }>()
+interface CallbackLiteral {
+  field: string
+  /** The struct type of the composite literal the func was stored in; null for an `x.F = func...` assignment. */
+  owner: string | null
+  literal: SyntaxNode
+}
+
+/** The func literals a declaration stores in a struct field: `x.Field = func...` and `T{Field: func...}`. */
+function callbackLiterals(decl: Decl): Map<string, CallbackLiteral> {
+  const out = new Map<string, CallbackLiteral>()
   for (const n of walk(decl.node)) {
-    if (n.type !== "assignment_statement") continue
-    const left = n.childForFieldName("left")?.namedChildren[0]
-    const right = n.childForFieldName("right")?.namedChildren[0]
-    if (left?.type !== "selector_expression" || right?.type !== "func_literal") continue
-    const field = left.childForFieldName("field")?.text
-    if (field) out.set(nodeKey(right), { field, literal: right })
+    if (n.type === "assignment_statement") {
+      const left = n.childForFieldName("left")?.namedChildren[0]
+      const right = n.childForFieldName("right")?.namedChildren[0]
+      if (left?.type !== "selector_expression" || right?.type !== "func_literal") continue
+      const field = left.childForFieldName("field")?.text
+      if (field) out.set(nodeKey(right), { field, owner: null, literal: right })
+    } else if (n.type === "composite_literal") {
+      const typeNode = n.childForFieldName("type")
+      const owner = typeNode ? bareTypeName(typeNode) : null
+      if (!owner) continue
+      for (const el of n.childForFieldName("body")?.namedChildren ?? []) {
+        if (el.type !== "keyed_element") continue
+        const [key, value] = el.namedChildren
+        const field = key?.namedChildren[0]
+        const literal = value?.namedChildren[0]
+        if (field?.type === "identifier" && literal?.type === "func_literal") out.set(nodeKey(literal), { field: field.text, owner, literal })
+      }
+    }
   }
   return out
 }
@@ -98,7 +119,7 @@ function makeDef(file: string, key: string, name: string, recv: string | null, n
 }
 
 function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncDef>; callbackOwners: Map<string, FuncDef> } {
-  const index: Index = { methodsByName: new Map(), methodsByRecv: new Map(), funcsByDir: new Map(), callbacksByField: new Map(), returns: new Map() }
+  const index: Index = { methodsByName: new Map(), methodsByRecv: new Map(), funcsByDir: new Map(), callbacksByField: new Map(), callbacksByTypeField: new Map(), returns: new Map() }
   const defs = new Map<string, FuncDef>()
   const callbackOwners = new Map<string, FuncDef>() // `${file}:${literal nodeKey}` -> callback def
   for (const ff of facts) {
@@ -114,9 +135,10 @@ function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncD
         if (d.returns) index.returns.set(`${def.dir}${d.name}`, d.returns)
       }
       for (const [k, cb] of callbackLiterals(d)) {
-        const cbDef = makeDef(d.file, `callback:${cb.field}`, cb.field, null, cb.literal)
+        const cbDef = makeDef(d.file, `callback:${cb.owner ? `${cb.owner}.` : ""}${cb.field}`, cb.field, null, cb.literal)
         defs.set(cbDef.id, cbDef)
         addTo(index.callbacksByField, cb.field, cbDef)
+        if (cb.owner) addTo(index.callbacksByTypeField, `${cb.owner}.${cb.field}`, cbDef)
         callbackOwners.set(`${d.file}:${k}`, cbDef)
       }
     }
@@ -277,7 +299,7 @@ function resolveSelector(fn: SyntaxNode, r: Resolver): { targets: FuncDef[]; via
   if (type) {
     const methods = r.index.methodsByRecv.get(`${type}.${name}`) ?? []
     if (methods.length > 0) return { targets: methods, via: "call" }
-    const callbacks = r.index.callbacksByField.get(name) ?? []
+    const callbacks = r.index.callbacksByTypeField.get(`${type}.${name}`) ?? r.index.callbacksByField.get(name) ?? []
     if (callbacks.length > 0) return { targets: callbacks, via: "callback" }
     // A field of that name holds a func value: the call goes to whatever was stored in it, not to a method elsewhere.
     if (r.fieldNames.get(type)?.has(name)) return { targets: [], via: "call" }

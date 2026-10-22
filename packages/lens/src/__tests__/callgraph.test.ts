@@ -301,3 +301,34 @@ func Go() { table := []*B{}; for _, v := range table { v.Run() } }
     expect(callersOf(files, "A.Run")).toEqual([])
   })
 })
+
+describe("func literals stored through a composite literal", () => {
+  const route = { "H.Do": ["GET /do"] }
+
+  it("links a call through the field to the literal set in the constructor", () => {
+    const files = [f("s/s.go", `package s
+type G struct{ sight func(z string) int }
+func NewG() *G { return &G{sight: func(z string) int { return helper(z) }, n: 2} }
+func helper(z string) int { return 1 }
+func (g *G) Pick() int { return g.sight("a") }
+type H struct{ g *G }
+func (h *H) Do() { h.g.Pick() }
+`)]
+    expect(httpRoutes(entriesOf(files, "helper", route))).toEqual(["GET /do"])
+  })
+
+  it("keeps the callbacks of two types that share a field name apart", () => {
+    const files = [f("s/s.go", `package s
+type A struct{ sight func() }
+type B struct{ sight func() }
+func NewA() *A { return &A{sight: func() { onlyA() }} }
+func NewB() *B { return &B{sight: func() { onlyB() }} }
+func onlyA() {}
+func onlyB() {}
+type H struct{ a *A }
+func (h *H) Do() { h.a.sight() }
+`)]
+    expect(httpRoutes(entriesOf(files, "onlyA", route))).toEqual(["GET /do"])
+    expect(httpRoutes(entriesOf(files, "onlyB", route))).toEqual([])
+  })
+})
