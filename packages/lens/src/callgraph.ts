@@ -53,17 +53,78 @@ interface Index {
   methodsByName: Map<string, FuncDef[]>
   methodsByRecv: Map<string, FuncDef[]>
   funcsByDir: Map<string, FuncDef[]>
+  /** Field name to every function stored in a field of that name, whatever the type. Used when the receiver's type is unknown. */
   callbacksByField: Map<string, FuncDef[]>
-  /** `Type.Field` to the func literals stored in that field of a composite literal. */
+  /** Field name to the functions stored in it where the type that owns the field is not known (`x.F = func...`). */
+  callbacksUnowned: Map<string, FuncDef[]>
+  /** `Type.Field` to the functions stored in that field. */
   callbacksByTypeField: Map<string, FuncDef[]>
+  /** `Recv.Method` to the fields a setter stores its parameters in. */
+  settersByRecv: Map<string, Setter[]>
+  /** Method name to the setters of that name, for a receiver whose type is unknown. */
+  settersByName: Map<string, Setter[]>
   /** `${dir}${name}` or `${Recv}.${name}` to the bare type of its first result. */
   returns: Map<string, string>
 }
 
+/** A method that stores its `index`-th parameter in `field` of its receiver (`g.block = f`). */
+interface Setter {
+  recv: string
+  field: string
+  index: number
+}
+
 function addTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const list = map.get(key)
-  if (list) list.push(value)
-  else map.set(key, [value])
+  if (!list) map.set(key, [value])
+  else if (!list.includes(value)) list.push(value)
+}
+
+/** Records that `field` of `owner` (or of an unknown type) holds each of `targets`, so a call through the field reaches them. */
+function storeFunctions(index: Index, owner: string | null, field: string, targets: FuncDef[]): void {
+  for (const t of targets) {
+    addTo(index.callbacksByField, field, t)
+    if (owner) addTo(index.callbacksByTypeField, `${owner}.${field}`, t)
+    else addTo(index.callbacksUnowned, field, t)
+  }
+}
+
+/** The names a declaration binds as parameters, in order; "" for an unnamed one. */
+function parameterOrder(decl: Decl): string[] {
+  const out: string[] = []
+  for (const p of decl.node.childForFieldName("parameters")?.namedChildren ?? []) {
+    if (p.type !== "parameter_declaration" && p.type !== "variadic_parameter_declaration") continue
+    const names = p.namedChildren.filter((c) => c.type === "identifier")
+    if (names.length === 0) out.push("")
+    for (const n of names) out.push(n.text)
+  }
+  return out
+}
+
+/** Methods that store a parameter in a field of their receiver: `func (g *Gate) SetBlock(f func()) { g.block = f }`. */
+function findSetters(facts: FileFacts[]): { byRecv: Map<string, Setter[]>; byName: Map<string, Setter[]> } {
+  const byRecv = new Map<string, Setter[]>()
+  const byName = new Map<string, Setter[]>()
+  for (const ff of facts) {
+    for (const d of ff.decls) {
+      if (!d.recv || !d.recvVar) continue
+      const params = parameterOrder(d)
+      for (const n of walk(d.node)) {
+        if (n.type !== "assignment_statement") continue
+        const left = n.childForFieldName("left")?.namedChildren[0]
+        const right = n.childForFieldName("right")?.namedChildren[0]
+        if (left?.type !== "selector_expression" || right?.type !== "identifier") continue
+        if (left.childForFieldName("operand")?.text !== d.recvVar) continue
+        const field = left.childForFieldName("field")?.text
+        const index = params.indexOf(right.text)
+        if (!field || index < 0) continue
+        const setter: Setter = { recv: d.recv, field, index }
+        addTo(byRecv, `${d.recv}.${d.name}`, setter)
+        addTo(byName, d.name, setter)
+      }
+    }
+  }
+  return { byRecv, byName }
 }
 
 /** Walks up from a call: is it inside a func literal passed to `.Transaction(...)`? */
@@ -120,7 +181,7 @@ function makeDef(file: string, key: string, name: string, recv: string | null, n
 }
 
 function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncDef>; callbackOwners: Map<string, FuncDef> } {
-  const index: Index = { methodsByName: new Map(), methodsByRecv: new Map(), funcsByDir: new Map(), callbacksByField: new Map(), callbacksByTypeField: new Map(), returns: new Map() }
+  const index: Index = { methodsByName: new Map(), methodsByRecv: new Map(), funcsByDir: new Map(), callbacksByField: new Map(), callbacksUnowned: new Map(), callbacksByTypeField: new Map(), settersByRecv: new Map(), settersByName: new Map(), returns: new Map() }
   const defs = new Map<string, FuncDef>()
   const callbackOwners = new Map<string, FuncDef>() // `${file}:${literal nodeKey}` -> callback def
   for (const ff of facts) {
@@ -138,8 +199,7 @@ function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncD
       for (const [k, cb] of callbackLiterals(d)) {
         const cbDef = makeDef(d.file, `callback:${cb.owner ? `${cb.owner}.` : ""}${cb.field}`, cb.field, null, cb.literal)
         defs.set(cbDef.id, cbDef)
-        addTo(index.callbacksByField, cb.field, cbDef)
-        if (cb.owner) addTo(index.callbacksByTypeField, `${cb.owner}.${cb.field}`, cbDef)
+        storeFunctions(index, cb.owner, cb.field, [cbDef])
         callbackOwners.set(`${d.file}:${k}`, cbDef)
       }
     }
@@ -304,7 +364,9 @@ function resolveSelector(fn: SyntaxNode, r: Resolver): { targets: FuncDef[]; via
     if (methods.length > 0) return { targets: methods, via: "call" }
     const implemented = (r.implementers.get(type) ?? []).flatMap((t) => r.index.methodsByRecv.get(`${t}.${name}`) ?? [])
     if (implemented.length > 0) return { targets: implemented, via: "call" }
-    const callbacks = r.index.callbacksByTypeField.get(`${type}.${name}`) ?? r.index.callbacksByField.get(name) ?? []
+    // The receiver's type is known: use what was stored in this type's field, or stored where the owner is unknown,
+    // never what another type stored in a field of the same name.
+    const callbacks = r.index.callbacksByTypeField.get(`${type}.${name}`) ?? r.index.callbacksUnowned.get(name) ?? []
     if (callbacks.length > 0) return { targets: callbacks, via: "callback" }
     // A field of that name holds a func value: the call goes to whatever was stored in it, not to a method elsewhere.
     if (r.fieldNames.get(type)?.has(name)) return { targets: [], via: "call" }
@@ -314,17 +376,20 @@ function resolveSelector(fn: SyntaxNode, r: Resolver): { targets: FuncDef[]; via
   return { targets: r.index.callbacksByField.get(name) ?? [], via: "callback" }
 }
 
+/** Whether two syntax nodes are the same piece of source: tree-sitter does not keep one object per node, so `===` is unreliable. */
+const sameNode = (a: SyntaxNode | null | undefined, b: SyntaxNode): boolean => !!a && a.startIndex === b.startIndex && a.endIndex === b.endIndex && a.type === b.type
+
 /** True for the places where a function or method used as a value is handed on: an argument, a keyed field, a return, an assignment. */
 function isHandedOn(node: SyntaxNode): boolean {
   const parent = node.parent
   if (!parent) return false
   if (parent.type === "argument_list") return true
-  if (parent.type === "literal_element") return parent.parent?.type === "keyed_element" && parent.parent.namedChildren[1] === parent
+  if (parent.type === "literal_element") return parent.parent?.type === "keyed_element" && sameNode(parent.parent.namedChildren[1], parent)
   if (parent.type === "return_statement") return true
   if (parent.type !== "expression_list") return false
   const owner = parent.parent
   if (owner?.type === "return_statement") return true
-  return (owner?.type === "assignment_statement" || owner?.type === "short_var_declaration") && owner.childForFieldName("right") === parent
+  return (owner?.type === "assignment_statement" || owner?.type === "short_var_declaration") && sameNode(owner.childForFieldName("right"), parent)
 }
 
 /** Every name the declaration binds as a parameter, whatever its type. */
@@ -419,32 +484,97 @@ function findImplementers(interfaces: Interfaces, facts: FileFacts[]): Map<strin
   return out
 }
 
+/** The setters of one type that a call on an untyped receiver can mean, or none when the name belongs to several types. */
+function setterCandidates(index: Index, recvType: string | null, name: string): Setter[] {
+  if (recvType) return index.settersByRecv.get(`${recvType}.${name}`) ?? []
+  const byName = index.settersByName.get(name) ?? []
+  return byName.every((x) => x.recv === byName[0].recv) ? byName : []
+}
+
+/**
+ * Finds where a function is put into a field so that a later call through the field reaches it: an argument given to a
+ * setter, the right-hand side of `x.F = f`, or a value in `T{F: f}`. Func literals become callback functions of their own.
+ */
+function registerStoredFunctions(r: Resolver, params: Set<string>, defs: Map<string, FuncDef>, callbackOwners: Map<string, FuncDef>): void {
+  const { index, decl } = r
+  for (const n of walk(decl.node)) {
+    if (n.type === "call_expression") {
+      const fn = unwrapInstantiation(n.childForFieldName("function"))
+      const operand = fn?.type === "selector_expression" ? fn.childForFieldName("operand") : null
+      const name = fn?.type === "selector_expression" ? fn.childForFieldName("field")?.text : null
+      if (!operand || !name) continue
+      for (const setter of setterCandidates(index, operandType(operand, r), name)) {
+        const arg = n.childForFieldName("arguments")?.namedChildren[setter.index]
+        if (!arg) continue
+        if (arg.type === "func_literal") {
+          const cb = makeDef(decl.file, `callback:${setter.recv}.${setter.field}`, setter.field, null, arg)
+          defs.set(cb.id, cb)
+          callbackOwners.set(`${decl.file}:${nodeKey(arg)}`, cb)
+          storeFunctions(index, setter.recv, setter.field, [cb])
+        } else {
+          storeFunctions(index, setter.recv, setter.field, resolveReference(arg, r, params))
+        }
+      }
+    } else if (n.type === "assignment_statement") {
+      const left = n.childForFieldName("left")?.namedChildren[0]
+      const right = n.childForFieldName("right")?.namedChildren[0]
+      if (left?.type !== "selector_expression" || !right || right.type === "func_literal") continue
+      const field = left.childForFieldName("field")?.text
+      const operand = left.childForFieldName("operand")
+      if (field) storeFunctions(index, operand ? operandType(operand, r) : null, field, resolveReference(right, r, params))
+    } else if (n.type === "composite_literal") {
+      const typeNode = n.childForFieldName("type")
+      const owner = typeNode ? bareTypeName(typeNode) : null
+      if (!owner) continue
+      for (const el of n.childForFieldName("body")?.namedChildren ?? []) {
+        if (el.type !== "keyed_element") continue
+        const [key, value] = el.namedChildren
+        const field = key?.namedChildren[0]
+        const target = value?.namedChildren[0]
+        if (field?.type === "identifier" && target && target.type !== "func_literal") storeFunctions(index, owner, field.text, resolveReference(target, r, params))
+      }
+    }
+  }
+}
+
 export function buildCallGraph(files: GoFile[]): CallGraph {
   const { facts, fieldTypes, fieldElems, fieldNames, packageVars, interfaces } = collectFacts(files)
   const { index, defs, callbackOwners } = buildIndex(facts)
+  const setters = findSetters(facts)
+  index.settersByRecv = setters.byRecv
+  index.settersByName = setters.byName
   const implementers = findImplementers(interfaces, facts)
   const from = new Map<string, CallEdge[]>()
   const to = new Map<string, CallEdge[]>()
   const owners = new Map(facts.flatMap((ff) => ff.decls.map((d) => [`${d.file}:${d.node.startIndex}`, d] as const)))
   void owners
 
+  // Pass 1: type every function's locals and record the functions stored in fields, before any call through a field is resolved.
+  const resolvers: { resolver: Resolver; params: Set<string>; ownerId: string }[] = []
   for (const ff of facts) {
     for (const decl of ff.decls) {
       const ownerId = `${decl.file}:${decl.recv ? `${decl.recv}.${decl.name}` : decl.name}`
       const resolver: Resolver = { ff, decl, fieldTypes, fieldElems, fieldNames, packageVars, implementers, index, locals: new Map(), localElems: new Map() }
       inferLocals(resolver)
       const params = parameterNames(decl)
-      for (const call of walk(decl.node)) {
-        if (!["call_expression", "type_conversion_expression", "selector_expression", "identifier"].includes(call.type)) continue
-        const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
-        const { targets, via } = resolveNode(call, resolver, params)
-        const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
-        for (const t of targets) {
-          if (t.id === edgeOwner) continue
-          const edge: CallEdge = { from: edgeOwner, to: t.id, line: call.startPosition.row + 1, inTxn: isInTransaction(call), via: kind }
-          addTo(from, edge.from, edge)
-          addTo(to, edge.to, edge)
-        }
+      registerStoredFunctions(resolver, params, defs, callbackOwners)
+      resolvers.push({ resolver, params, ownerId })
+    }
+  }
+
+  // Pass 2: the edges.
+  for (const { resolver, params, ownerId } of resolvers) {
+    const decl = resolver.decl
+    for (const call of walk(decl.node)) {
+      if (!["call_expression", "type_conversion_expression", "selector_expression", "identifier"].includes(call.type)) continue
+      const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
+      const { targets, via } = resolveNode(call, resolver, params)
+      const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
+      for (const t of targets) {
+        if (t.id === edgeOwner) continue
+        const edge: CallEdge = { from: edgeOwner, to: t.id, line: call.startPosition.row + 1, inTxn: isInTransaction(call), via: kind }
+        addTo(from, edge.from, edge)
+        addTo(to, edge.to, edge)
       }
     }
   }

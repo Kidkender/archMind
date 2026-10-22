@@ -502,3 +502,88 @@ func (s *S) Run() { s.p.Pos(1, "a") }
     expect(callersOf(files, "Boss.Pos")).toEqual([])
   })
 })
+
+describe("functions stored in a field and called later", () => {
+  const route = { "H.Do": ["GET /do"] }
+  const GATE = `package s
+type Gate struct{ block func(id uint) error }
+func (g *Gate) SetBlock(f func(id uint) error) { g.block = f }
+func (g *Gate) Check(id uint) error { return g.block(id) }
+type H struct{ g *Gate }
+func (h *H) Do() { h.g.Check(1) }
+`
+
+  it("links a func literal given to a setter to the calls made through the field", () => {
+    const files = [f("s/s.go", GATE + `func helper(id uint) error { return nil }
+func wire(g *Gate) { g.SetBlock(func(id uint) error { return helper(id) }) }
+`)]
+    expect(httpRoutes(entriesOf(files, "helper", route))).toEqual(["GET /do"])
+  })
+
+  it("links a method value given to a setter", () => {
+    const files = [f("s/s.go", GATE + `type FX struct{}
+func (x *FX) Stunned(id uint) error { return nil }
+func wire(g *Gate) { fx := &FX{}; g.SetBlock(fx.Stunned) }
+`)]
+    expect(httpRoutes(entriesOf(files, "FX.Stunned", route))).toEqual(["GET /do"])
+  })
+
+  it("links a function given to a setter by name", () => {
+    const files = [f("s/s.go", GATE + `func allow(id uint) error { return nil }
+func wire(g *Gate) { g.SetBlock(allow) }
+`)]
+    expect(httpRoutes(entriesOf(files, "allow", route))).toEqual(["GET /do"])
+  })
+
+  it("links a method value assigned straight to a field", () => {
+    const files = [f("s/s.go", `package s
+type Hub struct{ OnChat func(s string) }
+func (h *Hub) read() { h.OnChat("x") }
+type Chat struct{}
+func (c *Chat) Send(s string) {}
+func wire(h *Hub, c *Chat) { h.OnChat = c.Send }
+`)]
+    expect(httpRoutes(entriesOf(files, "Chat.Send", { "Hub.read": ["GET /ws"] }))).toEqual(["GET /ws"])
+  })
+
+  it("links a function named in a composite literal field", () => {
+    const files = [f("s/s.go", `package s
+type G struct{ sight func(z string) int }
+func terrain(z string) int { return 1 }
+func NewG() *G { return &G{sight: terrain} }
+func (g *G) Pick() int { return g.sight("a") }
+type H struct{ g *G }
+func (h *H) Do() { h.g.Pick() }
+`)]
+    expect(httpRoutes(entriesOf(files, "terrain", route))).toEqual(["GET /do"])
+  })
+
+  it("does not link through a setter that does not store its argument in a field", () => {
+    const files = [f("s/s.go", `package s
+type Gate struct{ block func(id uint) error }
+func (g *Gate) SetBlock(f func(id uint) error) { _ = f }
+func (g *Gate) Check(id uint) error { return g.block(id) }
+func helper(id uint) error { return nil }
+func wire(g *Gate) { g.SetBlock(func(id uint) error { return helper(id) }) }
+type H struct{ g *Gate }
+func (h *H) Do() { h.g.Check(1) }
+`)]
+    expect(httpRoutes(entriesOf(files, "helper", route))).toEqual([])
+  })
+
+  it("keeps two types that share a setter name and a field name apart", () => {
+    const files = [f("s/s.go", `package s
+type A struct{ cb func() }
+func (a *A) Set(f func()) { a.cb = f }
+func (a *A) Run() { a.cb() }
+type B struct{ cb func() }
+func (b *B) Set(f func()) { b.cb = f }
+func (b *B) Run() { b.cb() }
+func onlyA() {}
+func wire(a *A) { a.Set(onlyA) }
+type H struct{ b *B }
+func (h *H) Do() { h.b.Run() }
+`)]
+    expect(httpRoutes(entriesOf(files, "onlyA", route))).toEqual([])
+  })
+})
