@@ -34,8 +34,8 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
   },
   "dependencies": {
-    "@kidkender/archmind-go-parser": "^0.1.1",
-    "@kidkender/archmind-protocol": "^0.5.0"
+    "@kidkender/archmind-go-parser": "^0.2.0",
+    "@kidkender/archmind-protocol": "^0.5.1"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",

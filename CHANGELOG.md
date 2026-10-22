@@ -1,18 +1,28 @@
 # Changelog
 
-## [Unreleased]
+## [0.9.0] - 2026-10-22
 
 ### Added
 - **Ownership authorization for self-service APIs (Go/Gin).** The `missing_authorization` heuristic assumes authorization means a role or policy, so a game or personal app that scopes every query to the caller flagged every authenticated mutation (55 of 119 routes on a real Gin+GORM game API). `archmind.json` now accepts `authorization.ownershipSources`, the names of the functions that resolve the calling user's own record (e.g. `["currentCharacter", "UserId"]`). A handler that calls one — in its own body or one hop into a helper method on the same receiver — gets an `ir:authz_check` node (`ownership:<name>`), so the detector no longer fires; a handler that acts on a URL `:id` without resolving the caller still does. Measured on that API: 57 findings → 5, and the remaining `missing_authorization` is a handler that really never resolves the caller.
 - `archmind.json` `ignoreFindings`: finding types to drop from the report, honored by `archmind findings`, the MCP `archmind_get_findings` tool and the LSP analysis.
 - `@kidkender/archmind-protocol`: `loadUserConfig(projectRoot)`, one shared reader for `archmind.json` (a missing or malformed file yields `undefined`, never an error). Used by the Go adapter, `analysis`, the CLI and the MCP server; the Spring Boot and NestJS adapters still carry their own copies.
-- `@kidkender/archmind-explainer`: `explain(graph, query?, { ignore })`.
+- `@kidkender/archmind-explainer`: `explain(graph, query?, { ignore })`; trace nodes carry `file` and `line` when the parser recorded them.
+- **`@kidkender/archmind-lens` 0.1.0 (new package): start from any Go function, not from a route.** Given a function or method (a service, a repository, a helper), it walks the call graph upward to the HTTP routes, goroutines started with `go`, callbacks and startup code that reach it, and reports whether the call runs inside a `.Transaction(func...)` closure. Calls are resolved from types, not names: receivers, struct fields, typed parameters and locals, package-level variables, interfaces (by method set and signature), generic calls with explicit type arguments, functions and methods used as values, and functions stored in fields through setters, assignments and composite literals. It also reports shared in-memory state changed inside a transaction by a function that has no undo step. Measured on a private Gin+GORM game API against a type-checker call graph (Go SSA + VTA) over 552 functions: route set exact for 98.4% of the functions, every route found was real (precision 100%), and 98.5% of the real routes were found. Limits: Go only, no GDScript; interface matching ignores embedded interfaces and does not tell apart two types with the same name in different packages; the transaction check flags only direct writes on mutex-guarded types, so an empty list is not proof of safety.
+- MCP `archmind_symbol_context` (Go): symbol in, compact text out. One line per route or other entry that reaches it, with the path from the entry to the symbol, the `file:line` of the call that reaches it, and flags for transaction, goroutine and indirect links (`[via ref]`, `[via callback]`); callers nobody calls are only counted. `format=json` returns the same facts as an object.
+- MCP `archmind_co_changed_files`: files that usually change in the same commit as a given file or directory, from git history (language independent).
+- MCP `archmind_list_entrypoints` and `archmind_trace` return the handler `file:line`; `list_entrypoints` takes a `filter`.
+- `@kidkender/archmind-go-parser`: exports the AST helpers (`parseGo`, `walk`, `receiverTypeName`, `bareTypeName`, `functionParamTypes`, `findFunctionDecls`) and a scan option `includeTests` for `findGoFiles` / `readGoProjectFiles`.
 
 ### Fixed
 - `@kidkender/archmind-go-parser`: a handler wired up as a local variable — `h := handler.NewXxxHandler(...)` or `h := &handler.Xxx{}` inside the registrar — was never resolved to its type (only typed function parameters were), so its `validation_gate`, `txn_boundary` and ownership check were silently missing. Both forms are now resolved; on the Gin game API above, routes like `POST /npcs/:npcId/buy` now show their `NPCService.Buy` transaction.
 
+### Changed
+- MCP `archmind_co_changed_files`: files changed together once are listed by default (`min_count` 1 instead of 2); the history showed that `min_count` 2 dropped most of the useful companions (tests, DTOs, docs).
+
 ### Release notes
-- Needs a `protocol` release before `go-parser`, `analysis`, `explainer`, the CLI and the MCP server (they import `loadUserConfig` / the new `explain` option). `visualize` still calls `explain()` without the config.
+- Versions: `protocol` 0.5.1, `go-parser` 0.2.0, `lens` 0.1.0 (new), `explainer` 0.3.3, `analysis` 0.2.2, `mcp-server` 0.7.0, CLI 0.8.2.
+- Publish order: `protocol`, `go-parser`, `lens`, `explainer`, `analysis`, `mcp-server`, CLI. `lens` and `go-parser` must be on npm before `mcp-server`, which leaves them as external dependencies of its bundle.
+- `visualize` still calls `explain()` without the config.
 
 ## [0.8.2] - 2026-09-03
 
