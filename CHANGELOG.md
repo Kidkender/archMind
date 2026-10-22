@@ -11,6 +11,7 @@
 - MCP `archmind_symbol_context` (Go): symbol in, compact text out. One line per route or other entry that reaches it, with the path from the entry to the symbol, the `file:line` of the call that reaches it, and flags for transaction, goroutine and indirect links (`[via ref]`, `[via callback]`); callers nobody calls are only counted. `format=json` returns the same facts as an object.
 - MCP `archmind_co_changed_files`: files that usually change in the same commit as a given file or directory, from git history (language independent).
 - MCP `archmind_list_entrypoints` and `archmind_trace` return the handler `file:line`; `list_entrypoints` takes a `filter`.
+- READMEs for `lens`, `go-parser`, `analysis`, `aql`, `constraints`, `context` and `graph-query` (they were missing; they reach npm with each package's next release).
 - `@kidkender/archmind-go-parser`: exports the AST helpers (`parseGo`, `walk`, `receiverTypeName`, `bareTypeName`, `functionParamTypes`, `findFunctionDecls`) and a scan option `includeTests` for `findGoFiles` / `readGoProjectFiles`.
 
 ### Fixed
@@ -20,7 +21,7 @@
 - MCP `archmind_co_changed_files`: files changed together once are listed by default (`min_count` 1 instead of 2); the history showed that `min_count` 2 dropped most of the useful companions (tests, DTOs, docs).
 
 ### Release notes
-- Versions: `protocol` 0.5.1, `go-parser` 0.2.0, `lens` 0.1.0 (new), `explainer` 0.3.3, `analysis` 0.2.2, `mcp-server` 0.7.0, CLI 0.8.2.
+- Versions: `protocol` 0.5.1, `go-parser` 0.2.0, `lens` 0.1.1 (new; 0.1.0 had no README), `explainer` 0.3.3, `analysis` 0.2.2, `mcp-server` 0.7.0, CLI 0.9.0 (0.8.2 was published first from the same code; 0.9.0 aligns the CLI with this release).
 - Publish order: `protocol`, `go-parser`, `lens`, `explainer`, `analysis`, `mcp-server`, CLI. `lens` and `go-parser` must be on npm before `mcp-server`, which leaves them as external dependencies of its bundle.
 - `visualize` still calls `explain()` without the config.
 

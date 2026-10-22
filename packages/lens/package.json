@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind-lens",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Symbol-first context for Go services: from any function, find the HTTP routes, background loops, callbacks and startup code that reach it, and whether the call runs inside a database transaction.",
   "type": "module",
   "main": "dist/index.js",
