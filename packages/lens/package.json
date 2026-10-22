@@ -1,0 +1,47 @@
+{
+  "name": "@kidkender/archmind-lens",
+  "version": "0.1.0",
+  "description": "Symbol-first context for Go services: from any function, find the HTTP routes, background loops, callbacks and startup code that reach it, and whether the call runs inside a database transaction.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "archmind",
+    "go",
+    "call-graph",
+    "static-analysis",
+    "mcp"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/Architecture-Mind/ArchMind#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Architecture-Mind/ArchMind",
+    "directory": "packages/lens"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
+  },
+  "dependencies": {
+    "@kidkender/archmind-go-parser": "^0.1.1",
+    "@kidkender/archmind-protocol": "^0.5.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "@types/node": "^20.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.4.0"
+  }
+}
