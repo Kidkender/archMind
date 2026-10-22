@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { summarizeEntrypoints } from "./entrypoints.js"
+import { getLens } from "./lens-cache.js"
+import { describeSymbol } from "./symbol-context.js"
 import {
   computeCoChange,
   readCommits,
@@ -449,6 +451,34 @@ export function createServer(): McpServer {
         ...(commits.length === 0 && { note: "No commits found: not a git repository, or it has no history." }),
       }
       return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] }
+    }
+  )
+
+  server.registerTool(
+    "archmind_symbol_context",
+    {
+      description:
+        "Go projects only. Start from any function or method (service, repository, helper), not a route: returns where it is defined (file:line), " +
+        "which HTTP routes, background goroutines and startup code reach it, whether those calls run inside a database transaction, " +
+        "and any in-memory state change made inside a transaction that a rollback cannot undo. " +
+        "Static analysis: calls through interfaces are followed only when one implementation matches, so a missing route can mean an unresolved call. " +
+        "The transaction check only flags direct writes on mutex-guarded types, so an empty list is not proof of safety.",
+      inputSchema: {
+        project_root: z.string().describe("Absolute path to the Go project root (the directory with go.mod)"),
+        symbol: z.string().describe(`Function or method as declared in Go: "Type.Method" or "Func" (e.g. "BossService.Swing")`),
+        max_entries: z.number().int().min(1).max(100).optional().describe("Most reaching entries to return (default 20)"),
+      },
+    },
+    async ({ project_root, symbol, max_entries }) => {
+      if (detectFramework(project_root) !== "go") {
+        return {
+          content: [{ type: "text", text: JSON.stringify({ error: "archmind_symbol_context supports Go/Gin projects only", project_root }) }],
+          isError: true,
+        }
+      }
+      const { graph, handlerRoutes } = getLens(project_root)
+      const result = describeSymbol(graph, handlerRoutes, symbol, { maxEntries: max_entries })
+      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
     }
   )
 

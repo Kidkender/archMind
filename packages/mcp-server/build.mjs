@@ -22,6 +22,7 @@ await build({
     "@kidkender/archmind-laravel-parser",
     "@kidkender/archmind-nestjs-parser",
     "@kidkender/archmind-go-parser",
+    "@kidkender/archmind-lens",
     "@kidkender/archmind-retrieval",
     "@kidkender/archmind-runtime-ingest",
     "@kidkender/archmind-runtime-correlator",
