@@ -1,4 +1,5 @@
 import { walk, bareTypeName, type SyntaxNode } from "@kidkender/archmind-go-parser"
+import { bodyFlags } from "./flags.js"
 import { collectFacts, elementTypeName, type Decl, type FieldElems, type FieldTypes, type FileFacts, type GoFile } from "./parse.js"
 
 export type { GoFile } from "./parse.js"
@@ -15,6 +16,14 @@ export interface FuncDef {
   file: string
   dir: string
   line: number
+  /** The body calls `.Transaction(...)`: this function opens a database transaction itself. */
+  opensTransaction: boolean
+  /** The body writes to a field or element, or deletes from a map. */
+  mutatesState: boolean
+  /** The body calls something named rollback, undo, revert or compensate. */
+  compensates: boolean
+  /** A parameter is a database handle, so the function takes part in its caller's transaction. */
+  takesTx: boolean
 }
 
 export interface CallEdge {
@@ -31,6 +40,8 @@ export interface CallGraph {
   edgesTo(id: string): CallEdge[]
   /** Definitions matching "Recv.Method", a bare function, or a bare method name. */
   findDefs(symbol: string): FuncDef[]
+  /** True when the struct type has a sync.Mutex or sync.RWMutex field (named or embedded). */
+  typeHasMutex(type: string): boolean
 }
 
 const dirOf = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1)
@@ -80,8 +91,10 @@ function callbackLiterals(decl: Decl): Map<string, { field: string; literal: Syn
   return out
 }
 
-function makeDef(file: string, key: string, name: string, recv: string | null, node: SyntaxNode): FuncDef {
-  return { id: `${file}:${key}`, key, name, recv, file, dir: dirOf(file), line: node.startPosition.row + 1 }
+const NO_FLAGS = { opensTransaction: false, mutatesState: false, compensates: false, takesTx: false }
+
+function makeDef(file: string, key: string, name: string, recv: string | null, node: SyntaxNode, flags = NO_FLAGS): FuncDef {
+  return { id: `${file}:${key}`, key, name, recv, file, dir: dirOf(file), line: node.startPosition.row + 1, ...flags }
 }
 
 function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncDef>; callbackOwners: Map<string, FuncDef> } {
@@ -90,7 +103,7 @@ function buildIndex(facts: FileFacts[]): { index: Index; defs: Map<string, FuncD
   const callbackOwners = new Map<string, FuncDef>() // `${file}:${literal nodeKey}` -> callback def
   for (const ff of facts) {
     for (const d of ff.decls) {
-      const def = makeDef(d.file, d.recv ? `${d.recv}.${d.name}` : d.name, d.name, d.recv, d.node)
+      const def = makeDef(d.file, d.recv ? `${d.recv}.${d.name}` : d.name, d.name, d.recv, d.node, bodyFlags(d))
       defs.set(def.id, def)
       if (d.recv) {
         addTo(index.methodsByName, d.name, def)
@@ -307,6 +320,7 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
     defs,
     edgesFrom: (id) => from.get(id) ?? [],
     edgesTo: (id) => to.get(id) ?? [],
+    typeHasMutex: (type) => [...(fieldTypes.get(type)?.values() ?? [])].some((t) => t === "Mutex" || t === "RWMutex"),
     findDefs: (symbol) => [...defs.values()].filter((d) => d.key === symbol || (d.name === symbol && !d.key.startsWith("callback:"))),
   }
 }
