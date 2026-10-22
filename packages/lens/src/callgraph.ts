@@ -353,8 +353,38 @@ function resolveReference(node: SyntaxNode, r: Resolver, params: Set<string>): F
   return type ? (r.index.methodsByRecv.get(`${type}.${name}`) ?? []) : []
 }
 
+/** `f[T](...)` and `pkg.F[T](...)` call the function the indexed expression names: look through the type arguments. */
+function unwrapInstantiation(fn: SyntaxNode | null): SyntaxNode | null {
+  if (fn?.type !== "index_expression") return fn
+  const operand = fn.childForFieldName("operand")
+  return operand?.type === "identifier" || operand?.type === "selector_expression" ? operand : fn
+}
+
+/**
+ * `f[T](x)` with a single argument parses as a conversion to the generic type `f[T]`. It is a call when `f` (or
+ * `pkg.F`) is a function; a real conversion names a type, which is never a function.
+ */
+function resolveGenericConversion(node: SyntaxNode, r: Resolver): FuncDef[] {
+  const generic = node.childForFieldName("type")
+  if (generic?.type !== "generic_type") return []
+  const name = generic.namedChildren[0]
+  if (name?.type === "type_identifier") return r.index.funcsByDir.get(`${dirOf(r.ff.file)}${name.text}`) ?? []
+  if (name?.type !== "qualified_type") return []
+  const pkg = name.namedChildren[0]?.text
+  const fn = name.namedChildren[1]?.text
+  const path = pkg ? r.ff.imports.get(pkg) : undefined
+  return path && fn ? packageFuncKeys(r, path, fn).flatMap((k) => r.index.funcsByDir.get(k) ?? []) : []
+}
+
+/** What a node reaches: a written call, a generic call with one argument, or a function used as a value. */
+function resolveNode(node: SyntaxNode, r: Resolver, params: Set<string>): { targets: FuncDef[]; via: EdgeVia } {
+  if (node.type === "call_expression") return resolveCall(node, r)
+  if (node.type === "type_conversion_expression") return { targets: resolveGenericConversion(node, r), via: "call" }
+  return { targets: resolveReference(node, r, params), via: "ref" }
+}
+
 function resolveCall(call: SyntaxNode, r: Resolver): { targets: FuncDef[]; via: EdgeVia } {
-  const fn = call.childForFieldName("function")
+  const fn = unwrapInstantiation(call.childForFieldName("function"))
   if (!fn) return { targets: [], via: "call" }
   if (fn.type === "identifier") {
     const dir = dirOf(r.ff.file)
@@ -379,10 +409,9 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
       inferLocals(resolver)
       const params = parameterNames(decl)
       for (const call of walk(decl.node)) {
-        const isCall = call.type === "call_expression"
-        if (!isCall && call.type !== "selector_expression" && call.type !== "identifier") continue
+        if (!["call_expression", "type_conversion_expression", "selector_expression", "identifier"].includes(call.type)) continue
         const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
-        const { targets, via } = isCall ? resolveCall(call, resolver) : { targets: resolveReference(call, resolver, params), via: "ref" as EdgeVia }
+        const { targets, via } = resolveNode(call, resolver, params)
         const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
         for (const t of targets) {
           if (t.id === edgeOwner) continue

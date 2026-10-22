@@ -392,3 +392,63 @@ func (h *H) Go() int { n := h.fs.Accept; return n }
     expect(httpRoutes(entriesOf(files, "S.Accept", route("H.Go")))).toEqual([])
   })
 })
+
+describe("calls to a generic function with explicit type arguments", () => {
+  const route = { "H.Do": ["GET /do"] }
+
+  it("resolves f[T](...) like f(...)", () => {
+    const files = [f("s/s.go", `package s
+type Req struct{}
+func bind[T any](c int) (T, bool) { check(c); var t T; return t, true }
+func check(c int) {}
+type H struct{}
+func (h *H) Do() { bind[Req](1) }
+`)]
+    expect(httpRoutes(entriesOf(files, "check", route))).toEqual(["GET /do"])
+  })
+
+  it("resolves f[T](a, b) with several arguments too", () => {
+    const files = [f("s/s.go", `package s
+type Req struct{}
+func bind[T any](c int, d int) { check(c) }
+func check(c int) {}
+type H struct{}
+func (h *H) Do() { bind[Req](1, 2) }
+`)]
+    expect(httpRoutes(entriesOf(files, "check", route))).toEqual(["GET /do"])
+  })
+
+  it("does not take a conversion to a generic type for a call", () => {
+    const files = [f("s/s.go", `package s
+type List[T any] []T
+func visit() {}
+type H struct{}
+func (h *H) Do() { _ = List[int](nil) }
+`)]
+    expect(httpRoutes(entriesOf(files, "visit", route))).toEqual([])
+  })
+
+  it("resolves pkg.F[T](...) through the package name", () => {
+    const files = [
+      f("util/util.go", `package util
+func Map[T any](x T) { visit() }
+func visit() {}
+`),
+      f("s/s.go", `package s
+import "x/util"
+type H struct{}
+func (h *H) Do() { util.Map[int](1) }
+`),
+    ]
+    expect(httpRoutes(entriesOf(files, "visit", route))).toEqual(["GET /do"])
+  })
+
+  it("does not treat an indexed value that is not a function name as a call target", () => {
+    const files = [f("s/s.go", `package s
+func visit() {}
+type H struct{ fns []func() }
+func (h *H) Do() { h.fns[0]() }
+`)]
+    expect(httpRoutes(entriesOf(files, "visit", route))).toEqual([])
+  })
+})
