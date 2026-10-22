@@ -7,6 +7,11 @@ const SKIP_DIRS = new Set(["node_modules", "vendor", "bin", "tmp", ".git", ".ide
 
 const MAX_SCAN_DEPTH = 12
 
+export interface ScanOptions {
+  /** Also return `*_test.go` files. Off by default: the routing surface ignores tests. */
+  includeTests?: boolean
+}
+
 function readIfExists(path: string): string | null {
   try { return readFileSync(path, "utf-8") } catch { return null }
 }
@@ -22,13 +27,13 @@ export function isGinProject(root: string): boolean {
  * files aren't part of the routing surface and only add noise), skipping
  * vendor/build/VCS directories. Returns paths relative to `root`.
  */
-export function findGoFiles(root: string): string[] {
+export function findGoFiles(root: string, opts: ScanOptions = {}): string[] {
   const out: string[] = []
-  walk(root, root, out, 0)
+  walk(root, root, out, 0, opts.includeTests ?? false)
   return out
 }
 
-function walk(root: string, dir: string, out: string[], depth: number): void {
+function walk(root: string, dir: string, out: string[], depth: number, includeTests: boolean): void {
   if (depth > MAX_SCAN_DEPTH) return
   let entries: string[]
   try {
@@ -47,8 +52,8 @@ function walk(root: string, dir: string, out: string[], depth: number): void {
       continue
     }
     if (isDir) {
-      walk(root, abs, out, depth + 1)
-    } else if (entry.endsWith(".go") && !entry.endsWith("_test.go")) {
+      walk(root, abs, out, depth + 1, includeTests)
+    } else if (entry.endsWith(".go") && (includeTests || !entry.endsWith("_test.go"))) {
       out.push(relative(root, abs))
     }
   }
@@ -60,9 +65,9 @@ export interface ReadGoFile {
 }
 
 /** Reads every discovered Go file's content, skipping any that fail to read (permissions, symlink races). */
-export function readGoProjectFiles(root: string): ReadGoFile[] {
+export function readGoProjectFiles(root: string, opts: ScanOptions = {}): ReadGoFile[] {
   const out: ReadGoFile[] = []
-  for (const rel of findGoFiles(root)) {
+  for (const rel of findGoFiles(root, opts)) {
     const content = readIfExists(join(root, rel))
     if (content !== null) out.push({ path: rel, content })
   }

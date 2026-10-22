@@ -6,4 +6,5 @@ export { findStructFields, resolveDtoBinding, type BoundField } from "./dto-bind
 export { buildMethodRegistry, findBindCalls, resolveVarDtoType, type BindCall, type HandlerMethod } from "./handler-parser.js"
 export { findTransactionBoundaries, type TransactionBoundary } from "./transaction-parser.js"
 export { parseGinProjectAt, isGinProject } from "./adapter.js"
-export { findGoFiles, readGoProjectFiles, goModExists, type ReadGoFile } from "./scanner.js"
+export { findGoFiles, readGoProjectFiles, goModExists, type ReadGoFile, type ScanOptions } from "./scanner.js"
+export { parseGo, walk, receiverTypeName, bareTypeName, functionParamTypes, findFunctionDecls, type SyntaxNode } from "./ast.js"
