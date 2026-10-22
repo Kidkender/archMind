@@ -40,6 +40,8 @@ export interface Decl {
   paramElems: Map<string, string>
   /** Bare type of the first declared result, e.g. "Svc" for `func New() (*Svc, error)`. */
   returns: string | null
+  /** The parameter and result types as one string, e.g. "uint,string->float64,bool"; what an interface method is matched on. */
+  signature: string
   node: SyntaxNode
 }
 
@@ -50,6 +52,8 @@ export interface FileFacts {
   decls: Decl[]
 }
 
+/** Interface type name to its declared methods (name to signature). Embedded interfaces are not followed. */
+export type Interfaces = Map<string, Map<string, string>>
 export type FieldTypes = Map<string, Map<string, string>>
 /** Type name, field name to the element type of that field's slice or map type. */
 export type FieldElems = Map<string, Map<string, string>>
@@ -57,6 +61,37 @@ export type FieldElems = Map<string, Map<string, string>>
 export type FieldNames = Map<string, Set<string>>
 /** Package directory to the type and element type of its package-level variables. */
 export type PackageVars = Map<string, { types: Map<string, string>; elems: Map<string, string> }>
+
+/** The types of a parameter or result list, one per name: `(a, b uint, s string)` gives uint, uint, string. */
+function listTypes(list: SyntaxNode): string[] {
+  const out: string[] = []
+  for (const p of list.namedChildren) {
+    if (p.type !== "parameter_declaration" && p.type !== "variadic_parameter_declaration") continue
+    const type = p.childForFieldName("type") ?? p.namedChildren[p.namedChildren.length - 1]
+    const names = p.namedChildren.filter((c) => c.type === "identifier").length
+    for (let i = 0; i < Math.max(1, names); i++) out.push((p.type === "variadic_parameter_declaration" ? "..." : "") + (type?.text ?? "").replace(/\s+/g, ""))
+  }
+  return out
+}
+
+/** Parameter types and result types of a function, method or interface method, as one comparable string. */
+export function signatureOf(params: SyntaxNode | null, result: SyntaxNode | null): string {
+  const results = !result ? [] : result.type === "parameter_list" ? listTypes(result) : [result.text.replace(/\s+/g, "")]
+  return `${params ? listTypes(params).join(",") : ""}->${results.join(",")}`
+}
+
+function recordInterface(typeSpec: SyntaxNode, into: Interfaces): void {
+  const name = typeSpec.childForFieldName("name")?.text
+  const body = typeSpec.childForFieldName("type")
+  if (!name || body?.type !== "interface_type") return
+  const methods = into.get(name) ?? new Map<string, string>()
+  into.set(name, methods)
+  for (const m of body.namedChildren) {
+    if (m.type !== "method_elem") continue
+    const method = m.childForFieldName("name")?.text
+    if (method) methods.set(method, signatureOf(m.childForFieldName("parameters"), m.childForFieldName("result")))
+  }
+}
 
 function receiverVar(fn: SyntaxNode): string | null {
   const decl = fn.childForFieldName("receiver")?.namedChildren.find((c) => c.type === "parameter_declaration")
@@ -153,17 +188,22 @@ export function collectFacts(files: GoFile[]): {
   fieldElems: FieldElems
   fieldNames: FieldNames
   packageVars: PackageVars
+  interfaces: Interfaces
 } {
   const facts: FileFacts[] = []
   const fieldTypes: FieldTypes = new Map()
   const fieldElems: FieldElems = new Map()
   const fieldNames: FieldNames = new Map()
   const packageVars: PackageVars = new Map()
+  const interfaces: Interfaces = new Map()
   for (const f of files) {
     const root = parseGo(f.content)
     const decls: Decl[] = []
     for (const n of walk(root)) {
-      if (n.type === "type_spec") recordStructFields(n, fieldTypes, fieldElems, fieldNames)
+      if (n.type === "type_spec") {
+        recordStructFields(n, fieldTypes, fieldElems, fieldNames)
+        recordInterface(n, interfaces)
+      }
       if (n.type === "var_spec") recordPackageVars(n, dirOfPath(f.path), packageVars)
       if (n.type !== "function_declaration" && n.type !== "method_declaration") continue
       const name = n.childForFieldName("name")?.text
@@ -176,10 +216,11 @@ export function collectFacts(files: GoFile[]): {
         params: functionParamTypes(n),
         paramElems: paramElementTypes(n),
         returns: returnTypeOf(n),
+        signature: signatureOf(n.childForFieldName("parameters"), n.childForFieldName("result")),
         node: n,
       })
     }
     facts.push({ file: f.path, imports: importsOf(root), decls })
   }
-  return { facts, fieldTypes, fieldElems, fieldNames, packageVars }
+  return { facts, fieldTypes, fieldElems, fieldNames, packageVars, interfaces }
 }

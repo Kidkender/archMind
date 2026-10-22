@@ -452,3 +452,53 @@ func (h *H) Do() { h.fns[0]() }
     expect(httpRoutes(entriesOf(files, "visit", route))).toEqual([])
   })
 })
+
+describe("calls through an interface", () => {
+  const IFACE = `package s
+type PS interface { Pos(id uint, z string) (x float64, ok bool) }
+type Hub struct{}
+func (h *Hub) Pos(id uint, z string) (float64, bool) { return 0, false }
+`
+
+  it("resolves to the type whose method has the interface's signature, not another method of the same name", () => {
+    const files = [f("s/s.go", IFACE + `type Boss struct{}
+func (b *Boss) Pos(ctx int, e string, extra int) float64 { return 0 }
+func guard(p PS) { p.Pos(1, "a") }
+`)]
+    expect(callersOf(files, "Hub.Pos")).toEqual(["guard"])
+    expect(callersOf(files, "Boss.Pos")).toEqual([])
+  })
+
+  it("links every type that satisfies the interface", () => {
+    const files = [f("s/s.go", IFACE + `type Fake struct{}
+func (x *Fake) Pos(id uint, z string) (float64, bool) { return 1, true }
+func guard(p PS) { p.Pos(1, "a") }
+`)]
+    expect(callersOf(files, "Hub.Pos")).toEqual(["guard"])
+    expect(callersOf(files, "Fake.Pos")).toEqual(["guard"])
+  })
+
+  it("does not count a type that lacks one of the interface's methods", () => {
+    const files = [f("s/s.go", `package s
+type PS interface { Pos(id uint) bool; Done() }
+type Full struct{}
+func (x *Full) Pos(id uint) bool { return true }
+func (x *Full) Done() {}
+type Half struct{}
+func (x *Half) Pos(id uint) bool { return true }
+func guard(p PS) { p.Pos(1) }
+`)]
+    expect(callersOf(files, "Full.Pos")).toEqual(["guard"])
+    expect(callersOf(files, "Half.Pos")).toEqual([])
+  })
+
+  it("resolves a call on a struct field whose type is an interface", () => {
+    const files = [f("s/s.go", IFACE + `type Boss struct{}
+func (b *Boss) Pos(ctx int, e string, extra int) float64 { return 0 }
+type S struct{ p PS }
+func (s *S) Run() { s.p.Pos(1, "a") }
+`)]
+    expect(callersOf(files, "Hub.Pos")).toEqual(["S.Run"])
+    expect(callersOf(files, "Boss.Pos")).toEqual([])
+  })
+})

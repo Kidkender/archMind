@@ -1,6 +1,6 @@
 import { walk, bareTypeName, type SyntaxNode } from "@kidkender/archmind-go-parser"
 import { bodyFlags } from "./flags.js"
-import { collectFacts, elementTypeName, type Decl, type FieldElems, type FieldNames, type FieldTypes, type FileFacts, type GoFile, type PackageVars } from "./parse.js"
+import { collectFacts, elementTypeName, type Decl, type FieldElems, type FieldNames, type FieldTypes, type FileFacts, type GoFile, type Interfaces, type PackageVars } from "./parse.js"
 
 export type { GoFile } from "./parse.js"
 
@@ -155,6 +155,8 @@ interface Resolver {
   /** Every field name a struct type declares. */
   fieldNames: FieldNames
   packageVars: PackageVars
+  /** Interface name to the concrete types that have all of its methods with the same signatures. */
+  implementers: Map<string, string[]>
   index: Index
   /** Element types of slice and map variables. */
   localElems: Map<string, string>
@@ -300,6 +302,8 @@ function resolveSelector(fn: SyntaxNode, r: Resolver): { targets: FuncDef[]; via
   if (type) {
     const methods = r.index.methodsByRecv.get(`${type}.${name}`) ?? []
     if (methods.length > 0) return { targets: methods, via: "call" }
+    const implemented = (r.implementers.get(type) ?? []).flatMap((t) => r.index.methodsByRecv.get(`${t}.${name}`) ?? [])
+    if (implemented.length > 0) return { targets: implemented, via: "call" }
     const callbacks = r.index.callbacksByTypeField.get(`${type}.${name}`) ?? r.index.callbacksByField.get(name) ?? []
     if (callbacks.length > 0) return { targets: callbacks, via: "callback" }
     // A field of that name holds a func value: the call goes to whatever was stored in it, not to a method elsewhere.
@@ -394,9 +398,31 @@ function resolveCall(call: SyntaxNode, r: Resolver): { targets: FuncDef[]; via: 
   return { targets: [], via: "call" }
 }
 
+/** For each interface with methods, the receiver types that declare every one of them with the same signature. */
+function findImplementers(interfaces: Interfaces, facts: FileFacts[]): Map<string, string[]> {
+  const signatures = new Map<string, Set<string>>() // `${recv}.${method}` -> signatures declared
+  const receivers = new Set<string>()
+  for (const ff of facts) {
+    for (const d of ff.decls) {
+      if (!d.recv) continue
+      receivers.add(d.recv)
+      const key = `${d.recv}.${d.name}`
+      signatures.set(key, (signatures.get(key) ?? new Set()).add(d.signature))
+    }
+  }
+  const out = new Map<string, string[]>()
+  for (const [iface, methods] of interfaces) {
+    if (methods.size === 0) continue
+    const types = [...receivers].filter((t) => [...methods].every(([m, sig]) => signatures.get(`${t}.${m}`)?.has(sig)))
+    if (types.length > 0) out.set(iface, types)
+  }
+  return out
+}
+
 export function buildCallGraph(files: GoFile[]): CallGraph {
-  const { facts, fieldTypes, fieldElems, fieldNames, packageVars } = collectFacts(files)
+  const { facts, fieldTypes, fieldElems, fieldNames, packageVars, interfaces } = collectFacts(files)
   const { index, defs, callbackOwners } = buildIndex(facts)
+  const implementers = findImplementers(interfaces, facts)
   const from = new Map<string, CallEdge[]>()
   const to = new Map<string, CallEdge[]>()
   const owners = new Map(facts.flatMap((ff) => ff.decls.map((d) => [`${d.file}:${d.node.startIndex}`, d] as const)))
@@ -405,7 +431,7 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
   for (const ff of facts) {
     for (const decl of ff.decls) {
       const ownerId = `${decl.file}:${decl.recv ? `${decl.recv}.${decl.name}` : decl.name}`
-      const resolver: Resolver = { ff, decl, fieldTypes, fieldElems, fieldNames, packageVars, index, locals: new Map(), localElems: new Map() }
+      const resolver: Resolver = { ff, decl, fieldTypes, fieldElems, fieldNames, packageVars, implementers, index, locals: new Map(), localElems: new Map() }
       inferLocals(resolver)
       const params = parameterNames(decl)
       for (const call of walk(decl.node)) {
