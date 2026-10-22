@@ -1,5 +1,5 @@
 import { buildCallGraph, type GoFile } from "@kidkender/archmind-lens"
-import { describeSymbol } from "../symbol-context.js"
+import { describeSymbol, renderSymbolContext } from "../symbol-context.js"
 
 const f = (path: string, content: string): GoFile => ({ path, content })
 
@@ -81,5 +81,61 @@ describe("describeSymbol", () => {
     const out = describeSymbol(graph, handlerRoutes, "Fx.Mark", { maxEntries: 0 })
     expect(out.reached_from).toEqual([])
     expect(out.entries_omitted).toBe(1)
+  })
+})
+
+describe("renderSymbolContext", () => {
+  const text = (symbol: string, opts = {}) => renderSymbolContext(describeSymbol(graph, handlerRoutes, symbol, opts))
+
+  it("starts with the symbol and where it is defined", () => {
+    expect(text("S.Peek").split("\n")[0]).toBe("S.Peek  internal/service/s.go:7")
+  })
+
+  it("puts one line per route with the path to the symbol and the call site", () => {
+    expect(text("S.Peek")).toContain("GET /api/look  H.Look>S.Peek  @internal/handler/h.go:5")
+  })
+
+  it("marks a path that runs inside a transaction", () => {
+    expect(text("Fx.Mark")).toContain("POST /api/do [txn]  H.Do>S.Run>Fx.Mark  @internal/service/s.go:6")
+  })
+
+  it("lists a transaction issue on its own line", () => {
+    expect(text("Fx.Mark")).toMatch(/txn issue: S\.Run -> Fx\.Mark internal\/service\/s\.go:6/)
+  })
+
+  it("says how many entries were left out", () => {
+    expect(text("Fx.Mark", { maxEntries: 0 })).toContain("1 more entries not shown")
+  })
+
+  it("is much shorter than the JSON form", () => {
+    const ctx = describeSymbol(graph, handlerRoutes, "Fx.Mark")
+    expect(renderSymbolContext(ctx).length).toBeLessThan(JSON.stringify(ctx, null, 2).length / 2)
+  })
+
+  it("says so when the symbol is not found", () => {
+    expect(text("Nope.Missing")).toMatch(/^Nope\.Missing: not found/)
+  })
+
+  it("groups non-route entries and collapses callers nobody calls into a count", () => {
+    const out = renderSymbolContext({
+      symbol: "X", found: true, entries_omitted: 0, transaction_issues: [],
+      definitions: [{ key: "X", file: "a.go", line: 1, opens_transaction: false, mutates_state: false }],
+      reached_from: [
+        { kind: "background", label: "Sim.Run", in_transaction: false, path: ["Sim.Run", "X"] },
+        { kind: "unreferenced", label: "A", in_transaction: false, path: ["A", "X"] },
+        { kind: "unreferenced", label: "B", in_transaction: false, path: ["B", "X"] },
+      ],
+    })
+    expect(out).toContain("background  Sim.Run>X".replace(">X", ""))
+    expect(out).toContain("2 unreferenced callers (A, B)")
+  })
+
+  it("flags an indirect link on the path", () => {
+    const out = renderSymbolContext({
+      symbol: "X", found: true, entries_omitted: 0, transaction_issues: [],
+      definitions: [{ key: "X", file: "a.go", line: 1, opens_transaction: false, mutates_state: false }],
+      reached_from: [{ kind: "http", label: "H.Do", route: "GET /x", in_transaction: false, indirect: ["ref"], path: ["H.Do", "X"] }],
+    })
+    expect(out).toContain("GET /x [via ref]  H.Do")
   })
 })

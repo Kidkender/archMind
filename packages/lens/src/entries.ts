@@ -14,6 +14,10 @@ export interface Entry {
   inTxn: boolean
   /** True when the path passes through a `go` statement: the work runs after the entry has returned. */
   async?: boolean
+  /** File and line of the call that reaches the symbol (the last hop); absent when the symbol is the entry itself. */
+  callSite?: { file: string; line: number }
+  /** Links on the path that are not a written call: a func stored in a field ("callback"), or a function or method used as a value ("ref"). */
+  indirect?: ("callback" | "ref")[]
 }
 
 export interface FindOptions {
@@ -31,6 +35,13 @@ interface Step {
   path: string[]
   inTxn: boolean
   async: boolean
+  callSite?: { file: string; line: number }
+  indirect: ("callback" | "ref")[]
+}
+
+/** The optional fields an entry carries, left out when empty so a plain path stays plain. */
+function detail(step: Step): Pick<Entry, "callSite" | "indirect"> {
+  return { ...(step.callSite && { callSite: step.callSite }), ...(step.indirect.length > 0 && { indirect: step.indirect }) }
 }
 
 function routesOf(def: FuncDef, opts: FindOptions): string[] {
@@ -56,21 +67,21 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
 
   for (const target of graph.findDefs(symbol)) {
     const seen = new Set<string>([target.id])
-    const queue: Step[] = [{ def: target, path: [target.key], inTxn: false, async: false }]
+    const queue: Step[] = [{ def: target, path: [target.key], inTxn: false, async: false, indirect: [] }]
     while (queue.length > 0 && seen.size < MAX_VISITED) {
       const step = queue.shift()!
       const routes = routesOf(step.def, opts)
       if (routes.length > 0) {
         for (const route of routes) {
-          add({ kind: "http", label: step.def.key, route, path: step.path, inTxn: step.inTxn, ...(step.async && { async: true }) })
+          add({ kind: "http", label: step.def.key, route, path: step.path, inTxn: step.inTxn, ...(step.async && { async: true }), ...detail(step) })
         }
         continue
       }
       const incoming: CallEdge[] = graph.edgesTo(step.def.id)
       if (incoming.some((e) => e.via === "go")) {
-        add({ kind: "background", label: step.def.key, path: step.path, inTxn: step.inTxn })
+        add({ kind: "background", label: step.def.key, path: step.path, inTxn: step.inTxn, ...detail(step) })
       } else if (incoming.length === 0) {
-        add({ kind: isStartup(step.def) ? "startup" : "unreferenced", label: step.def.key, path: step.path, inTxn: step.inTxn })
+        add({ kind: isStartup(step.def) ? "startup" : "unreferenced", label: step.def.key, path: step.path, inTxn: step.inTxn, ...detail(step) })
         continue
       }
       if (step.path.length >= maxDepth) continue
@@ -78,7 +89,15 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
         const caller = graph.defs.get(e.from)
         if (!caller || seen.has(caller.id)) continue
         seen.add(caller.id)
-        queue.push({ def: caller, path: [caller.key, ...step.path], inTxn: step.inTxn || e.inTxn, async: step.async || e.via === "go" })
+        const link = e.via === "callback" || e.via === "ref" ? e.via : null
+        queue.push({
+          def: caller,
+          path: [caller.key, ...step.path],
+          inTxn: step.inTxn || e.inTxn,
+          async: step.async || e.via === "go",
+          callSite: step.callSite ?? { file: caller.file, line: e.line },
+          indirect: link && !step.indirect.includes(link) ? [...step.indirect, link] : step.indirect,
+        })
       }
     }
   }

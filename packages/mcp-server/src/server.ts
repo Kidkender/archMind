@@ -3,7 +3,7 @@ import { z } from "zod"
 import { getGraphs, invalidate, detectFramework } from "./cache.js"
 import { summarizeEntrypoints } from "./entrypoints.js"
 import { getLens } from "./lens-cache.js"
-import { describeSymbol } from "./symbol-context.js"
+import { describeSymbol, renderSymbolContext } from "./symbol-context.js"
 import {
   computeCoChange,
   readCommits,
@@ -467,9 +467,13 @@ export function createServer(): McpServer {
         project_root: z.string().describe("Absolute path to the Go project root (the directory with go.mod)"),
         symbol: z.string().describe(`Function or method as declared in Go: "Type.Method" or "Func" (e.g. "BossService.Swing")`),
         max_entries: z.number().int().min(1).max(100).optional().describe("Most reaching entries to return (default 20)"),
+        format: z
+          .enum(["text", "json"])
+          .optional()
+          .describe(`"text" (default): one line per route, with path and call site, about a third of the size. "json": the same facts as an object`),
       },
     },
-    async ({ project_root, symbol, max_entries }) => {
+    async ({ project_root, symbol, max_entries, format }) => {
       if (detectFramework(project_root) !== "go") {
         return {
           content: [{ type: "text", text: JSON.stringify({ error: "archmind_symbol_context supports Go/Gin projects only", project_root }) }],
@@ -478,7 +482,8 @@ export function createServer(): McpServer {
       }
       const { graph, handlerRoutes } = getLens(project_root)
       const result = describeSymbol(graph, handlerRoutes, symbol, { maxEntries: max_entries })
-      return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] }
+      const text = format === "json" ? JSON.stringify(result, null, 2) : renderSymbolContext(result)
+      return { content: [{ type: "text", text }] }
     }
   )
 

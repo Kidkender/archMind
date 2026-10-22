@@ -118,3 +118,61 @@ func (s *S) Work() {}
     expect(run(files, "S.Work", { "H.Do": ["GET /a"] })[0].async).toBeFalsy()
   })
 })
+
+describe("where an entry reaches the symbol", () => {
+  const route = { "H.Do": ["GET /do"] }
+
+  it("gives the file and line of the call that reaches the symbol", () => {
+    const files = [f("s/s.go", `package s
+type S struct{}
+func (s *S) Run() {}
+type H struct{ s *S }
+func (h *H) Do() {
+	h.s.Run()
+}
+`)]
+    const [entry] = run(files, "S.Run", route)
+    expect(entry.callSite).toEqual({ file: "s/s.go", line: 6 })
+  })
+
+  it("keeps the call site of the symbol itself when the path is longer", () => {
+    const files = [f("s/s.go", `package s
+type S struct{}
+func (s *S) Run() {}
+func (s *S) Mid() {
+	s.Run()
+}
+type H struct{ s *S }
+func (h *H) Do() { h.s.Mid() }
+`)]
+    const [entry] = run(files, "S.Run", route)
+    expect(entry.path).toEqual(["H.Do", "S.Mid", "S.Run"])
+    expect(entry.callSite).toEqual({ file: "s/s.go", line: 5 })
+  })
+
+  it("has no call site when the symbol is the entry itself", () => {
+    const files = [f("s/s.go", `package s
+type H struct{}
+func (h *H) Do() {}
+`)]
+    expect(run(files, "H.Do", route)[0].callSite).toBeUndefined()
+  })
+
+  it("lists the indirect links a path relies on, and nothing for a path of plain calls", () => {
+    const viaValue = [f("s/s.go", `package s
+type FS struct{}
+func (f *FS) Accept() {}
+type H struct{ fs *FS }
+func (h *H) respond(act func()) { act() }
+func (h *H) Do() { h.respond(h.fs.Accept) }
+`)]
+    expect(run(viaValue, "FS.Accept", route)[0].indirect).toEqual(["ref"])
+    const plain = [f("s/s.go", `package s
+type S struct{}
+func (s *S) Run() {}
+type H struct{ s *S }
+func (h *H) Do() { h.s.Run() }
+`)]
+    expect(run(plain, "S.Run", route)[0].indirect).toBeUndefined()
+  })
+})
