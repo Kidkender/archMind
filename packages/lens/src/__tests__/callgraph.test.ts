@@ -226,3 +226,78 @@ func (o *Other) Work() {}
   })
 })
 
+
+/** Callers of `target` as "Key" strings, sorted. */
+function callersOf(files: GoFile[], target: string): string[] {
+  const graph = buildCallGraph(files)
+  return graph
+    .findDefs(target)
+    .flatMap((d) => graph.edgesTo(d.id))
+    .map((e) => graph.defs.get(e.from)!.key)
+    .sort()
+}
+
+describe("calls through a func-typed struct field", () => {
+  const IMMUNITY = `package s
+type Immunity struct{}
+func (i *Immunity) Grant(id uint) {}
+type Tmpl struct{ Grant func(n int) bool }
+`
+
+  it("does not resolve a call on a field of the known type to the only method with that name", () => {
+    const files = [f("s/s.go", IMMUNITY + `type S struct{ t Tmpl }
+func (s *S) Run() { s.t.Grant(1) }
+`)]
+    expect(callersOf(files, "Immunity.Grant")).toEqual([])
+  })
+
+  it("does not resolve it through a ranged package-level map of structs either", () => {
+    const files = [f("s/s.go", IMMUNITY + `var templates = map[string]Tmpl{"a": {Grant: func(n int) bool { return true }}}
+func Eval() { for _, t := range templates { t.Grant(1) } }
+`)]
+    expect(callersOf(files, "Immunity.Grant")).toEqual([])
+  })
+
+  it("still resolves a call to the only method of that name when the receiver type is unknown", () => {
+    const files = [f("s/s.go", IMMUNITY + `func Use(x Granter) { x.Grant(1) }
+`)]
+    expect(callersOf(files, "Immunity.Grant")).toEqual(["Use"])
+  })
+})
+
+describe("package-level variables", () => {
+  const TWO = `package s
+type A struct{}
+func (a *A) Run() {}
+type B struct{}
+func (b *B) Run() {}
+`
+
+  it("types the value of a range over a package-level map", () => {
+    const files = [f("s/s.go", TWO + `var table = map[string]*A{}
+func Go() { for _, v := range table { v.Run() } }
+`)]
+    expect(callersOf(files, "A.Run")).toEqual(["Go"])
+    expect(callersOf(files, "B.Run")).toEqual([])
+  })
+
+  it("types a package-level variable declared with a type, in a different file of the same package", () => {
+    const files = [
+      f("s/vars.go", `package s
+var all []*B
+`),
+      f("s/s.go", TWO + `func Go() { for _, v := range all { v.Run() } }
+`),
+    ]
+    expect(callersOf(files, "B.Run")).toEqual(["Go"])
+    expect(callersOf(files, "A.Run")).toEqual([])
+  })
+
+  it("lets a local variable shadow a package-level one", () => {
+    const files = [f("s/s.go", TWO + `var table = map[string]*A{}
+func Go() { table := []*B{}; for _, v := range table { v.Run() } }
+`)]
+    expect(callersOf(files, "B.Run")).toEqual(["Go"])
+    expect(callersOf(files, "A.Run")).toEqual([])
+  })
+})

@@ -173,5 +173,37 @@ type S struct{ db *DB; fx *Fx }
 func (s *S) Run() error { return s.db.Transaction(func(tx *DB) error { s.fx.Slow("a"); return nil }) }
 `)])).toEqual(["S.Run -> Fx.Slow"])
   })
-})
 
+  const PRELUDE = `package s
+import "sync"
+type DB struct{}
+func (d *DB) Transaction(fn func(tx *DB) error) error { return fn(d) }
+type Fx struct{ mu sync.Mutex; by map[string]int }
+func (f *Fx) Mark(k string) { f.mu.Lock(); defer f.mu.Unlock(); f.by[k] = 1 }
+type Swing struct{}
+func (w *Swing) End() {}
+type Gate struct{}
+func (g *Gate) Begin() *Swing { return &Swing{} }
+`
+  const withDefer = (deferred: string): string[] =>
+    found([f("s/s.go", PRELUDE + `type S struct{ db *DB; fx *Fx; gate *Gate }
+func (s *S) Run() error {
+	sw := s.gate.Begin()
+	${deferred}
+	return s.db.Transaction(func(tx *DB) error { s.fx.Mark("a"); return nil })
+}
+`)])
+
+  it("still reports when the function defers the release of an unrelated reservation (a gate cooldown does not undo the effect)", () => {
+    // PR #72 had this shape: `defer swing.End()` gives the cooldown back, but Fx.Mark is not rolled back.
+    expect(withDefer("defer sw.End()")).toEqual(["S.Run -> Fx.Mark"])
+  })
+
+  it("does not take a deferred Unlock as an undo step", () => {
+    expect(withDefer("defer s.fx.mu.Unlock()")).toEqual(["S.Run -> Fx.Mark"])
+  })
+
+  it("does not take an End that is called directly, not deferred, as an undo step", () => {
+    expect(withDefer("sw.End()")).toEqual(["S.Run -> Fx.Mark"])
+  })
+})

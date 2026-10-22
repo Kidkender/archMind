@@ -53,6 +53,10 @@ export interface FileFacts {
 export type FieldTypes = Map<string, Map<string, string>>
 /** Type name, field name to the element type of that field's slice or map type. */
 export type FieldElems = Map<string, Map<string, string>>
+/** Struct type name to every field name it declares, including func-typed fields that have no bare type. */
+export type FieldNames = Map<string, Set<string>>
+/** Package directory to the type and element type of its package-level variables. */
+export type PackageVars = Map<string, { types: Map<string, string>; elems: Map<string, string> }>
 
 function receiverVar(fn: SyntaxNode): string | null {
   const decl = fn.childForFieldName("receiver")?.namedChildren.find((c) => c.type === "parameter_declaration")
@@ -93,14 +97,16 @@ function paramElementTypes(fn: SyntaxNode): Map<string, string> {
   return out
 }
 
-function recordStructFields(typeSpec: SyntaxNode, into: FieldTypes, elems: FieldElems): void {
+function recordStructFields(typeSpec: SyntaxNode, into: FieldTypes, elems: FieldElems, names: FieldNames): void {
   const name = typeSpec.childForFieldName("name")?.text
   const body = typeSpec.childForFieldName("type")
   if (!name || body?.type !== "struct_type") return
   const fields = into.get(name) ?? new Map<string, string>()
   const elemFields = elems.get(name) ?? new Map<string, string>()
+  const allNames = names.get(name) ?? new Set<string>()
   into.set(name, fields)
   elems.set(name, elemFields)
+  names.set(name, allNames)
   for (const decl of walk(body)) {
     if (decl.type !== "field_declaration") continue
     const typeNode = decl.childForFieldName("type")
@@ -110,22 +116,55 @@ function recordStructFields(typeSpec: SyntaxNode, into: FieldTypes, elems: Field
     const names = decl.namedChildren.filter((c) => c.type === "field_identifier")
     if (bare && names.length === 0) fields.set(bare, bare) // embedded field: reachable under its type's name
     for (const id of names) {
+      allNames.add(id.text)
       if (bare) fields.set(id.text, bare)
       if (el) elemFields.set(id.text, el)
     }
   }
 }
 
-/** Parses every file once and collects declarations, imports and struct field types. */
-export function collectFacts(files: GoFile[]): { facts: FileFacts[]; fieldTypes: FieldTypes; fieldElems: FieldElems } {
+const FUNCTION_NODES = new Set(["function_declaration", "method_declaration", "func_literal"])
+
+/** Records the type and element type of the variables a package-level `var` declares, per package directory. */
+function recordPackageVars(spec: SyntaxNode, dir: string, into: PackageVars): void {
+  for (let n = spec.parent; n; n = n.parent) if (FUNCTION_NODES.has(n.type)) return
+  const typeNode = spec.childForFieldName("type")
+  const literal = spec.childForFieldName("value")?.namedChildren[0]
+  const composite = literal?.type === "unary_expression" ? literal.namedChildren[0] : literal
+  const valueType = composite?.type === "composite_literal" ? composite.childForFieldName("type") : null
+  const source = typeNode ?? valueType
+  const bare = source ? bareTypeName(source) : null
+  const elem = source ? elementTypeName(source) : null
+  const vars = into.get(dir) ?? { types: new Map<string, string>(), elems: new Map<string, string>() }
+  into.set(dir, vars)
+  for (const id of spec.namedChildren) {
+    if (id.type !== "identifier") continue
+    if (bare) vars.types.set(id.text, bare)
+    if (elem) vars.elems.set(id.text, elem)
+  }
+}
+
+const dirOfPath = (path: string): string => path.slice(0, path.lastIndexOf("/") + 1)
+
+/** Parses every file once and collects declarations, imports, struct field types and package-level variables. */
+export function collectFacts(files: GoFile[]): {
+  facts: FileFacts[]
+  fieldTypes: FieldTypes
+  fieldElems: FieldElems
+  fieldNames: FieldNames
+  packageVars: PackageVars
+} {
   const facts: FileFacts[] = []
   const fieldTypes: FieldTypes = new Map()
   const fieldElems: FieldElems = new Map()
+  const fieldNames: FieldNames = new Map()
+  const packageVars: PackageVars = new Map()
   for (const f of files) {
     const root = parseGo(f.content)
     const decls: Decl[] = []
     for (const n of walk(root)) {
-      if (n.type === "type_spec") recordStructFields(n, fieldTypes, fieldElems)
+      if (n.type === "type_spec") recordStructFields(n, fieldTypes, fieldElems, fieldNames)
+      if (n.type === "var_spec") recordPackageVars(n, dirOfPath(f.path), packageVars)
       if (n.type !== "function_declaration" && n.type !== "method_declaration") continue
       const name = n.childForFieldName("name")?.text
       if (!name) continue
@@ -142,5 +181,5 @@ export function collectFacts(files: GoFile[]): { facts: FileFacts[]; fieldTypes:
     }
     facts.push({ file: f.path, imports: importsOf(root), decls })
   }
-  return { facts, fieldTypes, fieldElems }
+  return { facts, fieldTypes, fieldElems, fieldNames, packageVars }
 }
