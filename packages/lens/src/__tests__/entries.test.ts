@@ -242,6 +242,43 @@ func (h *OrderHandler) Create(c *gin.Context) { ${body} }
   })
 })
 
+describe("calls on an element read from a map or slice field", () => {
+  const svc = `package service
+type CustomerService struct{ db int }
+func (s *CustomerService) GetByID(id uint) int { return 0 }
+type ShipmentService struct{ db int }
+func (s *ShipmentService) GetByID(id uint) int { return 0 }
+type OrderService struct {
+  byCode map[string]*CustomerService
+  all    []*CustomerService
+}
+`
+  const handler = `package handler
+import "github.com/gin-gonic/gin"
+type OrderHandler struct{ orders *OrderService }
+func (h *OrderHandler) Create(c *gin.Context) { h.orders.Create() }
+`
+  const reach = (call: string) =>
+    run([f("internal/service/s.go", svc + `func (s *OrderService) Create() { ${call} }
+`), f("internal/handler/h.go", handler)], "CustomerService.GetByID", { "orderhandler.create": ["POST /orders"] }).map((e) => e.route)
+
+  it("follows a call on a map element read in place", () => {
+    expect(reach(`s.byCode["a"].GetByID(1)`)).toEqual(["POST /orders"])
+  })
+
+  it("follows a call on a variable assigned a map element", () => {
+    expect(reach(`p := s.byCode["a"]; p.GetByID(1)`)).toEqual(["POST /orders"])
+  })
+
+  it("follows a call on a variable assigned a map element with the comma-ok form", () => {
+    expect(reach(`p, ok := s.byCode["a"]; if ok { p.GetByID(1) }`)).toEqual(["POST /orders"])
+  })
+
+  it("follows a call on a slice element", () => {
+    expect(reach(`s.all[0].GetByID(1)`)).toEqual(["POST /orders"])
+  })
+})
+
 describe("calls the graph could not attribute", () => {
   const two = `package s
 type A struct{}

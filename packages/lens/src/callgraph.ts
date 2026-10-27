@@ -252,7 +252,7 @@ function operandType(operand: SyntaxNode, r: Resolver): string | null {
     r.locals.get(name) ?? (name === r.decl.recvVar ? r.decl.recv : (r.decl.params.get(name) ?? packageVarOf(r, name, "types")))
   if (operand.type === "identifier") return typeOfIdent(operand.text)
   // a value built in place: `(&T{...}).Method()`, `(T{...}).Method()`
-  if (operand.type === "parenthesized_expression" || operand.type === "unary_expression" || operand.type === "composite_literal") return inferType(operand, r)
+  if (["parenthesized_expression", "unary_expression", "composite_literal", "index_expression"].includes(operand.type)) return inferType(operand, r)
   if (operand.type !== "selector_expression") return null
   const inner = operand.childForFieldName("operand")
   const field = operand.childForFieldName("field")?.text
@@ -287,6 +287,11 @@ function inferType(expr: SyntaxNode, r: Resolver): string | null {
       return operandType(expr, r)
     case "call_expression":
       return callReturnType(expr, r)
+    case "index_expression": {
+      // an element of a map or slice: `s.providers[code]`
+      const collection = expr.childForFieldName("operand")
+      return collection ? inferElem(collection, r) : null
+    }
     default:
       return null
   }
