@@ -2,3 +2,5 @@ export { buildCallGraph, type CallGraph, type CallEdge, type FuncDef, type EdgeV
 export { findEntries, type Entry, type EntryKind, type FindOptions } from "./entries.js"
 export { handlerRouteIndex } from "./routes.js"
 export { findTransactionEffects, type TransactionEffect } from "./effects.js"
+export { findUnscopedAccess, type UnscopedAccess } from "./ownership.js"
+export { findUnscopedHandlers, type UnscopedHandler } from "./handlers.js"
