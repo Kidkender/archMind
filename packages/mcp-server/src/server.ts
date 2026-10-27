@@ -461,7 +461,8 @@ export function createServer(): McpServer {
         "Go projects only. Start from any function or method (service, repository, helper), not a route: returns where it is defined (file:line), " +
         "which HTTP routes, background goroutines and startup code reach it, whether those calls run inside a database transaction, " +
         "and any in-memory state change made inside a transaction that a rollback cannot undo. " +
-        "Static analysis: calls through interfaces are followed only when one implementation matches, so a missing route can mean an unresolved call. " +
+        "Static analysis. Lines starting \"not attributed:\" name calls of a same-named method that the graph could not tie to a definition (untyped or interface receiver): the routes listed may be incomplete, so check those call sites. No such line means every call of the symbol and its callers was resolved. " +
+        "A \"[route of X not resolved]\" flag means a handler on the path has no route in the route graph. " +
         "The transaction check only flags direct writes on mutex-guarded types, so an empty list is not proof of safety.",
       inputSchema: {
         project_root: z.string().describe("Absolute path to the Go project root (the directory with go.mod)"),

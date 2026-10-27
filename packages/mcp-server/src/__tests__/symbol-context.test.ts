@@ -159,3 +159,38 @@ func Register(h *H) { _ = h.Cancel }
   })
 })
 
+describe("calls the graph could not attribute", () => {
+  const files = [f("internal/s/s.go", `package s
+type A struct{}
+type B struct{}
+func (a *A) Run() {}
+func (b *B) Run() {}
+func Use() { thing().Run() }
+`)]
+
+  it("reports the sites in the result and one line in the text", () => {
+    const out = describeSymbol(buildCallGraph(files), new Map(), "A.Run")
+    expect(out.possible_callers).toEqual([{ symbol: "A.Run", sites: [{ caller: "Use", file: "internal/s/s.go", line: 6 }] }])
+    expect(renderSymbolContext(out)).toContain("not attributed: A.Run called from Use @internal/s/s.go:6")
+  })
+
+  it("leaves the field out when every call resolved", () => {
+    const out = describeSymbol(graph, handlerRoutes, "S.Peek")
+    expect(out.possible_callers).toBeUndefined()
+    expect(renderSymbolContext(out)).not.toContain("not attributed")
+  })
+
+  it("cuts a long list and says how many were left out", () => {
+    const many = [f("internal/s/s.go", `package s
+type A struct{}
+type B struct{}
+func (a *A) Run() {}
+func (b *B) Run() {}
+${Array.from({ length: 6 }, (_, i) => `func U${i}() { thing().Run() }`).join("\n")}
+`)]
+    const text = renderSymbolContext(describeSymbol(buildCallGraph(many), new Map(), "A.Run"))
+    expect(text).toContain("U0")
+    expect(text).toContain("3 more")
+  })
+})
+

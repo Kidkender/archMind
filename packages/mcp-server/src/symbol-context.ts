@@ -1,4 +1,4 @@
-import { findEntries, findTransactionEffects, type CallGraph, type TransactionEffect } from "@kidkender/archmind-lens"
+import { findEntries, findPossibleCallers, findTransactionEffects, type CallGraph, type PossibleCallers, type TransactionEffect } from "@kidkender/archmind-lens"
 
 export interface SymbolContextOptions {
   /** Most entries to return; the rest are counted in `entries_omitted`. */
@@ -39,6 +39,8 @@ export interface SymbolContext {
   reached_from: SymbolEntry[]
   entries_omitted: number
   transaction_issues: TransactionEffect[]
+  /** Calls of same-named methods the graph could not attribute (untyped or interface receiver): routes or callers may be missing. Absent when every call resolved. */
+  possible_callers?: PossibleCallers[]
   note?: string
 }
 
@@ -90,6 +92,7 @@ export function describeSymbol(
   const keys = new Set(defs.map((d) => d.key))
   const issues = findTransactionEffects(graph).filter((x) => keys.has(x.function) || keys.has(x.callee) || x.via.some((v) => keys.has(v)))
 
+  const possible = findPossibleCallers(graph, symbol)
   return {
     symbol,
     found: true,
@@ -103,10 +106,12 @@ export function describeSymbol(
     reached_from: entries.slice(0, maxEntries),
     entries_omitted: Math.max(0, entries.length - maxEntries),
     transaction_issues: issues,
+    ...(possible.length > 0 && { possible_callers: possible }),
   }
 }
 
 const MAX_LISTED_UNREFERENCED = 5
+const MAX_LISTED_SITES = 3
 
 function flagsOf(e: SymbolEntry): string {
   const flags = [e.in_transaction && "[txn]", e.async && "[async]", e.indirect && `[via ${e.indirect.join(",")}]`, e.unmapped_handler && `[route of ${e.unmapped_handler} not resolved]`].filter(Boolean)
@@ -136,6 +141,9 @@ export function renderSymbolContext(ctx: SymbolContext): string {
     lines.push(`${unreferenced.length} unreferenced callers (${names.join(", ")}${more})`)
   }
   if (ctx.entries_omitted > 0) lines.push(`${ctx.entries_omitted} more entries not shown`)
+  const sites = (ctx.possible_callers ?? []).flatMap((p) => p.sites.map((s) => ({ symbol: p.symbol, ...s })))
+  for (const s of sites.slice(0, MAX_LISTED_SITES)) lines.push(`not attributed: ${s.symbol} called from ${s.caller} @${s.file}:${s.line}`)
+  if (sites.length > MAX_LISTED_SITES) lines.push(`not attributed: ${sites.length - MAX_LISTED_SITES} more`)
   for (const x of ctx.transaction_issues) {
     lines.push(`txn issue: ${x.function} -> ${x.callee} ${x.file}:${x.line}${x.via.length > 1 ? ` via ${x.via.join(">")}` : ""}`)
   }
