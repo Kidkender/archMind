@@ -12,6 +12,8 @@ export interface BodyFlags {
   takesTx: boolean
   /** A parameter is a web framework's request context (`*gin.Context`), so the function is an HTTP handler. */
   takesRequest: boolean
+  /** Number of parameters; null when the function is variadic. */
+  arity: number | null
 }
 
 const COMPENSATION = /^(rollback|undo|revert|compensate)/i
@@ -53,6 +55,16 @@ function takesRequestContext(decl: Decl): boolean {
   return false
 }
 
+/** How many arguments a call must pass: one per declared parameter, null when the last is variadic. */
+function arityOf(decl: Decl): number | null {
+  let count = 0
+  for (const p of decl.node.childForFieldName("parameters")?.namedChildren ?? []) {
+    if (p.type === "variadic_parameter_declaration") return null
+    if (p.type === "parameter_declaration") count += Math.max(1, p.namedChildren.filter((c) => c.type === "identifier").length)
+  }
+  return count
+}
+
 export function bodyFlags(decl: Decl): BodyFlags {
   const flags: BodyFlags = {
     opensTransaction: false,
@@ -60,6 +72,7 @@ export function bodyFlags(decl: Decl): BodyFlags {
     compensates: false,
     takesTx: [...decl.params.values()].some((t) => DB_TYPES.has(t)),
     takesRequest: takesRequestContext(decl),
+    arity: arityOf(decl),
   }
   // Variables that point into the receiver's own state: the receiver itself and anything taken from it.
   const owned = new Set<string>(decl.recvVar ? [decl.recvVar] : [])

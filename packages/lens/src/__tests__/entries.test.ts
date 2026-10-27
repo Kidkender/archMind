@@ -1,5 +1,5 @@
 import { buildCallGraph, type GoFile } from "../callgraph.js"
-import { findEntries } from "../entries.js"
+import { findEntries, findPossibleCallers } from "../entries.js"
 
 const f = (path: string, content: string): GoFile => ({ path, content })
 const run = (files: GoFile[], target: string, routes: Record<string, string[]> = {}) =>
@@ -211,3 +211,168 @@ func (s *S) Run(ctx context.Context) { s.Cancel(ctx, 1) }
   })
 })
 
+describe("calls on a value built in place", () => {
+  const svc = `package service
+type Customer struct{}
+type CustomerService struct{ db int }
+func (s *CustomerService) GetByID(id uint) *Customer { return nil }
+type ShipmentService struct{ db int }
+func (s *ShipmentService) GetByID(id uint) int { return 0 }
+type OrderService struct{ db int }
+`
+  const handler = (body: string) => `package handler
+import "github.com/gin-gonic/gin"
+type OrderHandler struct{ orders *OrderService }
+func (h *OrderHandler) Create(c *gin.Context) { ${body} }
+`
+  const reach = (call: string) =>
+    run([f("internal/service/s.go", svc + `func (s *OrderService) Create() { ${call} }
+`), f("internal/handler/h.go", handler("h.orders.Create()"))], "CustomerService.GetByID", { "orderhandler.create": ["POST /orders"] }).map((e) => e.route)
+
+  it("follows a method call on a parenthesized pointer to a composite literal", () => {
+    expect(reach("(&CustomerService{db: s.db}).GetByID(1)")).toEqual(["POST /orders"])
+  })
+
+  it("follows a method call on a parenthesized composite literal value", () => {
+    expect(reach("(CustomerService{db: s.db}).GetByID(1)")).toEqual(["POST /orders"])
+  })
+
+  it("follows a call on a variable assigned a composite literal", () => {
+    expect(reach("c := &CustomerService{db: s.db}; c.GetByID(1)")).toEqual(["POST /orders"])
+  })
+})
+
+describe("calls the graph could not attribute", () => {
+  const two = `package s
+type A struct{}
+type B struct{}
+func (a *A) Run() {}
+func (b *B) Run() {}
+`
+  const possible = (files: GoFile[], target: string) => findPossibleCallers(buildCallGraph(files), target).map((p) => ({ symbol: p.symbol, sites: p.sites.map((x) => `${x.caller}@${x.file}:${x.line}`) }))
+
+  it("lists a call to a method of that name whose receiver type is unknown", () => {
+    const files = [f("s/s.go", two + `func Use() { thing().Run() }\n`)]
+    expect(possible(files, "A.Run")).toEqual([{ symbol: "A.Run", sites: ["Use@s/s.go:6"] }])
+  })
+
+  it("lists nothing when every call of that name resolves", () => {
+    const files = [f("s/s.go", two + `func Use(a *A) { a.Run() }\n`)]
+    expect(possible(files, "A.Run")).toEqual([])
+  })
+
+  it("ignores a call whose receiver type is known to be another type", () => {
+    const files = [f("s/s.go", two + `func Use(b *B) { b.Run() }\n`)]
+    expect(possible(files, "A.Run")).toEqual([])
+  })
+
+  it("ignores a chain rooted in a type from outside the project", () => {
+    const files = [f("s/s.go", two + `func Use(db *gorm.DB) { db.Where("x").Run() }\n`)]
+    expect(possible(files, "A.Run")).toEqual([])
+  })
+
+  it("ignores a call on the parameter of a func literal whose type comes from outside the project", () => {
+    const files = [f("s/s.go", two + `func Use(db *gorm.DB) { db.Transaction(func(tx *gorm.DB) error { return tx.Run().Error }) }\n`)]
+    expect(possible(files, "A.Run")).toEqual([])
+  })
+
+  it("ignores a call whose number of arguments differs from the method's parameters", () => {
+    const files = [f("s/s.go", `package s
+type A struct{}
+type B struct{}
+func (a *A) Save(id uint, name string) {}
+func (b *B) Save(id uint, name string) {}
+func Use() { thing().Save(&row) }
+func Use2() { thing().Save(1, "x") }
+`)]
+    expect(possible(files, "A.Save")).toEqual([{ symbol: "A.Save", sites: ["Use2@s/s.go:7"] }])
+  })
+
+  it("does not apply the argument count to a variadic method", () => {
+    const files = [f("s/s.go", `package s
+type A struct{}
+type B struct{}
+func (a *A) Log(format string, args ...any) {}
+func (b *B) Log(format string, args ...any) {}
+func Use() { thing().Log("a", 1, 2, 3) }
+`)]
+    expect(possible(files, "A.Log")).toEqual([{ symbol: "A.Log", sites: ["Use@s/s.go:6"] }])
+  })
+
+  it("does not look for unattributed callers of an HTTP handler method", () => {
+    const files = [f("s/s.go", `package s
+import "github.com/gin-gonic/gin"
+type H struct{}
+type K struct{}
+func (h *H) Save(c *gin.Context) {}
+func (k *K) Save(c *gin.Context) {}
+func Use() { thing().Save(row) }
+func (a *A) Go() { h := &H{}; h.Save(nil) }
+type A struct{}
+`)]
+    expect(possible(files, "H.Save")).toEqual([])
+  })
+
+  it("ignores calls in test files", () => {
+    const files = [f("s/s.go", two), f("s/s_test.go", `package s\nfunc TestX() { thing().Run() }\n`)]
+    expect(possible(files, "A.Run")).toEqual([])
+  })
+
+  it("looks at the callers above the symbol too: a call through an interface with several implementations", () => {
+    const files = [f("s/s.go", `package s
+type Provider interface{ Quote() int }
+type P1 struct{ acc *Acc }
+type P2 struct{ acc *Acc }
+type Acc struct{}
+func (a *Acc) Lookup() {}
+func (p *P1) Quote() int { p.acc.Lookup(); return 1 }
+func (p *P2) Quote() int { return 2 }
+type Svc struct{ providers []Provider }
+func (s *Svc) Price() { pick(s.providers)[0].Quote() }
+`)]
+    const out = possible(files, "Acc.Lookup")
+    expect(out.map((o) => o.symbol)).toEqual(["P1.Quote"])
+    expect(out[0].sites[0]).toMatch(/^Svc.Price@/)
+  })
+})
+
+describe("interface implementations in other packages", () => {
+  const files = [
+    f("internal/service/p.go", `package service
+type Event struct{}
+type Quoter interface{ Quote(e Event) (int, error) }
+type Svc struct{}
+func (s *Svc) Price(p Quoter) { p.Quote(Event{}) }
+type Local struct{}
+func (l *Local) Quote(e Event) (int, error) { return 0, nil }
+`),
+    f("internal/integration/ghn/p.go", `package ghn
+import "x/internal/service"
+type Provider struct{ acc *Acc }
+type Acc struct{}
+func (a *Acc) Lookup() {}
+func (p *Provider) Quote(e service.Event) (int, error) { p.acc.Lookup(); return 0, nil }
+`),
+  ]
+
+  it("matches a method whose signature names the interface's types with a package qualifier", () => {
+    const paths = run(files, "Acc.Lookup").map((e) => e.path.join(">"))
+    expect(paths).toContain("Svc.Price>Provider.Quote>Acc.Lookup")
+  })
+})
+
+describe("two paths to the same startup function", () => {
+  it("keeps the path through a handler with no route next to a plain path", () => {
+    const files = [f("cmd/server/main.go", `package main
+import "github.com/gin-gonic/gin"
+type S struct{}
+func (s *S) work() {}
+func (s *S) Tick() { s.work() }
+type H struct{ s *S }
+func (h *H) Do(c *gin.Context) { h.s.work() }
+func main() { var s *S; s.Tick(); var h *H; _ = h.Do }
+`)]
+    const entries = run(files, "S.work")
+    expect(entries.map((e) => `${e.kind}:${e.unmappedHandler ?? "-"}`).sort()).toEqual(["startup:-", "startup:H.Do"])
+  })
+})

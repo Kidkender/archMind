@@ -1,5 +1,5 @@
 import { walk, bareTypeName, type SyntaxNode } from "@kidkender/archmind-go-parser"
-import { bodyFlags } from "./flags.js"
+import { bodyFlags, type BodyFlags } from "./flags.js"
 import { collectFacts, elementTypeName, type Decl, type FieldElems, type FieldNames, type FieldTypes, type FileFacts, type GoFile, type Interfaces, type PackageVars } from "./parse.js"
 
 export type { GoFile } from "./parse.js"
@@ -27,6 +27,8 @@ export interface FuncDef {
   takesTx: boolean
   /** A parameter is a web framework's request context: an HTTP handler. */
   takesRequest: boolean
+  /** Number of parameters; null for a variadic function, or when not known (func literals). */
+  arity: number | null
 }
 
 export interface CallEdge {
@@ -37,8 +39,21 @@ export interface CallEdge {
   via: EdgeVia
 }
 
+/** A call `x.Name(...)` the graph could not attribute to any definition, though methods named `Name` exist. */
+export interface UnresolvedCall {
+  name: string
+  file: string
+  line: number
+  /** Key of the function the call sits in. */
+  caller: string
+  /** Number of arguments written in the call. */
+  args: number
+}
+
 export interface CallGraph {
   defs: Map<string, FuncDef>
+  /** Calls of a method named `name` whose receiver is untyped or an interface, and that reached no definition. Test files are left out. */
+  unresolvedCalls(name: string): UnresolvedCall[]
   edgesFrom(id: string): CallEdge[]
   edgesTo(id: string): CallEdge[]
   /** Definitions matching "Recv.Method", a bare function, or a bare method name. */
@@ -176,7 +191,7 @@ function callbackLiterals(decl: Decl): Map<string, CallbackLiteral> {
   return out
 }
 
-const NO_FLAGS = { opensTransaction: false, mutatesState: false, compensates: false, takesTx: false, takesRequest: false }
+const NO_FLAGS: BodyFlags = { opensTransaction: false, mutatesState: false, compensates: false, takesTx: false, takesRequest: false, arity: null }
 
 function makeDef(file: string, key: string, name: string, recv: string | null, node: SyntaxNode, flags = NO_FLAGS): FuncDef {
   return { id: `${file}:${key}`, key, name, recv, file, dir: dirOf(file), line: node.startPosition.row + 1, ...flags }
@@ -236,6 +251,8 @@ function operandType(operand: SyntaxNode, r: Resolver): string | null {
   const typeOfIdent = (name: string): string | null =>
     r.locals.get(name) ?? (name === r.decl.recvVar ? r.decl.recv : (r.decl.params.get(name) ?? packageVarOf(r, name, "types")))
   if (operand.type === "identifier") return typeOfIdent(operand.text)
+  // a value built in place: `(&T{...}).Method()`, `(T{...}).Method()`
+  if (operand.type === "parenthesized_expression" || operand.type === "unary_expression" || operand.type === "composite_literal") return inferType(operand, r)
   if (operand.type !== "selector_expression") return null
   const inner = operand.childForFieldName("operand")
   const field = operand.childForFieldName("field")?.text
@@ -258,6 +275,8 @@ function inferType(expr: SyntaxNode, r: Resolver): string | null {
   switch (expr.type) {
     case "unary_expression":
       return inferType(expr.childForFieldName("operand") ?? expr, r)
+    case "parenthesized_expression":
+      return expr.namedChildren[0] ? inferType(expr.namedChildren[0], r) : null
     case "composite_literal": {
       const type = expr.childForFieldName("type")
       return type ? bareTypeName(type) : null
@@ -335,6 +354,15 @@ function inferLocals(r: Resolver): void {
         if (id.type !== "identifier") continue
         if (bare) r.locals.set(id.text, bare)
         if (elem) r.localElems.set(id.text, elem)
+      }
+    } else if (n.type === "func_literal") {
+      // the parameters of a closure: `func(tx *gorm.DB) error { ... }`
+      for (const p of n.childForFieldName("parameters")?.namedChildren ?? []) {
+        if (p.type !== "parameter_declaration") continue
+        const type = p.childForFieldName("type")
+        const bare = type ? bareTypeName(type) : null
+        if (!bare) continue
+        for (const id of p.namedChildren) if (id.type === "identifier" && !r.decl.params.has(id.text)) r.locals.set(id.text, bare)
       }
     } else if (n.type === "range_clause") {
       const vars = n.childForFieldName("left")?.namedChildren ?? []
@@ -539,6 +567,26 @@ function registerStoredFunctions(r: Resolver, params: Set<string>, defs: Map<str
   }
 }
 
+/** The method name of a `x.Name(...)` call that may be a project method the graph missed: the receiver's type is unknown or an interface. */
+function unresolvedSite(call: SyntaxNode, r: Resolver, interfaces: Interfaces, projectTypes: Set<string>): { name: string } | null {
+  const fn = unwrapInstantiation(call.childForFieldName("function"))
+  if (fn?.type !== "selector_expression") return null
+  const operand = fn.childForFieldName("operand")
+  const name = fn.childForFieldName("field")?.text
+  if (!operand || !name || !r.index.methodsByName.has(name)) return null
+  if (operand.type === "identifier" && isPackageName(operand, r)) return null
+  const type = operandType(operand, r)
+  if (type !== null) return interfaces.has(type) ? { name } : null
+  // A chain such as `s.db.WithContext(ctx).Create(...)`: its root decides. A root of a type from outside the project is not a project call.
+  let root: SyntaxNode | null = operand
+  while (root?.type === "call_expression") {
+    const callee: SyntaxNode | null = root.childForFieldName("function")
+    root = callee?.type === "selector_expression" ? callee.childForFieldName("operand") : null
+  }
+  const rootType = root ? operandType(root, r) : null
+  return rootType === null || projectTypes.has(rootType) || interfaces.has(rootType) ? { name } : null
+}
+
 export function buildCallGraph(files: GoFile[]): CallGraph {
   const { facts, fieldTypes, fieldElems, fieldNames, packageVars, interfaces } = collectFacts(files)
   const { index, defs, callbackOwners } = buildIndex(facts)
@@ -548,6 +596,8 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
   const implementers = findImplementers(interfaces, facts)
   const from = new Map<string, CallEdge[]>()
   const to = new Map<string, CallEdge[]>()
+  const unresolved = new Map<string, UnresolvedCall[]>()
+  const projectTypes = new Set(facts.flatMap((ff) => ff.decls.flatMap((d) => (d.recv ? [d.recv] : []))))
   const owners = new Map(facts.flatMap((ff) => ff.decls.map((d) => [`${d.file}:${d.node.startIndex}`, d] as const)))
   void owners
 
@@ -572,6 +622,10 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
       const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
       const { targets, via } = resolveNode(call, resolver, params)
       const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
+      if (targets.length === 0 && call.type === "call_expression" && !decl.file.endsWith("_test.go")) {
+        const site = unresolvedSite(call, resolver, interfaces, projectTypes)
+        if (site) addTo(unresolved, site.name, { ...site, file: decl.file, line: call.startPosition.row + 1, caller: defs.get(edgeOwner)?.key ?? edgeOwner, args: call.childForFieldName("arguments")?.namedChildren.length ?? 0 })
+      }
       for (const t of targets) {
         if (t.id === edgeOwner) continue
         const edge: CallEdge = { from: edgeOwner, to: t.id, line: call.startPosition.row + 1, inTxn: isInTransaction(call), via: kind }
@@ -583,6 +637,7 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
 
   return {
     defs,
+    unresolvedCalls: (name) => unresolved.get(name) ?? [],
     edgesFrom: (id) => from.get(id) ?? [],
     edgesTo: (id) => to.get(id) ?? [],
     typeHasMutex: (type) => [...(fieldTypes.get(type)?.values() ?? [])].some((t) => t === "Mutex" || t === "RWMutex"),

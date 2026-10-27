@@ -67,13 +67,13 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH
   const found = new Map<string, Entry>()
   const add = (e: Entry): void => {
-    const k = `${e.kind}|${e.label}|${e.route ?? ""}`
+    const k = `${e.kind}|${e.label}|${e.route ?? ""}|${e.unmappedHandler ?? ""}`
     const prev = found.get(k)
     if (!prev || e.path.length < prev.path.length) found.set(k, e)
   }
 
   for (const target of graph.findDefs(symbol)) {
-    const seen = new Set<string>([target.id])
+    const seen = new Set<string>([`${target.id}|`])
     const queue: Step[] = [{ def: target, path: [target.key], inTxn: false, async: false, indirect: [] }]
     while (queue.length > 0 && seen.size < MAX_VISITED) {
       const step = queue.shift()!
@@ -95,8 +95,11 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
       if (step.path.length >= maxDepth) continue
       for (const e of incoming) {
         const caller = graph.defs.get(e.from)
-        if (!caller || seen.has(caller.id)) continue
-        seen.add(caller.id)
+        if (!caller) continue
+        // Keyed by the unrouted handler too: a path through one is a different answer from a plain path to the same function.
+        const seenKey = `${caller.id}|${step.unmappedHandler ?? (caller.takesRequest ? caller.key : "")}`
+        if (seen.has(seenKey)) continue
+        seen.add(seenKey)
         const link = e.via === "callback" || e.via === "ref" ? e.via : null
         queue.push({
           def: caller,
@@ -111,4 +114,44 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
     }
   }
   return [...found.values()]
+}
+
+export interface PossibleCallers {
+  /** The function on the path (or the symbol itself) the calls may be of. */
+  symbol: string
+  /** Calls of a method with that name that the graph did not attribute, from functions not already on any path to the symbol. */
+  sites: { caller: string; file: string; line: number }[]
+}
+
+/**
+ * Where the answer of findEntries may be incomplete: for the symbol and every function above it, the calls of a method
+ * of the same name that could not be resolved to a definition (untyped receiver, interface). An empty list means every
+ * call of those names was attributed.
+ */
+export function findPossibleCallers(graph: CallGraph, symbol: string, maxDepth = DEFAULT_MAX_DEPTH): PossibleCallers[] {
+  const visited = new Map<string, FuncDef>()
+  let frontier = graph.findDefs(symbol)
+  for (const d of frontier) visited.set(d.id, d)
+  for (let depth = 0; depth < maxDepth && frontier.length > 0 && visited.size < MAX_VISITED; depth++) {
+    const next: FuncDef[] = []
+    for (const def of frontier) {
+      if (def.takesRequest) continue // an HTTP handler is an entry: what registers it is route wiring, not a caller
+      for (const e of graph.edgesTo(def.id)) {
+        const caller = graph.defs.get(e.from)
+        if (caller && !visited.has(caller.id)) {
+          visited.set(caller.id, caller)
+          next.push(caller)
+        }
+      }
+    }
+    frontier = next
+  }
+  const onPath = new Set([...visited.values()].map((d) => d.key))
+  const out: PossibleCallers[] = []
+  for (const def of visited.values()) {
+    if (def.key.startsWith("callback:") || def.takesRequest) continue
+    const sites = graph.unresolvedCalls(def.name).filter((s) => !onPath.has(s.caller) && (def.arity === null || s.args === def.arity))
+    if (sites.length > 0) out.push({ symbol: def.key, sites: sites.map(({ caller, file, line }) => ({ caller, file, line })) })
+  }
+  return out
 }

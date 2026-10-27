@@ -74,10 +74,13 @@ function listTypes(list: SyntaxNode): string[] {
   return out
 }
 
-/** Parameter types and result types of a function, method or interface method, as one comparable string. */
+/**
+ * Parameter types and result types of a function, method or interface method, as one comparable string. Package
+ * qualifiers are dropped: the interface says `Event` where an implementation in another package says `service.Event`.
+ */
 export function signatureOf(params: SyntaxNode | null, result: SyntaxNode | null): string {
   const results = !result ? [] : result.type === "parameter_list" ? listTypes(result) : [result.text.replace(/\s+/g, "")]
-  return `${params ? listTypes(params).join(",") : ""}->${results.join(",")}`
+  return `${params ? listTypes(params).join(",") : ""}->${results.join(",")}`.replace(/\b[A-Za-z_][A-Za-z0-9_]*\./g, "")
 }
 
 function recordInterface(typeSpec: SyntaxNode, into: Interfaces): void {
