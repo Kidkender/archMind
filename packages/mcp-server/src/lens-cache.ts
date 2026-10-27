@@ -18,10 +18,11 @@ export function getLens(projectRoot: string): LensEntry {
   const cached = entries.get(projectRoot)
   if (cached && cached.source === source) return cached
 
+  const files = readGoProjectFiles(projectRoot)
   const entry: LensEntry = {
     source,
-    graph: buildCallGraph(readGoProjectFiles(projectRoot)),
-    handlerRoutes: handlerRouteIndex(source),
+    graph: buildCallGraph(files),
+    handlerRoutes: handlerRouteIndex(source, files),
   }
   entries.set(projectRoot, entry)
   return entry
