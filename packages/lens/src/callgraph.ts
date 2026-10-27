@@ -25,6 +25,8 @@ export interface FuncDef {
   compensates: boolean
   /** A parameter is a database handle, so the function takes part in its caller's transaction. */
   takesTx: boolean
+  /** A parameter is a web framework's request context: an HTTP handler. */
+  takesRequest: boolean
 }
 
 export interface CallEdge {
@@ -174,7 +176,7 @@ function callbackLiterals(decl: Decl): Map<string, CallbackLiteral> {
   return out
 }
 
-const NO_FLAGS = { opensTransaction: false, mutatesState: false, compensates: false, takesTx: false }
+const NO_FLAGS = { opensTransaction: false, mutatesState: false, compensates: false, takesTx: false, takesRequest: false }
 
 function makeDef(file: string, key: string, name: string, recv: string | null, node: SyntaxNode, flags = NO_FLAGS): FuncDef {
   return { id: `${file}:${key}`, key, name, recv, file, dir: dirOf(file), line: node.startPosition.row + 1, ...flags }

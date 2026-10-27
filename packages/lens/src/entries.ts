@@ -18,6 +18,8 @@ export interface Entry {
   callSite?: { file: string; line: number }
   /** Links on the path that are not a written call: a func stored in a field ("callback"), or a function or method used as a value ("ref"). */
   indirect?: ("callback" | "ref")[]
+  /** A gin-style handler on the path that no route was found for: the route is missing from this entry, not absent from the program. */
+  unmappedHandler?: string
 }
 
 export interface FindOptions {
@@ -37,11 +39,16 @@ interface Step {
   async: boolean
   callSite?: { file: string; line: number }
   indirect: ("callback" | "ref")[]
+  unmappedHandler?: string
 }
 
 /** The optional fields an entry carries, left out when empty so a plain path stays plain. */
-function detail(step: Step): Pick<Entry, "callSite" | "indirect"> {
-  return { ...(step.callSite && { callSite: step.callSite }), ...(step.indirect.length > 0 && { indirect: step.indirect }) }
+function detail(step: Step): Pick<Entry, "callSite" | "indirect" | "unmappedHandler"> {
+  return {
+    ...(step.callSite && { callSite: step.callSite }),
+    ...(step.indirect.length > 0 && { indirect: step.indirect }),
+    ...(step.unmappedHandler && { unmappedHandler: step.unmappedHandler }),
+  }
 }
 
 function routesOf(def: FuncDef, opts: FindOptions): string[] {
@@ -77,6 +84,7 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
         }
         continue
       }
+      if (step.def.takesRequest && !step.unmappedHandler) step.unmappedHandler = step.def.key
       const incoming: CallEdge[] = graph.edgesTo(step.def.id)
       if (incoming.some((e) => e.via === "go")) {
         add({ kind: "background", label: step.def.key, path: step.path, inTxn: step.inTxn, ...detail(step) })
@@ -97,6 +105,7 @@ export function findEntries(graph: CallGraph, symbol: string, opts: FindOptions)
           async: step.async || e.via === "go",
           callSite: step.callSite ?? { file: caller.file, line: e.line },
           indirect: link && !step.indirect.includes(link) ? [...step.indirect, link] : step.indirect,
+          ...(step.unmappedHandler && { unmappedHandler: step.unmappedHandler }),
         })
       }
     }

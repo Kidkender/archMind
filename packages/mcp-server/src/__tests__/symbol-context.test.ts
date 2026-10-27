@@ -139,3 +139,23 @@ describe("renderSymbolContext", () => {
     expect(out).toContain("GET /x [via ref]  H.Do")
   })
 })
+
+describe("handlers without a resolved route", () => {
+  const files = [
+    f("internal/handler/h.go", `package handler
+import "github.com/gin-gonic/gin"
+type S struct{}
+func (s *S) Cancel(id uint) {}
+type H struct{ s *S }
+func (h *H) Cancel(c *gin.Context) { h.s.Cancel(1) }
+func Register(h *H) { _ = h.Cancel }
+`),
+  ]
+
+  it("flags the entry and says in the text that the route was not resolved", () => {
+    const out = describeSymbol(buildCallGraph(files), new Map(), "S.Cancel")
+    expect(out.reached_from).toEqual([expect.objectContaining({ unmapped_handler: "H.Cancel" })])
+    expect(renderSymbolContext(out)).toContain("route of H.Cancel not resolved")
+  })
+})
+

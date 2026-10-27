@@ -10,6 +10,8 @@ export interface BodyFlags {
   compensates: boolean
   /** A parameter is a database handle (`*gorm.DB`), so the method works with the caller's transaction. */
   takesTx: boolean
+  /** A parameter is a web framework's request context (`*gin.Context`), so the function is an HTTP handler. */
+  takesRequest: boolean
 }
 
 const COMPENSATION = /^(rollback|undo|revert|compensate)/i
@@ -39,12 +41,25 @@ function calleeName(call: SyntaxNode): string | null {
   return fn?.type === "selector_expression" ? (fn.childForFieldName("field")?.text ?? null) : null
 }
 
+/** A parameter typed `pkg.Context` for a package other than the standard `context`. */
+function takesRequestContext(decl: Decl): boolean {
+  const params = decl.node.childForFieldName("parameters")
+  for (const p of params?.namedChildren ?? []) {
+    let type = p.childForFieldName("type")
+    while (type?.type === "pointer_type") type = type.namedChildren[0] ?? null
+    if (type?.type !== "qualified_type") continue
+    if (type.childForFieldName("name")?.text === "Context" && type.childForFieldName("package")?.text !== "context") return true
+  }
+  return false
+}
+
 export function bodyFlags(decl: Decl): BodyFlags {
   const flags: BodyFlags = {
     opensTransaction: false,
     mutatesState: false,
     compensates: false,
     takesTx: [...decl.params.values()].some((t) => DB_TYPES.has(t)),
+    takesRequest: takesRequestContext(decl),
   }
   // Variables that point into the receiver's own state: the receiver itself and anything taken from it.
   const owned = new Set<string>(decl.recvVar ? [decl.recvVar] : [])

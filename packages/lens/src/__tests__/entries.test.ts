@@ -176,3 +176,38 @@ func (h *H) Do() { h.s.Run() }
     expect(run(plain, "S.Run", route)[0].indirect).toBeUndefined()
   })
 })
+
+describe("handlers whose route is not resolved", () => {
+  const files = [
+    f("internal/handler/h.go", `package handler
+import "github.com/gin-gonic/gin"
+type H struct{ s *S }
+type S struct{}
+func (s *S) Cancel(id uint) {}
+func (h *H) Cancel(c *gin.Context) { h.s.Cancel(1) }
+func Register(h *H) { _ = h.Cancel }
+`),
+  ]
+
+  it("marks an entry that passes through a gin handler with no route in the index", () => {
+    const entries = run(files, "S.Cancel")
+    expect(entries.map((e) => e.unmappedHandler)).toEqual(["H.Cancel"])
+  })
+
+  it("does not mark the entry once the handler has a route", () => {
+    const entries = run(files, "S.Cancel", { "h.cancel": ["POST /x"] })
+    expect(entries).toEqual([expect.objectContaining({ kind: "http", route: "POST /x" })])
+    expect(entries[0].unmappedHandler).toBeUndefined()
+  })
+
+  it("does not treat a function taking context.Context as a handler", () => {
+    const svc = [f("internal/s/s.go", `package s
+import "context"
+type S struct{}
+func (s *S) Cancel(ctx context.Context, id uint) {}
+func (s *S) Run(ctx context.Context) { s.Cancel(ctx, 1) }
+`)]
+    expect(run(svc, "S.Cancel").map((e) => e.unmappedHandler)).toEqual([undefined])
+  })
+})
+

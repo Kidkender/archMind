@@ -28,6 +28,8 @@ export interface SymbolEntry {
   call_site?: { file: string; line: number }
   /** Path links that are not a written call, so worth checking: "callback" (func in a field), "ref" (function or method used as a value). */
   indirect?: ("callback" | "ref")[]
+  /** A handler on the path whose route could not be resolved, so the route is missing from this entry rather than absent. */
+  unmapped_handler?: string
 }
 
 export interface SymbolContext {
@@ -80,6 +82,7 @@ export function describeSymbol(
         path: e.path,
         ...(e.callSite && { call_site: e.callSite }),
         ...(e.indirect && { indirect: e.indirect }),
+        ...(e.unmappedHandler && { unmapped_handler: e.unmappedHandler }),
       })
     )
     .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || (a.route ?? a.label).localeCompare(b.route ?? b.label))
@@ -106,7 +109,7 @@ export function describeSymbol(
 const MAX_LISTED_UNREFERENCED = 5
 
 function flagsOf(e: SymbolEntry): string {
-  const flags = [e.in_transaction && "[txn]", e.async && "[async]", e.indirect && `[via ${e.indirect.join(",")}]`].filter(Boolean)
+  const flags = [e.in_transaction && "[txn]", e.async && "[async]", e.indirect && `[via ${e.indirect.join(",")}]`, e.unmapped_handler && `[route of ${e.unmapped_handler} not resolved]`].filter(Boolean)
   return flags.length > 0 ? ` ${flags.join(" ")}` : ""
 }
 
@@ -124,8 +127,9 @@ export function renderSymbolContext(ctx: SymbolContext): string {
   if (!ctx.found) return `${ctx.symbol}: not found. ${ctx.note ?? ""}`.trim()
 
   const lines = [`${ctx.symbol}  ${ctx.definitions.map((d) => `${d.file}:${d.line}`).join(" | ")}`]
-  const unreferenced = ctx.reached_from.filter((e) => e.kind === "unreferenced")
-  for (const e of ctx.reached_from) if (e.kind !== "unreferenced") lines.push(entryLine(e))
+  const collapsed = (e: SymbolEntry): boolean => e.kind === "unreferenced" && !e.unmapped_handler
+  const unreferenced = ctx.reached_from.filter(collapsed)
+  for (const e of ctx.reached_from) if (!collapsed(e)) lines.push(entryLine(e))
   if (unreferenced.length > 0) {
     const names = unreferenced.slice(0, MAX_LISTED_UNREFERENCED).map((e) => e.label)
     const more = unreferenced.length > MAX_LISTED_UNREFERENCED ? ", ..." : ""
