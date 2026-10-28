@@ -327,14 +327,20 @@ function handlerReceiverType(handlerArg: SyntaxNode, paramTypes: Map<string, str
 }
 
 export interface ExtractRoutesOptions {
-  /** Name of the process entrypoint function to start walking from. Defaults to "main". */
+  /**
+   * Name of the one function to start walking from. When omitted, the walk starts from `main` and from every
+   * function that builds a Gin engine, because a server often builds its engine several calls away from `main`.
+   */
   entryFunction?: string
 }
 
+const routeKey = (r: RouteInfo): string => `${r.method} ${r.path} ${r.file}:${r.line}`
+
 /**
  * Extracts every Gin route reachable from the entry function (default
- * `main`), resolving group prefixes and middleware across function-call
- * boundaries (main → RegisterRoutes → RegisterXRoutes → r.GET(...)).
+ * `main`, plus every function that builds a Gin engine), resolving group
+ * prefixes and middleware across function-call boundaries
+ * (main → RegisterRoutes → RegisterXRoutes → r.GET(...)).
  *
  * `files` should include the whole set of Go source files that make up the
  * routing surface — typically `cmd/server/main.go`, `routes/routes.go`, and
@@ -347,10 +353,28 @@ export function extractRoutes(files: GoSourceFile[], opts: ExtractRoutesOptions 
   const entryName = opts.entryFunction ?? "main"
   const registry = buildFunctionRegistry(parsed, entryName)
 
+  const starts: FunctionEntry[] = []
   const entry = registry.get(entryName)
-  if (!entry) return []
+  if (entry) starts.push(entry)
+  if (opts.entryFunction === undefined) {
+    for (const file of parsed) {
+      for (const fn of findFunctionDecls(file.root)) {
+        const name = functionName(fn)
+        if (name && fn !== entry?.node && looksLikeGinEntrypoint(fn)) starts.push({ name, node: fn, file: file.path })
+      }
+    }
+  }
 
   const routes: RouteInfo[] = []
-  walkFunctionBody(entry, new Map(), registry, routes, new Set())
+  const seen = new Set<string>()
+  for (const start of starts) {
+    const found: RouteInfo[] = []
+    walkFunctionBody(start, new Map(), registry, found, new Set())
+    for (const route of found) {
+      if (seen.has(routeKey(route))) continue
+      seen.add(routeKey(route))
+      routes.push(route)
+    }
+  }
   return routes
 }
