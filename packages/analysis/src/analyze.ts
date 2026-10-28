@@ -24,7 +24,7 @@ export async function analyzeProject(projectRoot: string): Promise<RouteInfo[]> 
   // go.mod is a strong, cheap-to-check signal unique to Go — checked before
   // the PHP/JS/Java branches so a Gin project never falls through to the
   // Laravel default below.
-  const isGin = !isNestJS && !isSpringBoot && existsSync(join(projectRoot, "go.mod")) && goParser.isGinProject(projectRoot)
+  const isGin = !isNestJS && !isSpringBoot && goParser.isGinProject(projectRoot)
 
   if (isNestJS) {
     return analyzeNestJS(projectRoot, nestjsParser, userConfig)

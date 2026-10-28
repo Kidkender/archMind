@@ -28,7 +28,7 @@ export type Framework = "laravel" | "nestjs" | "go"
 // default                 → Laravel
 export function detectFramework(projectRoot: string): Framework {
   if (existsSync(join(projectRoot, "nest-cli.json"))) return "nestjs"
-  if (existsSync(join(projectRoot, "go.mod")) && isGinProject(projectRoot)) return "go"
+  if (isGinProject(projectRoot)) return "go"
   return "laravel"
 }
 

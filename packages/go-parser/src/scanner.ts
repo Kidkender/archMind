@@ -16,10 +16,19 @@ function readIfExists(path: string): string | null {
   try { return readFileSync(path, "utf-8") } catch { return null }
 }
 
-/** True when go.mod (at root, or the nearest one found while scanning) references gin-gonic/gin. */
+const usesGin = (goMod: string | null): boolean => !!goMod && /github\.com\/gin-gonic\/gin\b/.test(goMod)
+
+/**
+ * True when go.mod references gin-gonic/gin, at the root or one directory down (a repository that keeps the
+ * server in `server/` next to a web front end). A PHP project is not taken for a Go one because of a Go tool
+ * in a subdirectory.
+ */
 export function isGinProject(root: string): boolean {
-  const goMod = readIfExists(join(root, "go.mod"))
-  return !!goMod && /github\.com\/gin-gonic\/gin\b/.test(goMod)
+  if (existsSync(join(root, "go.mod"))) return usesGin(readIfExists(join(root, "go.mod")))
+  if (existsSync(join(root, "composer.json"))) return false
+  let entries: string[]
+  try { entries = readdirSync(root) } catch { return false }
+  return entries.some((e) => !SKIP_DIRS.has(e) && !e.startsWith(".") && usesGin(readIfExists(join(root, e, "go.mod"))))
 }
 
 /**
