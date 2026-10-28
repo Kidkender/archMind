@@ -157,10 +157,12 @@ function walkFunctionBody(
   initialGroups: Map<string, GroupState>,
   registry: Map<string, FunctionEntry>,
   routes: RouteInfo[],
-  visiting: Set<string>
+  visiting: Set<string>,
+  walked: Set<string>
 ): GroupState | undefined {
   if (visiting.has(fn.name)) return undefined // guard against accidental recursion
   visiting.add(fn.name)
+  walked.add(fn.name)
 
   const body = fn.node.childForFieldName("body")
   if (!body) { visiting.delete(fn.name); return undefined }
@@ -170,7 +172,7 @@ function walkFunctionBody(
   const statements = statementsOf(body)
 
   for (const stmt of statements) {
-    handleStatement(stmt, fn.file, groups, paramTypes, registry, routes, visiting)
+    handleStatement(stmt, fn.file, groups, paramTypes, registry, routes, visiting, walked)
   }
 
   visiting.delete(fn.name)
@@ -195,7 +197,8 @@ function handleStatement(
   paramTypes: Map<string, string>,
   registry: Map<string, FunctionEntry>,
   routes: RouteInfo[],
-  visiting: Set<string>
+  visiting: Set<string>,
+  walked: Set<string>
 ): void {
   // Bare `{ ... }` scoping block — a common Go idiom for visually grouping a
   // route group's registrations (`apiv1 := r.Group(...); apiv1.Use(...); {
@@ -204,7 +207,7 @@ function handleStatement(
   // the braces weren't there, so recurse into it directly.
   if (stmt.type === "block") {
     for (const inner of statementsOf(stmt)) {
-      handleStatement(inner, file, groups, paramTypes, registry, routes, visiting)
+      handleStatement(inner, file, groups, paramTypes, registry, routes, visiting, walked)
     }
     return
   }
@@ -232,7 +235,7 @@ function handleStatement(
         // receiving one as a parameter.
         const callee = registry.get(parts.method)
         if (callee) {
-          const returned = walkFunctionBody(callee, resolveDelegationArgs(parts, callee, groups, file), registry, routes, visiting)
+          const returned = walkFunctionBody(callee, resolveDelegationArgs(parts, callee, groups, file), registry, routes, visiting, walked)
           if (returned) groups.set(targetName, returned)
         }
       }
@@ -287,7 +290,7 @@ function handleStatement(
   if (callee) {
     const childInitial = resolveDelegationArgs(parts, callee, groups, file)
     if (childInitial.size > 0) {
-      walkFunctionBody(callee, childInitial, registry, routes, visiting)
+      walkFunctionBody(callee, childInitial, registry, routes, visiting, walked)
     }
   }
 }
@@ -349,6 +352,19 @@ export interface ExtractRoutesOptions {
   entryFunction?: string
 }
 
+/** Names of the parameters typed `*gin.Engine`: the engine itself, so its prefix is known to be empty. */
+function engineParams(fn: SyntaxNode): string[] {
+  const names: string[] = []
+  for (const p of fn.childForFieldName("parameters")?.namedChildren ?? []) {
+    let type = p.childForFieldName("type")
+    if (type?.type === "pointer_type") type = type.namedChildren[0] ?? null
+    if (type?.type !== "qualified_type") continue
+    if (type.childForFieldName("package")?.text !== "gin" || type.childForFieldName("name")?.text !== "Engine") continue
+    for (const id of p.namedChildren) if (id.type === "identifier") names.push(id.text)
+  }
+  return names
+}
+
 const routeKey = (r: RouteInfo): string => `${r.method} ${r.path} ${r.file}:${r.line}`
 
 /**
@@ -382,13 +398,28 @@ export function extractRoutes(files: GoSourceFile[], opts: ExtractRoutesOptions 
 
   const routes: RouteInfo[] = []
   const seen = new Set<string>()
-  for (const start of starts) {
+  const walked = new Set<string>()
+  const walk = (start: FunctionEntry, initial: Map<string, GroupState>): void => {
     const found: RouteInfo[] = []
-    walkFunctionBody(start, new Map(), registry, found, new Set())
+    walkFunctionBody(start, initial, registry, found, new Set(), walked)
     for (const route of found) {
       if (seen.has(routeKey(route))) continue
       seen.add(routeKey(route))
       routes.push(route)
+    }
+  }
+  for (const start of starts) walk(start, new Map())
+
+  // A function that receives the engine and that nothing above reached is a starting point too (the engine is
+  // built elsewhere, e.g. inside a command closure). Only the engine itself: a route group's prefix would be unknown.
+  if (opts.entryFunction === undefined) {
+    for (const file of parsed) {
+      for (const fn of findFunctionDecls(file.root)) {
+        const name = functionName(fn)
+        const params = name ? engineParams(fn) : []
+        if (!name || params.length === 0 || walked.has(name)) continue
+        walk({ name, node: fn, file: file.path }, new Map(params.map((p) => [p, { prefix: "", middleware: [] }])))
+      }
     }
   }
   return routes
