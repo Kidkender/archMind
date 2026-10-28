@@ -16,8 +16,14 @@ export function parseGo(source: string): SyntaxNode {
 
 /** Depth-first walk of all named descendants (including the node itself). */
 export function* walk(node: SyntaxNode): Generator<SyntaxNode> {
-  yield node
-  for (const child of node.namedChildren) yield* walk(child)
+  // an explicit stack: a recursive `yield*` re-enters every ancestor generator for each node
+  const pending = [node]
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    yield current
+    const children = current.namedChildren
+    for (let i = children.length - 1; i >= 0; i--) pending.push(children[i])
+  }
 }
 
 /** All function_declaration / method_declaration nodes in a file. */
