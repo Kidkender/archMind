@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind-lens",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Symbol-first context for Go services: from any function, find the HTTP routes, background loops, callbacks and startup code that reach it, and whether the call runs inside a database transaction.",
   "type": "module",
   "main": "dist/index.js",
@@ -34,7 +34,7 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
   },
   "dependencies": {
-    "@kidkender/archmind-go-parser": "^0.2.0",
+    "@kidkender/archmind-go-parser": "^0.3.0",
     "@kidkender/archmind-protocol": "^0.5.1"
   },
   "devDependencies": {

@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.9.1] - 2026-10-28
+
+### Added
+- **`@kidkender/archmind-lens` 0.2.0: say when an answer may be incomplete.** `archmind_symbol_context` now prints `not attributed: <symbol> called from <caller> @file:line` for calls of a same-named method that the call graph could not tie to a definition (untyped or interface receiver); no such line means every call was resolved. A handler on the path whose route could not be resolved is flagged `[route of X not resolved]`. Calls are also followed through map and slice elements (`s.providers[code].Cancel(...)`), interface implementations declared in other packages, values built in place (`(&T{}).M()`), and closure parameters.
+- `lens` reports unscoped resource access in services and unscoped reads in handlers.
+- READMEs for `lens`, `go-parser`, `analysis`, `aql`, `constraints`, `context` and `graph-query` reach npm with each package's next release (`aql`, `constraints`, `context` and `graph-query` are not re-released here).
+
+### Fixed
+- **`@kidkender/archmind-go-parser` 0.3.0: routes were missing for several common Gin layouts.** Measured on eight public Gin applications (route registration sites counted with the Go AST, an approximation): before, five of eight returned 0 or 1 routes; now `golang-gin-realworld-example-app` 27 of 27, `go-gin-example` 15 of 15, `one-api` 123 of 124, `answer` 231 of 232, `go-admin` 99 of 109, `new-api` 349 (337 sites, `Any` and loops), `alist` 307 (the site count undercounts helpers called per prefix), `gin-vue-admin` 201 of roughly 250. What changed: routes are found when the engine is built several calls away from `main`; a function that receives `*gin.Engine` and that nothing reached is a starting point; groups written as `r.Group("/api").Use(mw)` or passed inline as `register(v1.Group("/x"))` are followed; registrars appended to a package-level slice in `init()` and called in a loop are followed; calls resolve to a function in the caller's own directory first; a project whose `go.mod` is one directory down (`server/`) is recognised. Graphs for four other Gin projects are byte-identical before and after.
+- `lens` resolves a handler registered as `h.Cancel` to its type when mapping routes (route coverage on four Gin projects: 194/196, 263/267, 59/62, 149/150).
+- `analysis` and the MCP server no longer take a Gin project whose `go.mod` is one directory down for a Laravel one.
+
+### Changed
+- `@kidkender/archmind-go-parser`: parsing a project is much faster (a 196-route project went from 24.5 s to 2.7 s) because struct definitions are indexed once per file instead of being searched again for every route; tree walks use an explicit stack. `lens` tracks callbacks during the walk instead of climbing parents (call graph for the same project 3.96 s to 2.94 s). The first `archmind_symbol_context` call on a project now takes about 6 s instead of about 30 s; later calls take well under a second.
+
+### Measured, with limits
+- `archmind_symbol_context` against a type-checked call graph (Go SSA + VTA): handler recall 346/346 on one private Gin project (247 symbols; tuned on that project) and 381/381 on a second one that was not used for tuning; precision 100% on both. Symbols reached through more than 25 handlers or through transaction closures are not scored.
+- With an agent answering "which handlers reach this function": equal accuracy with and without the tool in two rounds (10 and 15 handlers; plain grep also reached 100% on these shallow call chains); the tool used 43% and 49% fewer tool calls and 3% and 5% fewer tokens (one run per cell, six symbols per round); a fresh first call is slower than grep. The tool's value is the "not attributed" warning and deep or interface-heavy chains, not a measured accuracy gain on ordinary Gin code.
+
+### Release notes
+- Versions: `go-parser` 0.3.0, `lens` 0.2.0 (needs `go-parser` ^0.3.0), `mcp-server` 0.7.1, `analysis` 0.2.3, CLI 0.9.1 (no CLI source change; it resolves the workspace packages at install time).
+- Publish order: `go-parser`, `lens`, `analysis`, `mcp-server`, CLI. The MCP server runs `dist/index.cjs`: run `npm run build` in `packages/mcp-server` and reconnect (`/mcp`) after changing code.
+
 ## [0.9.0] - 2026-10-22
 
 ### Added
