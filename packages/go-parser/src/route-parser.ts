@@ -114,6 +114,29 @@ function looksLikeGinEntrypoint(fn: SyntaxNode): boolean {
 }
 
 /**
+ * The group an expression evaluates to: a tracked variable, `X.Group(path, mw...)`, or `X.Use(mw...)`, where X is
+ * itself such an expression. Lets `r.Group("/api").Use(mw)` define a group in one statement and
+ * `register(v1.Group("/users"))` pass one without naming it.
+ */
+function groupOf(expr: SyntaxNode, file: string, groups: Map<string, GroupState>): GroupState | undefined {
+  if (expr.type === "identifier") return groups.get(expr.text)
+  if (expr.type !== "call_expression") return undefined
+  const fn = expr.childForFieldName("function")
+  if (fn?.type !== "selector_expression") return undefined
+  const operand = fn.childForFieldName("operand")
+  const method = fn.childForFieldName("field")?.text
+  if (!operand || (method !== "Group" && method !== "Use")) return undefined
+  const base = groupOf(operand, file, groups)
+  if (!base) return undefined
+
+  const args = expr.childForFieldName("arguments")?.namedChildren ?? []
+  const refs = (nodes: SyntaxNode[]): MiddlewareRef[] => nodes.map((a) => toMiddlewareRef(a, file)).filter((m): m is MiddlewareRef => !!m)
+  if (method === "Use") return { ...base, middleware: [...base.middleware, ...refs(args)] }
+  const [pathArg, ...mwArgs] = args
+  return { prefix: base.prefix + (pathArg ? stringLiteralValue(pathArg) ?? "" : ""), middleware: [...base.middleware, ...refs(mwArgs)] }
+}
+
+/**
  * Walks one function body in source order, tracking which local variables
  * are gin route groups (the router param itself, `gin.Default()`/`gin.New()`
  * results, or `X.Group(...)` results) and their accumulated prefix +
@@ -201,22 +224,15 @@ function handleStatement(
       const parts = callParts(rhsExpr)
       if (parts && isEngineConstructor(parts)) {
         groups.set(targetName, { prefix: "", middleware: [] })
-      } else if (parts && parts.method === "Group" && parts.receiver && groups.has(parts.receiver)) {
-        const parent = groups.get(parts.receiver)!
-        const [pathArg, ...mwArgs] = parts.args
-        const suffix = pathArg ? stringLiteralValue(pathArg) ?? "" : ""
-        const inlineMw = mwArgs.map((a) => toMiddlewareRef(a, file)).filter((m): m is MiddlewareRef => !!m)
-        groups.set(targetName, {
-          prefix:     parent.prefix + suffix,
-          middleware: [...parent.middleware, ...inlineMw],
-        })
+      } else if (parts && (parts.method === "Group" || parts.method === "Use") && groupOf(rhsExpr, file, groups)) {
+        groups.set(targetName, groupOf(rhsExpr, file, groups)!)
       } else if (parts) {
         // Router-factory pattern: `local := SomeRegisteredFn(...)` where the
         // callee builds (and returns) its own engine internally, rather than
         // receiving one as a parameter.
         const callee = registry.get(parts.method)
         if (callee) {
-          const returned = walkFunctionBody(callee, resolveDelegationArgs(parts, callee, groups), registry, routes, visiting)
+          const returned = walkFunctionBody(callee, resolveDelegationArgs(parts, callee, groups, file), registry, routes, visiting)
           if (returned) groups.set(targetName, returned)
         }
       }
@@ -269,7 +285,7 @@ function handleStatement(
   // registry itself uses.
   const callee = registry.get(parts.method)
   if (callee) {
-    const childInitial = resolveDelegationArgs(parts, callee, groups)
+    const childInitial = resolveDelegationArgs(parts, callee, groups, file)
     if (childInitial.size > 0) {
       walkFunctionBody(callee, childInitial, registry, routes, visiting)
     }
@@ -280,16 +296,15 @@ function handleStatement(
 function resolveDelegationArgs(
   parts: { args: SyntaxNode[] },
   callee: FunctionEntry,
-  groups: Map<string, GroupState>
+  groups: Map<string, GroupState>,
+  file: string
 ): Map<string, GroupState> {
   const paramNames = functionParamNames(callee.node)
   const childInitial = new Map<string, GroupState>()
   parts.args.forEach((argNode, i) => {
     const paramName = paramNames[i]
-    const argIdent = argNode.type === "identifier" ? argNode.text : null
-    if (paramName && argIdent && groups.has(argIdent)) {
-      childInitial.set(paramName, groups.get(argIdent)!)
-    }
+    const state = paramName ? groupOf(argNode, file, groups) : undefined
+    if (paramName && state) childInitial.set(paramName, state)
   })
   return childInitial
 }
