@@ -1,4 +1,4 @@
-import { parseGo, callParts, stringLiteralValue, functionName, functionParamNames, functionParamTypes, findFunctionDecls, statementsOf } from "./ast.js"
+import { parseGo, callParts, stringLiteralValue, functionName, functionParamNames, functionParamTypes, findFunctionDecls, statementsOf, walk } from "./ast.js"
 import type { SyntaxNode } from "./ast.js"
 import { shortMiddlewareName } from "./middleware-mapper.js"
 
@@ -89,15 +89,52 @@ function toMiddlewareRef(node: SyntaxNode, file: string): MiddlewareRef | null {
  */
 function buildFunctionRegistry(files: ParsedFile[], entryName = "main"): Map<string, FunctionEntry> {
   const registry = new Map<string, FunctionEntry>()
+  const sameDirectory = new Map<string, FunctionEntry>()
   for (const file of files) {
     for (const fn of findFunctionDecls(file.root)) {
       const name = functionName(fn)
       if (!name) continue
+      sameDirectory.set(`${dirOf(file.path)}::${name}`, { name, node: fn, file: file.path })
       if (name === entryName && registry.has(entryName) && !looksLikeGinEntrypoint(fn)) continue
       registry.set(name, { name, node: fn, file: file.path })
     }
   }
+  functionsByDirectory.set(registry, sameDirectory)
+  functionSlices.set(registry, findFunctionSlices(files))
   return registry
+}
+
+const dirOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf("/")))
+
+// Side tables of one registry: its functions by directory, and the function slices (see findFunctionSlices).
+const functionsByDirectory = new WeakMap<Map<string, FunctionEntry>, Map<string, FunctionEntry>>()
+const functionSlices = new WeakMap<Map<string, FunctionEntry>, Map<string, string[]>>()
+
+/** The function a call by this name means: the one in the caller's own directory when there is one (packages repeat names such as `Init`), else the project-wide one. */
+function calleeFor(registry: Map<string, FunctionEntry>, name: string, fromFile: string): FunctionEntry | undefined {
+  return functionsByDirectory.get(registry)?.get(`${dirOf(fromFile)}::${name}`) ?? registry.get(name)
+}
+
+/**
+ * Functions appended to a package-level slice: `routers = append(routers, registerA, registerB)`, usually in
+ * init(). Keyed by `<directory>::<slice name>`; the dispatcher that ranges over the slice sits in the same package.
+ */
+function findFunctionSlices(files: ParsedFile[]): Map<string, string[]> {
+  const slices = new Map<string, string[]>()
+  for (const file of files) {
+    for (const n of walk(file.root)) {
+      if (n.type !== "assignment_statement") continue
+      const target = n.childForFieldName("left")?.namedChildren[0]
+      const call = n.childForFieldName("right")?.namedChildren[0]
+      if (target?.type !== "identifier" || call?.type !== "call_expression") continue
+      const parts = callParts(call)
+      if (!parts || parts.receiver !== null || parts.method !== "append" || parts.args[0]?.text !== target.text) continue
+      const names = parts.args.slice(1).filter((a) => a.type === "identifier").map((a) => a.text)
+      const key = `${dirOf(file.path)}::${target.text}`
+      slices.set(key, [...(slices.get(key) ?? []), ...names])
+    }
+  }
+  return slices
 }
 
 function looksLikeGinEntrypoint(fn: SyntaxNode): boolean {
@@ -162,7 +199,7 @@ function walkFunctionBody(
 ): GroupState | undefined {
   if (visiting.has(fn.name)) return undefined // guard against accidental recursion
   visiting.add(fn.name)
-  walked.add(fn.name)
+  walked.add(`${fn.file}:${fn.name}`)
 
   const body = fn.node.childForFieldName("body")
   if (!body) { visiting.delete(fn.name); return undefined }
@@ -233,13 +270,18 @@ function handleStatement(
         // Router-factory pattern: `local := SomeRegisteredFn(...)` where the
         // callee builds (and returns) its own engine internally, rather than
         // receiving one as a parameter.
-        const callee = registry.get(parts.method)
+        const callee = calleeFor(registry, parts.method, file)
         if (callee) {
           const returned = walkFunctionBody(callee, resolveDelegationArgs(parts, callee, groups, file), registry, routes, visiting, walked)
           if (returned) groups.set(targetName, returned)
         }
       }
     }
+    return
+  }
+
+  if (stmt.type === "for_statement") {
+    walkRegistrarLoop(stmt, file, groups, registry, routes, visiting, walked)
     return
   }
 
@@ -286,11 +328,44 @@ function handleStatement(
   // Matched by short name only, ignoring any package qualifier (parts.receiver) —
   // same "resolve by name across the whole project" approach the function
   // registry itself uses.
-  const callee = registry.get(parts.method)
+  const callee = calleeFor(registry, parts.method, file)
   if (callee) {
     const childInitial = resolveDelegationArgs(parts, callee, groups, file)
     if (childInitial.size > 0) {
       walkFunctionBody(callee, childInitial, registry, routes, visiting, walked)
+    }
+  }
+}
+
+/**
+ * `for _, f := range routers { f(v1) }` over a slice of registrars: walks every function appended to that slice,
+ * with the group the loop passes in.
+ */
+function walkRegistrarLoop(
+  loop: SyntaxNode,
+  file: string,
+  groups: Map<string, GroupState>,
+  registry: Map<string, FunctionEntry>,
+  routes: RouteInfo[],
+  visiting: Set<string>,
+  walked: Set<string>
+): void {
+  const range = loop.namedChildren.find((c) => c.type === "range_clause")
+  const body = loop.childForFieldName("body")
+  const slice = range?.childForFieldName("right")
+  const targets = range?.childForFieldName("left")?.namedChildren
+  const loopVar = targets?.[targets.length - 1]?.text
+  if (!body || slice?.type !== "identifier" || !loopVar) return
+
+  const names = functionSlices.get(registry)?.get(`${dirOf(file)}::${slice.text}`) ?? []
+  for (const inner of statementsOf(body)) {
+    const call = inner.type === "expression_statement" ? inner.namedChildren[0] : undefined
+    const parts = call?.type === "call_expression" ? callParts(call) : null
+    if (!parts || parts.receiver !== null || parts.method !== loopVar) continue
+    for (const name of names) {
+      const callee = calleeFor(registry, name, file)
+      const initial = callee ? resolveDelegationArgs(parts, callee, groups, file) : undefined
+      if (callee && initial && initial.size > 0) walkFunctionBody(callee, initial, registry, routes, visiting, walked)
     }
   }
 }
@@ -417,7 +492,7 @@ export function extractRoutes(files: GoSourceFile[], opts: ExtractRoutesOptions 
       for (const fn of findFunctionDecls(file.root)) {
         const name = functionName(fn)
         const params = name ? engineParams(fn) : []
-        if (!name || params.length === 0 || walked.has(name)) continue
+        if (!name || params.length === 0 || walked.has(`${file.path}:${name}`)) continue
         walk({ name, node: fn, file: file.path }, new Map(params.map((p) => [p, { prefix: "", middleware: [] }])))
       }
     }
