@@ -622,9 +622,16 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
   // Pass 2: the edges.
   for (const { resolver, params, ownerId } of resolvers) {
     const decl = resolver.decl
+    // the callback literals the walk is currently inside, innermost last
+    const open: { end: number; id: string }[] = []
     for (const call of walk(decl.node)) {
+      while (open.length > 0 && open[open.length - 1].end <= call.startIndex) open.pop()
+      if (call.type === "func_literal") {
+        const def = callbackOwners.get(`${decl.file}:${nodeKey(call)}`)
+        if (def) open.push({ end: call.endIndex, id: def.id })
+      }
       if (!["call_expression", "type_conversion_expression", "selector_expression", "identifier"].includes(call.type)) continue
-      const edgeOwner = enclosingCallback(call, decl, callbackOwners) ?? ownerId
+      const edgeOwner = open.length > 0 ? open[open.length - 1].id : ownerId
       const { targets, via } = resolveNode(call, resolver, params)
       const kind: EdgeVia = call.parent?.type === "go_statement" ? "go" : via
       if (targets.length === 0 && call.type === "call_expression" && !decl.file.endsWith("_test.go")) {
@@ -650,14 +657,3 @@ export function buildCallGraph(files: GoFile[]): CallGraph {
   }
 }
 
-/** The callback def a call sits inside, if it is within an assigned func literal of this declaration. */
-function enclosingCallback(call: SyntaxNode, decl: Decl, owners: Map<string, FuncDef>): string | null {
-  for (let n = call.parent; n; n = n.parent) {
-    if (n.type === "function_declaration" || n.type === "method_declaration") return null
-    if (n.type === "func_literal") {
-      const def = owners.get(`${decl.file}:${nodeKey(n)}`)
-      if (def) return def.id
-    }
-  }
-  return null
-}
