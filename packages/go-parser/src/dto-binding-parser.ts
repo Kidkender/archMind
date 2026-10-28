@@ -6,6 +6,23 @@ export interface BoundField {
   bindingTag: string | null
 }
 
+/** Every struct declared in a file by name, first declaration winning; built once per syntax tree because each route looks structs up again. */
+const structIndexes = new WeakMap<SyntaxNode, Map<string, SyntaxNode>>()
+
+function structNodes(root: SyntaxNode): Map<string, SyntaxNode> {
+  const cached = structIndexes.get(root)
+  if (cached) return cached
+  const index = new Map<string, SyntaxNode>()
+  for (const node of walk(root)) {
+    if (node.type !== "type_spec") continue
+    const name = node.childForFieldName("name")?.text
+    const typeNode = node.childForFieldName("type")
+    if (name && typeNode?.type === "struct_type" && !index.has(name)) index.set(name, typeNode)
+  }
+  structIndexes.set(root, index)
+  return index
+}
+
 /**
  * Finds `type <name> struct { ... }` in `root` and returns each field's name
  * plus its `binding:"..."` struct-tag value (null when the field has no
@@ -13,26 +30,21 @@ export interface BoundField {
  * `rules()` array — same "validation_gate" IR concept, different mechanism.
  */
 export function findStructFields(root: SyntaxNode, typeName: string): BoundField[] | null {
-  for (const node of walk(root)) {
-    if (node.type !== "type_spec") continue
-    if (node.childForFieldName("name")?.text !== typeName) continue
-    const typeNode = node.childForFieldName("type")
-    if (!typeNode || typeNode.type !== "struct_type") continue
+  const typeNode = structNodes(root).get(typeName)
+  if (!typeNode) return null
 
-    const fieldList = typeNode.namedChildren.find((c) => c.type === "field_declaration_list")
-    if (!fieldList) return []
+  const fieldList = typeNode.namedChildren.find((c) => c.type === "field_declaration_list")
+  if (!fieldList) return []
 
-    return fieldList.namedChildren
-      .filter((f) => f.type === "field_declaration")
-      .map((f) => {
-        const name = f.childForFieldName("name")?.text ?? ""
-        const tagNode = f.childForFieldName("tag")
-        const tagText = tagNode ? tagNode.text.replace(/^`|`$/g, "") : ""
-        const bindingMatch = tagText.match(/binding:"([^"]*)"/)
-        return { name, bindingTag: bindingMatch ? bindingMatch[1] : null }
-      })
-  }
-  return null
+  return fieldList.namedChildren
+    .filter((f) => f.type === "field_declaration")
+    .map((f) => {
+      const name = f.childForFieldName("name")?.text ?? ""
+      const tagNode = f.childForFieldName("tag")
+      const tagText = tagNode ? tagNode.text.replace(/^`|`$/g, "") : ""
+      const bindingMatch = tagText.match(/binding:"([^"]*)"/)
+      return { name, bindingTag: bindingMatch ? bindingMatch[1] : null }
+    })
 }
 
 /**
@@ -45,26 +57,21 @@ export function findStructFields(root: SyntaxNode, typeName: string): BoundField
  * `typeName` isn't a struct in `root`.
  */
 export function findStructFieldTypes(root: SyntaxNode, typeName: string): Map<string, string> | null {
-  for (const node of walk(root)) {
-    if (node.type !== "type_spec") continue
-    if (node.childForFieldName("name")?.text !== typeName) continue
-    const typeNode = node.childForFieldName("type")
-    if (!typeNode || typeNode.type !== "struct_type") continue
+  const typeNode = structNodes(root).get(typeName)
+  if (!typeNode) return null
 
-    const fieldList = typeNode.namedChildren.find((c) => c.type === "field_declaration_list")
-    const map = new Map<string, string>()
-    if (!fieldList) return map
+  const fieldList = typeNode.namedChildren.find((c) => c.type === "field_declaration_list")
+  const map = new Map<string, string>()
+  if (!fieldList) return map
 
-    for (const f of fieldList.namedChildren) {
-      if (f.type !== "field_declaration") continue
-      const name = f.childForFieldName("name")?.text
-      const fieldType = f.childForFieldName("type")
-      const bare = fieldType ? bareTypeName(fieldType) : null
-      if (name && bare) map.set(name, bare)
-    }
-    return map
+  for (const f of fieldList.namedChildren) {
+    if (f.type !== "field_declaration") continue
+    const name = f.childForFieldName("name")?.text
+    const fieldType = f.childForFieldName("type")
+    const bare = fieldType ? bareTypeName(fieldType) : null
+    if (name && bare) map.set(name, bare)
   }
-  return null
+  return map
 }
 
 /** Searches every file for `typeName` and returns its bound fields plus which file declared it. */
