@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import Java from "tree-sitter-java"
+import { parseJavaFile } from "./java-source.js"
 import type { ArchMindUserConfig } from "@kidkender/archmind-protocol"
 import { moduleRootOf } from "./security-config-parser.js"
 import type {
@@ -58,19 +58,9 @@ export function parseControllerFile(
   baseClassIndex?: Map<string, string>,
   userConfig?: ArchMindUserConfig,
 ): SpringControllerMethod[] {
-  let source: string
-  try {
-    source = readFileSync(filePath, "utf-8")
-  } catch {
-    return []
-  }
-
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    tree = _parser.parse(source)
-  } catch {
-    return []
-  }
+  const parsed = parseJavaFile(_parser, filePath)
+  if (!parsed) return []
+  const { source, tree } = parsed
 
   const root = tree.rootNode
   const out:  SpringControllerMethod[] = []

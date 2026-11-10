@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -36,14 +36,9 @@ const SENSITIVE_PATTERNS = /secret|token|password|passwd|internal|admin_|_admin|
  * Returns null if the file can't be parsed or has no toArray() method.
  */
 export function parseApiResource(filePath: string): ApiResourceInfo | null {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return null
+  const { source, tree } = parsed
 
   const root = tree.rootNode
   const className   = extractClassName(root)

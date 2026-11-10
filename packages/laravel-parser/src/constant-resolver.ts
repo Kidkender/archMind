@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore — tree-sitter-php has no bundled types
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 // Resolved PHP class constants: ClassName → { CONST_NAME → "value" }
 export type ConstantMap = Record<string, Record<string, string>>
@@ -10,14 +10,9 @@ const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
 
 export function parseConstantClass(filePath: string): ConstantMap {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return {}
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return {}
+  const { source, tree } = parsed
   const map: ConstantMap = {}
   walkNode(tree.rootNode, null, map)
   return map

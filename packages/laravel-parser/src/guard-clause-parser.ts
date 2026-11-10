@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -38,14 +38,9 @@ const NO_GUARD: GuardClauseResult = { isGuardClause: false, reason: null, condit
  * inside the method does not false-positive as a guard clause.
  */
 export function detectGuardClause(filePath: string, methodName: string): GuardClauseResult {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return NO_GUARD
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return NO_GUARD
+  const { source, tree } = parsed
 
   const methodNode = findMethod(tree.rootNode, methodName)
   if (!methodNode) return NO_GUARD

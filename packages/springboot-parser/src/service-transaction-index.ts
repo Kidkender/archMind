@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import Java from "tree-sitter-java"
+import { parseSource, readSource } from "./java-source.js"
 import { moduleRootOf } from "./security-config-parser.js"
 
 const _parser = new Parser()
@@ -39,20 +39,12 @@ export function buildServiceTransactionIndex(javaFiles: string[]): ServiceTransa
   const interfaceToImpls = new Map<string, string[]>()
 
   for (const file of javaFiles) {
-    let source: string
-    try {
-      source = readFileSync(file, "utf-8")
-    } catch {
-      continue
-    }
+    const source = readSource(file)
+    if (source === null) continue
     if (!source.includes("@Transactional") && !source.includes("implements")) continue
 
-    let tree: Parser.Tree
-    try {
-      tree = _parser.parse(source)
-    } catch {
-      continue
-    }
+    const tree = parseSource(_parser, source, file)
+    if (!tree) continue
 
     const module = moduleRootOf(file)
 

@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 import { extractReturnedResources } from "./resource-parser.js"
 import { classifyDispatch } from "./transaction-parser.js"
 import { isGuardClauseMethodNode } from "./guard-clause-parser.js"
@@ -122,14 +122,9 @@ export function parseControllerMethod(
   filePath: string,
   methodName: string
 ): ControllerL1 | null {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return null
+  const { source, tree } = parsed
   const root  = tree.rootNode
   const useMap = extractUseMap(root)
 
@@ -241,14 +236,9 @@ export function parseControllerMethod(
  * Returns undefined if the file can't be parsed or has no authorize() method.
  */
 export function parseFormRequestAuthorize(filePath: string): string | undefined {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return undefined
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return undefined
+  const { source, tree } = parsed
   const methodNode = findMethod(tree.rootNode, "authorize")
   if (!methodNode) return undefined
 
@@ -1056,14 +1046,9 @@ export function detectParamDrivenBranch(
   argPosition: number,
   requestParamName: string
 ): ConditionalBranch | null {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return null
+  const { source, tree } = parsed
   const root = tree.rootNode
   const methodNode = findMethod(root, methodName)
   if (!methodNode) return null

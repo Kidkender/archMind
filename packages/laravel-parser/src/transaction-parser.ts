@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -69,14 +69,9 @@ export interface TransactionParseResult {
  * `delete()`'s graph — IR v1.5 Phase 3 fix).
  */
 export function parseTransactions(filePath: string, methodName?: string): TransactionParseResult {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return { hasTransaction: false, blocks: [] }
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return { hasTransaction: false, blocks: [] }
+  const { source, tree } = parsed
 
   const scanRoot = methodName ? findMethod(tree.rootNode, methodName) : tree.rootNode
   if (!scanRoot) return { hasTransaction: false, blocks: [] }

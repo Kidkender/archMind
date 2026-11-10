@@ -198,7 +198,7 @@ Benchmarked against akaunting (642 routes) as a fresh, previously-unseen repo �
 
 **Priority:** High — undermines trust in the whole test suite and any CI built on top of it
 **Effort:** Medium
-**Status:** Root cause corrected + primary fix shipped 2026-09-03 (branch `fix/retrieval-flaky-tests-ci`); one deliverable still open
+**Status:** ✅ Done (2026-11-10) for laravel-parser and springboot-parser — read+parse sites go through `php-source.ts` / `java-source.ts`: an unreadable file yields nothing, a parse failure is printed on stderr with the file path and the file is skipped. This also fixed files over 32 KiB (tree-sitter 0.21 throws "Invalid argument" past its default buffer; only `route-parser.ts` passed `bufferSize`, so every other parser silently returned nothing for large controllers and services). Still open: the broad `catch { /* skip */ }` around whole passes in `graph-augmenter.ts`.
 
 Initial hypothesis (below, kept for record) was a `tree-sitter@^0.21.0` / `tree-sitter-php@^0.23.12` ABI skew. **That was wrong** — disproved empirically: a plain-Node script reusing the same `Parser` singleton for 500 heavy parses in a row had zero failures. The real cause: Jest reuses one worker *process* across multiple test files in the same package; each file re-imports that package's module-level `new Parser()` singleton, and repeatedly re-loading the native tree-sitter addon into the same process is what makes `_parser.parse(source)` intermittently throw — not the grammar/core version pairing itself. Confirmed by setting `maxWorkers` high enough (in `laravel-parser`'s and `springboot-parser`'s `jest.config.js`) that every test file always gets its own process: 5/5 and then 3/3 repeated full-suite runs came back completely clean, both isolated and via `npm test`.
 
@@ -237,7 +237,6 @@ After 0.3.0: `gin-vue-admin` ~201/250 routes, `go-admin` 99/109. Patterns from t
 
 | Idea | Impact | Effort | Recommended Order |
 |------|--------|--------|-------------------|
-| Narrow swallow-catch in parsers (#9) | High | Low-Medium | **1st** |
 | Go tenant scoping | Medium | Medium | **3rd** |
 | Remaining Gin layouts + lens limits (#11) | Medium | Medium | **4th** |
 | Modular Laravel support (#8, partial) | Medium | Medium | **5th** |
@@ -249,3 +248,4 @@ After 0.3.0: `gin-vue-admin` ~201/250 routes, `go-admin` 99/109. Patterns from t
 | ~~Benchmark CLI (#2)~~ | | | Done |
 | ~~Graph Diff PR Comment (#1)~~ | | | Done |
 | ~~Spring Boot reads `archmind.json` (#10)~~ | | | Done |
+| ~~Narrow swallow-catch in parsers (#9)~~ | | | Done (graph-augmenter pass-level catches remain) |

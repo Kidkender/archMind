@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -65,14 +65,9 @@ export function parseIsolation(filePath: string, opts: IsolationOptions = {}, me
   const tenantSignals = new Set(opts.tenantSignals ?? DEFAULT_TENANT_SIGNALS)
   const tenantContainerKeys = opts.tenantContainerKeys ?? DEFAULT_TENANT_CONTAINER_KEYS
 
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return { modelQueries: [], modelWrites: [], readsTenantFromContainer: false }
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return { modelQueries: [], modelWrites: [], readsTenantFromContainer: false }
+  const { source, tree } = parsed
   const scanRoot = methodName ? findMethod(tree.rootNode, methodName) : tree.rootNode
   if (!scanRoot) return { modelQueries: [], modelWrites: [], readsTenantFromContainer: false }
 
