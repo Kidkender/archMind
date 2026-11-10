@@ -12,13 +12,14 @@ export { isGinProject } from "./scanner.js"
  * list (used directly in tests with synthetic fixtures).
  *
  * Reads the project's archmind.json for settings (`authorization.
- * ownershipSources`); anything passed in `opts` takes precedence.
+ * ownershipSources`, `isolation`); anything passed in `opts` takes precedence.
  */
 export function parseGinProjectAt(root: string, opts: ParseGinOptions = {}): IntermediateExecutionGraph[] {
   const userConfig = loadUserConfig(root)
   const files = readGoProjectFiles(root)
   return parseGinProject(files, {
     ownershipSources: userConfig?.authorization?.ownershipSources,
+    isolation:        userConfig?.isolation,
     ...opts,
   })
 }

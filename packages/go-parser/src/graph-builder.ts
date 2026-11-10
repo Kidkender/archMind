@@ -3,11 +3,16 @@ import type { IntermediateExecutionGraph, ExecutionNode, ExecutionEdge } from "@
 import type { RouteInfo, MiddlewareRef, GoSourceFile } from "./route-parser.js"
 import { extractRoutes, type ExtractRoutesOptions } from "./route-parser.js"
 import { irTypeForMiddleware, resolveSkipListForMiddleware, type SkipEntry } from "./middleware-mapper.js"
-import { parseGo, findFunctionDecls, functionName, callParts, findCalls, type SyntaxNode } from "./ast.js"
+import { parseGo, findFunctionDecls, functionName, callParts, findCalls, receiverTypeName, type SyntaxNode } from "./ast.js"
 import { buildConstRegistry, resolveConstExpr } from "./const-resolver.js"
 import { buildMethodRegistry, findBindCalls, resolveVarDtoType, type HandlerMethod } from "./handler-parser.js"
 import { resolveDtoBinding, findStructFieldTypes } from "./dto-binding-parser.js"
 import { findTransactionBoundaries } from "./transaction-parser.js"
+import {
+  findTenantContextRead, findGormOperations, tokenMatcher,
+  DEFAULT_TENANT_SIGNALS, DEFAULT_TENANT_CONTEXT_KEYS,
+  type IsolationOptions, type TokenMatcher, type GormOperation,
+} from "./isolation-parser.js"
 
 const ADAPTER_VERSION = "0.1.0"
 
@@ -19,6 +24,8 @@ export interface ParseGinOptions extends ExtractRoutesOptions {
    * to the caller instead of checking a role.
    */
   ownershipSources?: string[]
+  /** Tenant isolation signals (archmind.json `isolation`); defaults cover tenant_id / organization_id. */
+  isolation?: IsolationOptions
 }
 
 interface ParsedFile {
@@ -251,13 +258,146 @@ function findIdentityCall(method: HandlerMethod, sources: ReadonlySet<string>): 
   return null
 }
 
+// ---------------------------------------------------------------------------
+// Tenant isolation
+// ---------------------------------------------------------------------------
+
+interface IsolationContext {
+  methodRegistry: ReturnType<typeof buildMethodRegistry>
+  fieldTypesOf:   (typeName: string) => Map<string, string>
+  keyMatch:       TokenMatcher
+  signalMatch:    TokenMatcher
+}
+
+/** How far below the handler queries are looked for: handler → service → repository. */
+const ISOLATION_MAX_DEPTH = 2
+/** Query nodes kept per route, so one huge handler cannot flood the graph. */
+const ISOLATION_MAX_QUERIES = 25
+
+/** A method by receiver type, falling back to the usual implementation names of an interface. */
+function resolveMethod(
+  methodRegistry: ReturnType<typeof buildMethodRegistry>,
+  typeName: string,
+  methodName: string
+): HandlerMethod | null {
+  const lower = typeName.charAt(0).toLowerCase() + typeName.slice(1)
+  const candidates = [typeName, lower, `${typeName}Impl`, `${lower}Impl`, typeName.replace(/^I(?=[A-Z])/, "")]
+  for (const t of candidates) {
+    const m = methodRegistry.get(`${t}.${methodName}`)
+    if (m) return m
+  }
+  return null
+}
+
+function receiverName(fn: SyntaxNode): string | null {
+  const decl = fn.childForFieldName("receiver")?.namedChildren.find((c) => c.type === "parameter_declaration")
+  return decl?.namedChildren.find((c) => c.type === "identifier")?.text ?? null
+}
+
+/** The handler plus the methods it reaches through its receiver and struct fields, up to ISOLATION_MAX_DEPTH. */
+function methodsOnPath(handler: HandlerMethod, ctx: IsolationContext): HandlerMethod[] {
+  const out: HandlerMethod[] = []
+  const seen = new Set<SyntaxNode>()
+  let frontier: HandlerMethod[] = [handler]
+  for (let depth = 0; depth <= ISOLATION_MAX_DEPTH && frontier.length > 0; depth++) {
+    const next: HandlerMethod[] = []
+    for (const m of frontier) {
+      if (seen.has(m.node)) continue
+      seen.add(m.node)
+      out.push(m)
+      const recvType = receiverTypeName(m.node)
+      const body = m.node.childForFieldName("body")
+      if (!recvType || !body) continue
+      const fields = ctx.fieldTypesOf(recvType)
+      const recvName = receiverName(m.node)
+      for (const call of findCalls(body)) {
+        const parts = callParts(call)
+        if (!parts?.receiver) continue
+        // `s.helper(...)` on the same receiver, or `s.repo.Find(...)` through a field
+        const target = parts.receiver.includes(".")
+          ? fields.get(parts.receiver.slice(parts.receiver.lastIndexOf(".") + 1))
+          : (parts.receiver === recvName ? recvType : undefined)
+        if (!target) continue
+        const callee = resolveMethod(ctx.methodRegistry, target, parts.method)
+        if (callee && !seen.has(callee.node)) next.push(callee)
+      }
+    }
+    frontier = next
+  }
+  return out
+}
+
+/**
+ * Tenant isolation nodes for a route, the Go counterpart of laravel-parser's
+ * addIsolationNodes. Emitted only when the route resolves a tenant — a tenant
+ * middleware on the route, or a tenant read from the Gin context or an accessor
+ * in the handler or a method it reaches — so single-tenant apps get no query
+ * nodes (ir:unscoped_query is a topology danger type; emitting it everywhere
+ * would turn every existing Gin baseline into drift). Each GORM query on the
+ * path becomes ir:scoped_query or ir:unscoped_query / ir:unscoped_write, and an
+ * unscoped one gets a missing_tenant_scope edge to the tenant node.
+ */
+function isolationGraphPart(
+  route: RouteInfo,
+  ctx: IsolationContext
+): { nodes: ExecutionNode[]; edges: ExecutionEdge[] } {
+  const handler = resolveHandlerMethod(route, ctx.methodRegistry)
+  if (!handler) return { nodes: [], edges: [] }
+  const path = methodsOnPath(handler, ctx)
+
+  let tenantNode: ExecutionNode | null = null
+  const tenantMiddleware = route.middleware.find((mw) => ctx.keyMatch(mw.shortName))
+  if (tenantMiddleware) {
+    tenantNode = {
+      id: "tenant_ctx", type: IR_NODE_TYPES.TENANT_CONTEXT, symbol: `tenant context: ${tenantMiddleware.text}`,
+      file: tenantMiddleware.file, line: tenantMiddleware.line, role: "runtime",
+    }
+  }
+  for (const m of path) {
+    if (tenantNode) break
+    const read = findTenantContextRead(m, ctx.keyMatch)
+    if (read) {
+      tenantNode = {
+        id: "tenant_ctx", type: IR_NODE_TYPES.TENANT_CONTEXT, symbol: `tenant context: ${read.symbol}`,
+        file: read.file, line: read.line, role: "runtime",
+      }
+    }
+  }
+  if (!tenantNode) return { nodes: [], edges: [] }
+
+  const ops: GormOperation[] = []
+  for (const m of path) {
+    const recvType = receiverTypeName(m.node)
+    ops.push(...findGormOperations(m, recvType ? ctx.fieldTypesOf(recvType) : new Map(), ctx.signalMatch))
+  }
+
+  const nodes: ExecutionNode[] = [tenantNode]
+  const edges: ExecutionEdge[] = []
+  let index = 0
+  for (const op of ops) {
+    if (index >= ISOLATION_MAX_QUERIES) break
+    if (op.kind === "write" && op.scoped) continue   // like Laravel: only unscoped writes become nodes
+    const type = op.scoped
+      ? IR_NODE_TYPES.SCOPED_QUERY
+      : op.kind === "write" ? IR_NODE_TYPES.UNSCOPED_WRITE : IR_NODE_TYPES.UNSCOPED_QUERY
+    const id = `iso_${index++}`
+    nodes.push({ id, type, symbol: `${op.model}::${op.operation}`, file: op.file, line: op.line, role: "data_access" })
+    edges.push({ from: "handler", to: id, relation: "calls", traceability: "static" })
+    if (!op.scoped) {
+      edges.push({ from: id, to: tenantNode.id, relation: "missing_tenant_scope", traceability: "semantic" })
+    }
+  }
+  return { nodes, edges }
+}
+
 function routeToGraph(
   route: RouteInfo,
   skipListIndex: Map<string, SkipEntry[]>,
   constRegistry: Map<string, string>,
   methodRegistry: ReturnType<typeof buildMethodRegistry>,
   parsed: ParsedFile[],
-  ownershipSources: ReadonlySet<string>
+  ownershipSources: ReadonlySet<string>,
+  isolation: IsolationContext
 ): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   const edges: ExecutionEdge[] = []
@@ -308,6 +448,11 @@ function routeToGraph(
     })
   }
 
+  // Queries hang off the handler (like Laravel's isolation nodes), outside the chain.
+  const iso = isolationGraphPart(route, isolation)
+  nodes.push(...iso.nodes)
+  edges.push(...iso.edges)
+
   return {
     entrypoint:   `${route.method} ${route.path}`,
     method:       route.method,
@@ -326,8 +471,8 @@ function routeToGraph(
  * per route: routes + auth gate (honoring global-middleware skip-lists),
  * authz-check role resolution, validation-gate from DTO binding tags, and
  * transaction-boundary detection (GORM `.Transaction()` closures, one hop
- * into a directly-called service method). Isolation (tenant scoping) is not
- * implemented yet.
+ * into a directly-called service method), and tenant isolation (GORM queries
+ * with or without a tenant constraint, on routes that resolve a tenant).
  */
 export function parseGinProject(files: GoSourceFile[], opts: ParseGinOptions = {}): IntermediateExecutionGraph[] {
   const routes = extractRoutes(files, opts)
@@ -342,5 +487,24 @@ export function parseGinProject(files: GoSourceFile[], opts: ParseGinOptions = {
 
   const ownershipSources = new Set(opts.ownershipSources ?? [])
 
-  return routes.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed, ownershipSources))
+  const fieldTypeCache = new Map<string, Map<string, string>>()
+  const isolation: IsolationContext = {
+    methodRegistry,
+    fieldTypesOf: (typeName) => {
+      let fields = fieldTypeCache.get(typeName)
+      if (!fields) {
+        fields = new Map()
+        for (const file of parsed) {
+          const found = findStructFieldTypes(file.root, typeName)
+          if (found) { fields = found; break }
+        }
+        fieldTypeCache.set(typeName, fields)
+      }
+      return fields
+    },
+    keyMatch:    tokenMatcher(opts.isolation?.tenantContextKeys ?? DEFAULT_TENANT_CONTEXT_KEYS),
+    signalMatch: tokenMatcher(opts.isolation?.tenantSignals ?? DEFAULT_TENANT_SIGNALS),
+  }
+
+  return routes.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed, ownershipSources, isolation))
 }
