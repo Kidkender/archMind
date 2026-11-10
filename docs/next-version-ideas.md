@@ -2,6 +2,7 @@
 
 > Generated: 2026-06-30
 > Updated: 2026-07-03 — after v0.5.0 shipped (Spring Boot parser, AQL, Architecture Constraints, AI Context API, `archmind visualize`)
+> Updated: 2026-11-10 — statuses checked against the code at v0.9.1
 
 ---
 
@@ -13,6 +14,10 @@
 - ✅ **AI Context API** (`@kidkender/archmind-context`) — `buildSemanticContext()`, exposed via `archmind_get_context` MCP tool
 - ✅ **`archmind visualize`** — Execution Timeline HTML report
 - ✅ **Framework #4: Go/Gin** (`@kidkender/archmind-go-parser`, v0.8.x) — route, auth-gate (including runtime skip-lists), authz-check, validation-gate, and GORM transaction-boundary detection for Gin projects. Isolation/tenant scoping is not implemented yet.
+- ✅ **`@kidkender/archmind-lens`** (v0.9.0–0.9.1) — Go symbol-to-entry-point call graph, exposed as MCP `archmind_symbol_context`.
+- ✅ **Benchmark CLI (#2)** — `archmind benchmark` (`apps/cli/src/commands/benchmark.ts`) reads the pain specs and scores node/edge recall.
+- ✅ **Graph Diff for PR review (#1)** — `archmind diff --format markdown` plus the sticky-comment workflow in `docs/ci-templates/topology-guard.yml`.
+- ✅ **CI** — `.github/workflows/ci.yml` builds and tests on every push and PR to `main`.
 
 These shipped features open up new follow-on ideas below (#5, #7) that weren't possible before.
 
@@ -22,7 +27,7 @@ These shipped features open up new follow-on ideas below (#5, #7) that weren't p
 
 **Priority:** High impact, feasible
 **Effort:** Medium
-**Status:** Not started
+**Status:** ✅ Done — `archmind diff --format markdown` + `docs/ci-templates/topology-guard.yml` (sticky PR comment)
 
 Hiện tại CI chỉ fail/pass. Next step là sinh ra **PR comment** mô tả chính xác cái gì thay đổi trong execution graph — không phải diff code mà diff topology.
 
@@ -48,7 +53,7 @@ PR #42 — Execution Graph Changes
 
 **Priority:** High value, low effort (corpus đã có)
 **Effort:** Low
-**Status:** Not started
+**Status:** ✅ Done — `archmind benchmark` (`apps/cli/src/commands/benchmark.ts`). Still open: running it in CI on every PR.
 
 `research/semantic-pains` đã có 4 test cases với format đầy đủ, nhưng `duck benchmark run` chưa implement. Đây là low-hanging fruit để tự validate và publish kết quả công khai.
 
@@ -176,7 +181,7 @@ archmind serve --project . --port 4000
 
 **Priority:** Medium — real gap found via cross-repo benchmarking, not yet scoped into any plan
 **Effort:** Medium
-**Status:** Not started
+**Status:** Partial — `route-parser.ts` resolves module-style route namespaces; `project-config.ts` has no `modules/` handling and akaunting has not been re-measured
 
 Benchmarked against akaunting (642 routes) as a fresh, previously-unseen repo — archMind parsed cleanly (no crashes) but stayed almost silent (6/58 auth-gate/unknown-middleware nodes, 0 service_call/guard/txn/branch nodes despite 642 routes). Root cause: akaunting is a modular Laravel app (`nwidart/laravel-modules` or similar) — real controllers live under `modules/*/Http/Controllers/`, not `app/Http/Controllers/` as the parser assumes. This is a distinct architecture gap from the 6 gaps already fixed for IR v1.5 (koel/BookStack-driven), confirmed independently on invoiceninja and monica (both generalized cleanly with zero changes).
 
@@ -202,7 +207,29 @@ Every parser module still wraps its `_parser.parse()` call in a bare `catch { re
 **Remaining deliverable:**
 - Replace the blanket `catch { return emptyDefaults }` in each parser module with a narrower catch (file-not-found only) so a genuine future parse failure surfaces loudly instead of reading as "no findings" — not done yet; the `maxWorkers` fix removed the trigger but the swallow-everything pattern itself is still there
 
-**Why:** This is very likely *why* there's no CI on this repo at all — a red/green result that changes every run isn't a gate anyone can trust.
+**Why:** This is very likely *why* there's no CI on this repo at all — a red/green result that changes every run isn't a gate anyone can trust. (CI now exists: `.github/workflows/ci.yml`.)
+
+Count at v0.9.1 of bare `catch {` in parser sources (tests excluded): laravel 36, nestjs 18, springboot 13, go 4. Not all of them wrap a parse; the ones that read a file and parse it in one `try` (e.g. `laravel-parser/src/controller-parser.ts`) are the target.
+
+---
+
+## 10. Spring Boot does not read `archmind.json`
+
+**Priority:** Medium
+**Effort:** Low
+**Status:** ✅ Done (2026-11-10) — the adapter reads `archmind.json`; `guards.auth_gate` / `guards.authz_check` classify the project's own annotation names. `ownershipSources` stays Go-only.
+
+`springboot-parser` never loaded the user config, so `guards`, `authorization.ownershipSources` and the other adapter-level settings have no effect on Spring Boot projects (`ignoreFindings` still works, because `analysis`, the CLI and the MCP server apply it). Wire `loadUserConfig` from `@kidkender/archmind-protocol` into the adapter, as the Go and NestJS adapters do.
+
+---
+
+## 11. Gin layouts still missed by go-parser
+
+**Priority:** Medium
+**Effort:** Medium
+**Status:** Open
+
+After 0.3.0: `gin-vue-admin` ~201/250 routes, `go-admin` 99/109. Patterns from the 0.8.2 spot-check still not handled: engine held in a struct field and mutated by a receiver method, engine wrapped in a custom type with its own `.GET()`/`.POST()`, functional-options chains, Wire-style DI. Lens limits: embedded interfaces, two types with the same name in different packages.
 
 ---
 
@@ -210,12 +237,15 @@ Every parser module still wraps its `_parser.parse()` call in a bare `catch { re
 
 | Idea | Impact | Effort | Recommended Order |
 |------|--------|--------|-------------------|
-| Tree-sitter flaky tests (#9) | Critical | Low (one deliverable left) | **1st** — narrow the remaining swallow-catch |
-| AQL/Constraints in CI (#5) | High | Low-Medium | **2nd** — reuses shipped engine |
-| Benchmark CLI (#2) | High | Low | **3rd** |
-| Graph Diff PR Comment (#1) | High | Medium | **4th** |
-| Modular Laravel support (#8) | Medium | Medium | **5th** |
+| Narrow swallow-catch in parsers (#9) | High | Low-Medium | **1st** |
+| Go tenant scoping | Medium | Medium | **3rd** |
+| Remaining Gin layouts + lens limits (#11) | Medium | Medium | **4th** |
+| Modular Laravel support (#8, partial) | Medium | Medium | **5th** |
 | Auto-fix Suggestions (#4) | Medium | Medium | **6th** |
-| Framework #5 + adapter kit (#3) | High | High | **7th** — next new framework beyond Go |
+| Framework #5 + adapter kit (#3) | High | High | **7th** |
 | Web UI Visualizer (#6) | Medium | High | **8th** |
 | OTel Runtime Expansion (#7) | High | High | **9th** |
+| ~~AQL/Constraints in CI (#5)~~ | | | Done |
+| ~~Benchmark CLI (#2)~~ | | | Done |
+| ~~Graph Diff PR Comment (#1)~~ | | | Done |
+| ~~Spring Boot reads `archmind.json` (#10)~~ | | | Done |

@@ -11,7 +11,9 @@ export interface AuthAnnotation {
   // as ir:unknown_middleware instead of a guessed auth_gate/authz_check so the
   // LLM sees "there IS a security signal here, but I can't tell you its shape"
   // rather than silently reading it as no-auth.
-  kind:       "preAuthorize" | "secured" | "rolesAllowed" | "unknown"
+  // "custom" = an annotation the project named in archmind.json `guards`
+  // (auth_gate → isAuthOnly true, authz_check → isAuthOnly false).
+  kind:       "preAuthorize" | "secured" | "rolesAllowed" | "unknown" | "custom"
   expression: string    // raw annotation value, e.g. "hasRole('ADMIN')"
   isAuthOnly: boolean   // true when the expression only checks isAuthenticated()
 }

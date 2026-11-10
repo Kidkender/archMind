@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto"
 import type { IntermediateExecutionGraph, ExecutionNode, ExecutionEdge } from "@kidkender/archmind-protocol"
 import type { SemanticAdapter } from "@kidkender/archmind-protocol"
-import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@kidkender/archmind-protocol"
+import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION, loadUserConfig } from "@kidkender/archmind-protocol"
 import { findJavaFiles, isEntrypointFile } from "./scanner.js"
 import { parseControllerFile } from "./controller-parser.js"
 import { emitGraph } from "./ir-emitter.js"
@@ -11,6 +11,7 @@ import { buildServiceTransactionIndex, type ServiceTransactionIndex } from "./se
 
 export class SpringBootAdapter implements SemanticAdapter {
   parseProject(root: string): IntermediateExecutionGraph[] {
+    const userConfig     = loadUserConfig(root)
     const allFiles       = findJavaFiles(root)
     const controllerFiles = allFiles.filter(isEntrypointFile)
 
@@ -23,7 +24,7 @@ export class SpringBootAdapter implements SemanticAdapter {
 
     for (const file of controllerFiles) {
       try {
-        const methods = parseControllerFile(file, baseClassIndex)
+        const methods = parseControllerFile(file, baseClassIndex, userConfig)
         const controllerModule = moduleRootOf(file)
         for (const m of methods) {
           const graph = emitGraph(m, root)
