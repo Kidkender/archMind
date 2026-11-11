@@ -9,11 +9,21 @@ export interface CodeRef {
   line:   number
 }
 
+/** A write to the database made inside a transaction, `Entity::operation`. */
+export interface TxnWrite extends CodeRef {
+  entity:    string
+  operation: string
+}
+
+export interface TransactionRef extends CodeRef {
+  writes: TxnWrite[]
+}
+
 export interface HandlerFacts {
   /** Project functions the handler calls (services, repositories, helpers in other modules). */
   services:     CodeRef[]
   /** Transaction boundaries in the handler, or in a service it calls (one hop). */
-  transactions: CodeRef[]
+  transactions: TransactionRef[]
   /** The first call to a configured ownership source (archmind.json authorization.ownershipSources). */
   ownership:    CodeRef | null
 }
@@ -78,23 +88,116 @@ function callsIn(fn: Node): CallExpression[] {
   return fn.getDescendantsOfKind(SyntaxKind.CallExpression)
 }
 
-function transactionCall(call: CallExpression, ev: Evaluator): CodeRef | null {
+function transactionCall(call: CallExpression, ev: Evaluator): TransactionRef | null {
   const callee = call.getExpression()
   if (!Node.isPropertyAccessExpression(callee)) return null
   const method = callee.getName()
-  if (TXN_METHODS.has(method)) return ref(calleeSymbol(callee), call)
-  if (method !== "transaction") return null
+  let isTxn = TXN_METHODS.has(method)
+  if (!isTxn && method === "transaction") {
+    const receiver = callee.getExpression()
+    const tail = receiver.getText().replace(/\s/g, "").split(".").pop() ?? ""
+    isTxn = DB_RECEIVER.test(tail) || ev.evaluate(receiver).some((v) =>
+      (v.kind === "external" || v.kind === "externalCall") &&
+      ORM_PACKAGES.some((pkg) => v.name === pkg || v.name.startsWith(`${pkg}.`)))
+  }
+  if (!isTxn) return null
+  return { ...ref(calleeSymbol(callee), call), writes: transactionWrites(call) }
+}
+
+// ---------------------------------------------------------------------------
+// Writes inside a transaction
+// ---------------------------------------------------------------------------
+
+const WRITE_METHODS = new Set([
+  "save", "insert", "update", "delete", "remove", "upsert", "softDelete", "recover",
+  "create", "createMany", "bulkCreate", "destroy", "updateMany", "deleteMany", "insertMany",
+  "updateOne", "deleteOne", "findOneAndUpdate", "findByIdAndUpdate", "findOneAndDelete", "increment", "decrement",
+])
+/** An options argument that ties a write to an unmanaged transaction or a Mongo session. */
+const TXN_OPTION = /\btransaction\s*[:,}]|\{\s*session\b|\bsession\s*:/
+
+/**
+ * Writes made inside the transaction: in its callback (`dataSource.transaction(
+ * async (manager) => manager.save(Order, dto))`, `prisma.$transaction(async (tx)
+ * => tx.order.create(...))`), in its array form (`prisma.$transaction([
+ * prisma.order.create(...)])`), or — for an unmanaged transaction
+ * (`const t = await sequelize.transaction()`) — calls in the same function that
+ * pass it (`Order.create(data, { transaction: t })`).
+ */
+function transactionWrites(txnCall: CallExpression): TxnWrite[] {
+  const scopes: Node[] = []
+  for (const arg of txnCall.getArguments()) {
+    if (isFunctionNode(arg) || Node.isArrayLiteralExpression(arg)) scopes.push(arg)
+  }
+  const out: TxnWrite[] = []
+  const seen = new Set<Node>()
+  const visit = (call: CallExpression, requireOption: boolean) => {
+    if (seen.has(call)) return
+    const w = writeOf(call)
+    if (!w) return
+    if (requireOption && !call.getArguments().some((a) => TXN_OPTION.test(a.getText()))) return
+    seen.add(call)
+    out.push(w)
+  }
+  for (const scope of scopes) {
+    if (Node.isCallExpression(scope)) visit(scope, false)
+    for (const call of scope.getDescendantsOfKind(SyntaxKind.CallExpression)) visit(call, false)
+  }
+  if (scopes.length === 0) {
+    const fn = txnCall.getFirstAncestor((a) => isFunctionNode(a))
+    for (const call of fn?.getDescendantsOfKind(SyntaxKind.CallExpression) ?? []) visit(call, true)
+  }
+  return out
+}
+
+/** `manager.save(Order, dto)` → Order::save; `Order.create(...)` → Order::create; `tx.order.create(...)` → Order::create. */
+function writeOf(call: CallExpression): TxnWrite | null {
+  const callee = call.getExpression()
+  if (!Node.isPropertyAccessExpression(callee)) return null
+  const operation = callee.getName()
+  if (!WRITE_METHODS.has(operation)) return null
   const receiver = callee.getExpression()
-  const tail = receiver.getText().replace(/\s/g, "").split(".").pop() ?? ""
-  if (DB_RECEIVER.test(tail)) return ref(calleeSymbol(callee), call)
-  const fromOrm = ev.evaluate(receiver).some((v) =>
-    (v.kind === "external" || v.kind === "externalCall") &&
-    ORM_PACKAGES.some((pkg) => v.name === pkg || v.name.startsWith(`${pkg}.`)))
-  return fromOrm ? ref(calleeSymbol(callee), call) : null
+  const entity = entityFromArgument(call.getArguments()[0]) ?? entityFromReceiver(receiver)
+  if (!entity) return null
+  return { entity, operation, symbol: `${entity}::${operation}`, file: relativePath(call.getSourceFile()), line: call.getStartLineNumber() }
+}
+
+/** TypeORM's EntityManager takes the entity first: `save(Order, dto)`, `save(new Order(...))`. */
+function entityFromArgument(arg: Node | undefined): string | null {
+  if (!arg) return null
+  if (Node.isIdentifier(arg) && /^[A-Z]/.test(arg.getText())) return arg.getText()
+  if (Node.isNewExpression(arg)) {
+    const name = arg.getExpression().getText()
+    return /^[A-Z]/.test(name) ? name : null
+  }
+  return null
+}
+
+function entityFromReceiver(receiver: Node): string | null {
+  // Order.create(...) / Order.update(...)
+  if (Node.isIdentifier(receiver)) {
+    const name = receiver.getText()
+    if (/^[A-Z]/.test(name)) return name
+    // order.save(...) on an instance: the variable names the entity
+    return /^(res|req|next|manager|tx|trx|em|session|t|db|prisma)$/.test(name) ? null : capitalize(name)
+  }
+  // tx.order.create(...) / prisma.order.create(...)
+  if (Node.isPropertyAccessExpression(receiver)) {
+    const name = receiver.getName()
+    if (/^(res|req|body|query|params)$/.test(name)) return null
+    return capitalize(name)
+  }
+  // manager.getRepository(Order).save(...)
+  if (Node.isCallExpression(receiver)) return entityFromArgument(receiver.getArguments()[0])
+  return null
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 /** Where services live: a file or folder named for the layer. */
-const SERVICE_PATH = /(service|repositor|repo|dao|store|provider|manager|usecase|use-case|model|entit|domain|gateway|client)/i
+const SERVICE_PATH = /(service|repositor|repo\b|dao|store|provider|manager|usecase|use-case|model|entit|domain|gateway|client)/i
 /** Where helpers live: response formatters, pickers, id generators. */
 const UTILITY_PATH = /(^|\/)(utils?|helpers?|lib\/utils|common\/utils|shared\/utils)(\/|\.|$)/i
 

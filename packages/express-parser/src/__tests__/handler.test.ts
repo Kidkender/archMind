@@ -117,6 +117,34 @@ describe("analyzeHandler — transactions", () => {
     expect(graph(gs, "POST /wallet").nodes.some((n) => n.id === "txn")).toBe(false)
   })
 
+  test("writes inside a transaction: callback, Prisma array, unmanaged transaction passed as an option", () => {
+    const gs = graphs({
+      "app.js": `
+        const app = require('express')()
+        app.post('/a', async (req, res) => {
+          await sequelize.transaction(async (t) => {
+            await Order.create(req.body, { transaction: t })
+            await prisma.audit.create({ data: {} })
+          })
+        })
+        app.post('/b', async (req, res) => {
+          await prisma.$transaction([prisma.order.create({ data: req.body }), prisma.payment.update({ where: {}, data: {} })])
+        })
+        app.post('/c', async (req, res) => {
+          const t = await sequelize.transaction()
+          await Order.update(req.body, { where: {}, transaction: t })
+          await Log.create({ msg: 'not in the transaction' })
+          await t.commit()
+        })
+      `,
+    })
+    const writes = (key: string) => graph(gs, key).nodes.filter((n) => n.type === IR_NODE_TYPES.TXN_WRITE).map((n) => n.symbol)
+    expect(writes("POST /a")).toEqual(["Order::create", "Audit::create"])
+    expect(writes("POST /b")).toEqual(["Order::create", "Payment::update"])
+    expect(writes("POST /c")).toEqual(["Order::update"])
+    expect(graph(gs, "POST /a").edges).toContainEqual(expect.objectContaining({ from: "txn", to: "txn_write_0", relation: IR_EDGE_RELATIONS.WRAPS }))
+  })
+
   test("a transaction on a handle from an ORM package counts whatever it is named", () => {
     const g = graph(graphs({
       "app.ts": `

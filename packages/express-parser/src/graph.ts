@@ -60,11 +60,17 @@ export function routeToGraph(route: ExpressRoute, opts: ClassifyOptions = {}, fa
     nodes.push({ id: "ownership", type: IR_NODE_TYPES.AUTHZ_CHECK, ...facts.ownership, role: "authorization" })
   }
   const txn = facts?.transactions[0]
-  if (txn) nodes.push({ id: "txn", type: IR_NODE_TYPES.TXN_BOUNDARY, ...txn, role: "transaction" })
+  if (txn) nodes.push({ id: "txn", type: IR_NODE_TYPES.TXN_BOUNDARY, symbol: txn.symbol, file: txn.file, line: txn.line, role: "transaction" })
 
   const edges: ExecutionEdge[] = []
   for (let i = 0; i < nodes.length - 1; i++) {
     edges.push({ from: nodes[i].id, to: nodes[i + 1].id, relation: IR_EDGE_RELATIONS.PRECEDES, traceability: "static" })
+  }
+
+  // Writes inside the transaction hang off it, as Laravel's and NestJS's do.
+  for (const [i, w] of (txn?.writes ?? []).entries()) {
+    nodes.push({ id: `txn_write_${i}`, type: IR_NODE_TYPES.TXN_WRITE, symbol: w.symbol, file: w.file, line: w.line, role: "persistence", mutates: true })
+    edges.push({ from: "txn", to: `txn_write_${i}`, relation: IR_EDGE_RELATIONS.WRAPS, traceability: "static" })
   }
 
   // Services the handler calls hang off it, outside the chain.

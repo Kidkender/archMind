@@ -1,0 +1,5 @@
+{
+  "name": "auth-service-call-express",
+  "private": true,
+  "dependencies": { "express": "^4.19.0" }
+}
