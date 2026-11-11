@@ -97,6 +97,14 @@ export class Evaluator {
     if (Node.isObjectLiteralExpression(node)) return [{ kind: "object", node }]
     if (Node.isArrayLiteralExpression(node)) return [{ kind: "array", node }]
     if (Node.isIdentifier(node)) return this.evaluateIdentifier(node, env)
+    if (node.getKind() === SyntaxKind.ThisKeyword) {
+      // `this` inside a class method: an instance of that class (static methods: the class)
+      const cls = node.getFirstAncestor((a) => Node.isClassDeclaration(a) || Node.isClassExpression(a))
+      if (!cls) return []
+      const method = node.getFirstAncestor((a) => Node.isMethodDeclaration(a) || Node.isPropertyDeclaration(a))
+      const isStatic = !!method && (Node.isMethodDeclaration(method) || Node.isPropertyDeclaration(method)) && method.isStatic()
+      return [isStatic ? { kind: "class", node: cls } : { kind: "instance", classNode: cls }]
+    }
     if (Node.isPropertyAccessExpression(node)) {
       return this.member(this.evaluate(node.getExpression(), env), node.getName(), env)
     }
@@ -208,9 +216,53 @@ export class Evaluator {
       if (!Node.isMethodDeclaration(member) && !Node.isPropertyDeclaration(member)) continue
       if (member.getName() !== key || member.isStatic() !== isStatic) continue
       if (Node.isMethodDeclaration(member)) return [{ kind: "function", node: member, name: key }]
-      return this.evaluate(member.getInitializer())
+      const init = member.getInitializer()
+      if (init) return this.evaluate(init)
+      const typed = this.instanceOfType(member.getTypeNode())
+      if (typed.length > 0) return typed
     }
-    return []
+    if (isStatic) {
+      const base = this.baseClass(classNode)
+      return base ? this.classMember(base, key, true) : []
+    }
+    // constructor parameter properties (`constructor(private users: UserService)`)
+    // and `this.users = new UserService()` / `this.users = users` in the constructor
+    for (const ctor of classNode.getConstructors()) {
+      for (const param of ctor.getParameters()) {
+        if (param.getName() === key && param.getScope() !== undefined) return this.instanceOfType(param.getTypeNode())
+        if (param.getName() === key && param.isReadonly()) return this.instanceOfType(param.getTypeNode())
+      }
+      for (const assign of ctor.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+        const left = assign.getLeft()
+        if (assign.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue
+        if (Node.isPropertyAccessExpression(left) && left.getExpression().getKind() === SyntaxKind.ThisKeyword && left.getName() === key) {
+          const right = this.evaluate(assign.getRight())
+          if (right.length > 0) return right
+          const param = Node.isIdentifier(assign.getRight())
+            ? ctor.getParameters().find((p) => p.getName() === assign.getRight().getText())
+            : undefined
+          if (param) return this.instanceOfType(param.getTypeNode())
+        }
+      }
+    }
+    const base = this.baseClass(classNode)
+    return base ? this.classMember(base, key, false) : []
+  }
+
+  /** An instance of the class a type annotation names (`users: UserService`), when it resolves to a project class. */
+  private instanceOfType(typeNode: Node | undefined): Value[] {
+    if (!typeNode || !Node.isTypeReference(typeNode)) return []
+    const name = typeNode.getTypeName()
+    if (!Node.isIdentifier(name)) return []
+    return this.evaluate(name).flatMap((v): Value[] => v.kind === "class" ? [{ kind: "instance", classNode: v.node }] : [])
+  }
+
+  private baseClass(classNode: Node): Node | null {
+    if (!Node.isClassDeclaration(classNode) && !Node.isClassExpression(classNode)) return null
+    const ext = classNode.getExtends()
+    if (!ext) return null
+    const base = this.evaluate(ext.getExpression()).find((v) => v.kind === "class")
+    return base && base.kind === "class" ? base.node : null
   }
 
   // -------------------------------------------------------------------------

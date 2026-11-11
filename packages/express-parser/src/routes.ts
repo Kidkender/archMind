@@ -72,8 +72,7 @@ type Registration = RouteRegistration | UseRegistration
 
 const MAX_MOUNT_DEPTH = 12
 
-export function extractRoutes(ep: ExpressProject): ExtractResult {
-  const ev = new Evaluator(ep)
+export function extractRoutes(ep: ExpressProject, ev: Evaluator = new Evaluator(ep)): ExtractResult {
   const registrations: Registration[] = []
   const unresolvedPaths: ExtractResult["unresolvedPaths"] = []
 

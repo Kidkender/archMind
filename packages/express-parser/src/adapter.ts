@@ -4,6 +4,8 @@ import { findExpressRoot } from "./detect.js"
 import { readSourceFiles, type SourceFile } from "./scanner.js"
 import { createExpressProject } from "./project.js"
 import { extractRoutes } from "./routes.js"
+import { Evaluator } from "./evaluator.js"
+import { analyzeHandler } from "./handler.js"
 import { routeToGraph } from "./graph.js"
 
 export interface ParseExpressOptions {
@@ -22,8 +24,11 @@ export interface ParseExpressOptions {
  */
 export function parseExpressSources(sources: SourceFile[], opts: ParseExpressOptions = {}): IntermediateExecutionGraph[] {
   if (sources.length === 0) return []
-  const { routes } = extractRoutes(createExpressProject(sources))
-  return routes.map((r) => routeToGraph(r, { authGates: opts.authGates, authzChecks: opts.authzChecks }))
+  const ep = createExpressProject(sources)
+  const ev = new Evaluator(ep)
+  const { routes } = extractRoutes(ep, ev)
+  const classify = { authGates: opts.authGates, authzChecks: opts.authzChecks }
+  return routes.map((r) => routeToGraph(r, classify, analyzeHandler(r, ev, { ownershipSources: opts.ownershipSources })))
 }
 
 /**

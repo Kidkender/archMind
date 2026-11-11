@@ -2,6 +2,7 @@ import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@kidkender/archmin
 import type { IntermediateExecutionGraph, ExecutionNode, ExecutionEdge } from "@kidkender/archmind-protocol"
 import type { ExpressRoute } from "./routes.js"
 import { classifyMiddleware, type ClassifyOptions, type MiddlewareKind } from "./middleware.js"
+import type { HandlerFacts } from "./handler.js"
 
 const ADAPTER_VERSION = "0.1.0"
 
@@ -22,7 +23,7 @@ const NODE_FOR_KIND: Partial<Record<MiddlewareKind, { type: string; role: string
  * linked by `precedes`. Middleware is classified (classifyMiddleware);
  * infrastructure such as body parsers, logging and CORS is left out.
  */
-export function routeToGraph(route: ExpressRoute, opts: ClassifyOptions = {}): IntermediateExecutionGraph {
+export function routeToGraph(route: ExpressRoute, opts: ClassifyOptions = {}, facts?: HandlerFacts): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   for (const mw of route.middleware) {
     for (const kind of classifyMiddleware(mw, opts).kinds) {
@@ -48,9 +49,23 @@ export function routeToGraph(route: ExpressRoute, opts: ClassifyOptions = {}): I
     role:   "handler",
   })
 
+  // Ownership and the transaction happen inside the handler (or a service it
+  // calls), so like the Go adapter they follow the handler in the chain.
+  if (facts?.ownership) {
+    nodes.push({ id: "ownership", type: IR_NODE_TYPES.AUTHZ_CHECK, ...facts.ownership, role: "authorization" })
+  }
+  const txn = facts?.transactions[0]
+  if (txn) nodes.push({ id: "txn", type: IR_NODE_TYPES.TXN_BOUNDARY, ...txn, role: "transaction" })
+
   const edges: ExecutionEdge[] = []
   for (let i = 0; i < nodes.length - 1; i++) {
     edges.push({ from: nodes[i].id, to: nodes[i + 1].id, relation: IR_EDGE_RELATIONS.PRECEDES, traceability: "static" })
+  }
+
+  // Services the handler calls hang off it, outside the chain.
+  for (const [i, svc] of (facts?.services ?? []).entries()) {
+    nodes.push({ id: `svc_${i}`, type: IR_NODE_TYPES.SERVICE_CALL, ...svc, role: "service" })
+    edges.push({ from: "handler", to: `svc_${i}`, relation: IR_EDGE_RELATIONS.CALLS, traceability: "static" })
   }
 
   return {
