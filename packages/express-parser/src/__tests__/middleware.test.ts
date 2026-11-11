@@ -135,6 +135,61 @@ describe("classifyMiddleware — bodies of project middleware", () => {
     })).toEqual(["<inline>=infrastructure", "<inline>=csrf"])
   })
 
+  test("role flags on the user (isSuperUser, isAdminUser) answered with 403 are authorization; role names with a User suffix too", () => {
+    expect(kindsOf({
+      "app.js": `
+        const app = require('express')()
+        function isAdminUser(req, res, next) { if (req.user.isAdminUser) return next(); res.status(403).end() }
+        async function isPartnerUser(req, res, next) {
+          if (!req.user.isSuperUser && (await req.user.getOrganization()).type !== 'PARTNER') return res.status(403).end()
+          next()
+        }
+        app.get('/x', isAdminUser, isPartnerUser, (req, res) => {})
+      `,
+    })).toEqual(["isAdminUser=authz_check", "isPartnerUser=authz_check"])
+  })
+
+  test("a token read that always ends in next() is optional auth; one that stops the request is a gate", () => {
+    expect(kindsOf({
+      "app.js": `
+        const app = require('express')()
+        async function attachUser(req, res, next) {
+          const { authorization } = req.headers
+          if (authorization?.startsWith('Bearer ')) req.user = await findUser(authorization.slice(7))
+          next()
+        }
+        async function bearerOnly(req, res, next) {
+          const { authorization } = req.headers
+          if (!authorization?.startsWith('Bearer ')) return res.status(401).end()
+          req.user = await findUser(authorization.slice(7))
+          return next()
+        }
+        app.get('/x', attachUser, bearerOnly, (req, res) => {})
+      `,
+    })).toEqual(["attachUser=optional_auth", "bearerOnly=auth_gate"])
+  })
+
+  test("compound token names; expressValidator() installs, body() validates; more infrastructure packages", () => {
+    expect(kindsOf({
+      "app.ts": `
+        import express from 'express'
+        import expressValidator from 'express-validator'
+        import { body } from 'express-validator'
+        import expressLayouts from 'express-ejs-layouts'
+        import nocache from 'nocache'
+        import { verifyAuthToken } from './auth'
+        const app = express()
+        app.use(expressValidator())
+        app.use(expressLayouts)
+        app.use(nocache())
+        app.post('/x', verifyAuthToken, body('email').isEmail(), (req, res) => {})
+      `,
+    })).toEqual([
+      "expressValidator=infrastructure", "expressLayouts=infrastructure", "nocache=infrastructure",
+      "verifyAuthToken=auth_gate", "body=validation_gate",
+    ])
+  })
+
   test("(err, req, res, next) is an error handler", () => {
     expect(kindsOf({
       "app.js": `

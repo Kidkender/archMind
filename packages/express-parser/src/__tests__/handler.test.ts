@@ -145,6 +145,23 @@ describe("analyzeHandler — transactions", () => {
     expect(graph(gs, "POST /a").edges).toContainEqual(expect.objectContaining({ from: "txn", to: "txn_write_0", relation: IR_EDGE_RELATIONS.WRAPS }))
   })
 
+  test("a transaction in a helper of the route file is found one call below the handler", () => {
+    const [g] = graphs({
+      "routes.js": `
+        const router = require('express').Router()
+        async function resetCounts(userId) {
+          return models.sequelize.transaction(async (transaction) => {
+            await models.Count.update({ n: 0 }, { where: {}, transaction })
+          })
+        }
+        router.post('/close', async (req, res) => { await resetCounts(req.user.id); res.end() })
+        module.exports = router
+      `,
+    })
+    expect(g.nodes.find((n) => n.id === "txn")).toMatchObject({ symbol: "models.sequelize.transaction", line: 4 })
+    expect(g.nodes.filter((n) => n.type === IR_NODE_TYPES.SERVICE_CALL)).toEqual([])   // a local helper is not a service
+  })
+
   test("a transaction on a handle from an ORM package counts whatever it is named", () => {
     const g = graph(graphs({
       "app.ts": `

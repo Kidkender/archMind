@@ -73,11 +73,22 @@ const PACKAGE_KINDS: [string, MiddlewareKind][] = [
   ["hpp", "infrastructure"], ["lusca", "infrastructure"], ["connect-flash", "infrastructure"],
   ["serve-favicon", "infrastructure"], ["response-time", "infrastructure"], ["connect-timeout", "infrastructure"],
   ["swagger-ui-express", "infrastructure"], ["multer", "infrastructure"],
+  ["express-ejs-layouts", "infrastructure"], ["express-status-monitor", "infrastructure"], ["nocache", "infrastructure"],
+  ["cookie-session", "infrastructure"],
 ]
+
+/**
+ * `expressValidator()` — the default export of express-validator before v6 —
+ * only installs `req.checkBody()` and friends on every request; the validation
+ * itself happens in the handler. Its members (`body()`, `check()`, ...) are the
+ * per-route validation.
+ */
+const INSTALLERS = new Set(["express-validator"])
 
 function packageKind(values: Value[]): { kind: MiddlewareKind; pkg: string } | null {
   for (const v of values) {
     if (v.kind !== "external" && v.kind !== "externalCall") continue
+    if (v.kind === "externalCall" && INSTALLERS.has(v.name)) return { kind: "infrastructure", pkg: v.name }
     // longest matching prefix: "lusca.csrf" before "lusca", "passport.authenticate" before nothing
     let best: [string, MiddlewareKind] | null = null
     for (const entry of PACKAGE_KINDS) {
@@ -101,6 +112,8 @@ const AUTHZ_NAME = new RegExp(
     "authori[sz]e", "isAuthorized", "permit", "can", "guard",
     "(check|require|has|ensure|verify|restrict|allow|only|is)?(Any)?(Roles?|Permissions?|Admin|Scopes?|Owner|Ownership|Privileges?|Rights?|Access)(Middleware|Guard|Auth|Only|Check|Required)?",
     "(admin|role|roles|owner|permission)(Middleware|Guard|Auth|Only|Check)",
+    // isAdminUser, isSuperUser, requireStaff, onlyModerator, isOwnerOrAdmin
+    "(is|has|require|ensure|check|only)(Admin|Super|SuperUser|SuperAdmin|Staff|Moderator|Manager|Owner|Root)\\w*",
     "restrictTo", "grantAccess",
   ].join("|") + ")$",
   "i",
@@ -112,6 +125,8 @@ const AUTH_NAME = new RegExp(
     "(require|requires|ensure|verify|check|validate|is|has)?(Auth|Authentication|Authenticated|Jwt|Token|Login|LoggedIn|SignedIn|Signin|Session|User|ApiKey)(Middleware|Guard|Handler)?",
     "(auth|jwt|token|apiKey|bearer)(Middleware|Guard|Handler|Check|Required)",
     "authenticate(Token|Jwt|User|Request)",
+    // verifyAuthToken, checkAccessToken, validateJwtToken, requireApiKey
+    "(verify|check|validate|require|ensure|authenticate)(Auth|Access|Bearer|Id|Api|Jwt|User)?(Token|Jwt|JWT|Key|ApiKey|Session)",
   ].join("|") + ")$",
   "i",
 )
@@ -138,20 +153,60 @@ const BODY_AUTH = new RegExp([
   "headers\\.authorization",
   "headers\\[\\s*['\"`](authorization|x-token|x-access-token|x-api-key|x-auth-token)['\"`]\\s*\\]",
   "\\.get\\(\\s*['\"`](authorization|x-api-key)['\"`]\\s*\\)",
+  // const { authorization } = req.headers
+  "\\{[^}]*\\bauthorization\\b[^}]*\\}\\s*=\\s*\\w+\\.headers",
+  "['\"`]Bearer\\s",
 ].join("|"), "i")
 
 // a role / permission read off the user or token, not any word like "scope" (`User.scope("withSecrets")` is an ORM call)
-const BODY_ROLE = /\.(role|roles|isAdmin|admin|permissions?|rights|scopes|privileges?)\b|\b(roles|isAdmin|hasRole|hasAnyRole|hasPermission|permissions|requiredRights)\b/
+const BODY_ROLE = /\.(role|roles|isAdmin|admin|permissions?|rights|scopes|privileges?)\b|\b(roles|isAdmin|hasRole|hasAnyRole|hasPermission|permissions|requiredRights)\b|\.(is|has)(Super|Admin|Staff|Owner|Moderator|Manager|Root)\w*/
 const BODY_DENY = /\b40[13]\b|forbidden|unauthori[sz]ed/i
 
 const BODY_CSRF = /csrf/i
 /** Ways a middleware ends the request instead of passing it on. */
 const BODY_STOPS = /\bres\.(status|sendStatus|send|json|end|redirect|render|sendFile)\s*\(|\bthrow\b|\bnext\s*\(\s*[^)\s]/
 
+/**
+ * A middleware whose last top-level statement is a plain `next()` lets the
+ * request through whatever happened above it: reading a token there makes it
+ * optional authentication, not a gate (calling it a gate would hide routes that
+ * are really open).
+ */
+function endsWithUnconditionalNext(fn: Node): boolean {
+  const body = (fn as unknown as { getBody?: () => Node | undefined }).getBody?.()
+  if (!body || !Node.isBlock(body)) return false
+  const statements = body.getStatements()
+  const last = statements.at(-1)
+  if (!last || !/^(return\s+)?(await\s+)?next\s*\(\s*\)\s*;?$/.test(last.getText().trim())) return false
+  // `if (!token) return res.status(401).end()` at the top level still blocks a request without a token
+  return !statements.some(isTopLevelExit)
+}
+
+/** A top-level statement that ends the request: an unconditional stop, or an `if` whose branch stops directly. */
+function isTopLevelExit(stmt: Node): boolean {
+  if (Node.isThrowStatement(stmt)) return true
+  if (Node.isExpressionStatement(stmt) || Node.isReturnStatement(stmt)) return BODY_STOPS_CALL.test(stmt.getText())
+  if (Node.isIfStatement(stmt)) {
+    for (const branch of [stmt.getThenStatement(), stmt.getElseStatement()]) {
+      if (!branch) continue
+      const direct = Node.isBlock(branch) ? branch.getStatements() : [branch]
+      if (direct.some((s) => Node.isThrowStatement(s) || ((Node.isReturnStatement(s) || Node.isExpressionStatement(s)) && BODY_STOPS_CALL.test(s.getText())))) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+const BODY_STOPS_CALL = /\bres\.(status|sendStatus|send|json|end|redirect|render)\s*\(|\bnext\s*\(\s*[^)\s]/
+
 function bodyKinds(fn: Node): MiddlewareKind[] {
   const text = fn.getText()
   const kinds: MiddlewareKind[] = []
-  if (BODY_AUTH.test(text)) kinds.push("auth_gate")
+  if (BODY_AUTH.test(text)) {
+    if (endsWithUnconditionalNext(fn)) return ["optional_auth"]
+    kinds.push("auth_gate")
+  }
   if (BODY_ROLE.test(text) && BODY_DENY.test(text)) kinds.push("authz_check")
   if (kinds.length > 0) return kinds
   if (BODY_CSRF.test(text)) return ["csrf"]

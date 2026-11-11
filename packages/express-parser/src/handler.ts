@@ -49,8 +49,11 @@ export function analyzeHandler(route: ExpressRoute, ev: Evaluator, opts: Handler
 
   const owners = new Set(opts.ownershipSources ?? [])
   const params = new Set(parameterNames(handler))
-  const serviceFns: Node[] = []
-  const seenServices = new Set<Node>()
+  // every project function the handler calls; only service-like ones become nodes,
+  // but transactions and ownership are looked for in all of them (a helper in the
+  // route file that wraps its writes in a transaction counts)
+  const calledFns: Node[] = []
+  const seenFns = new Set<Node>()
 
   for (const call of callsIn(handler)) {
     const callee = call.getExpression()
@@ -61,18 +64,17 @@ export function analyzeHandler(route: ExpressRoute, ev: Evaluator, opts: Handler
     if (txn) facts.transactions.push(txn)
 
     for (const fn of projectFunctions(ev.evaluate(callee))) {
-      if (fn === handler || isWithin(fn, handler) || seenServices.has(fn)) continue
-      if (!isServiceTarget(callee, fn, handler)) continue
-      seenServices.add(fn)
-      serviceFns.push(fn)
-      if (facts.services.length < MAX_SERVICES) {
+      if (fn === handler || isWithin(fn, handler) || seenFns.has(fn)) continue
+      seenFns.add(fn)
+      calledFns.push(fn)
+      if (isServiceTarget(callee, fn, handler) && facts.services.length < MAX_SERVICES) {
         facts.services.push({ symbol: serviceSymbol(callee), file: relativePath(fn.getSourceFile()), line: fn.getStartLineNumber() })
       }
     }
   }
 
-  // one hop: transactions and ownership inside the services the handler calls
-  for (const fn of serviceFns) {
+  // one hop: transactions and ownership inside the functions the handler calls
+  for (const fn of calledFns) {
     for (const call of callsIn(fn)) {
       const txn = transactionCall(call, ev)
       if (txn) facts.transactions.push(txn)
