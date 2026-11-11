@@ -3,6 +3,8 @@ import type { IntermediateExecutionGraph, SemanticAdapter } from "@kidkender/arc
 import { findExpressRoot } from "./detect.js"
 import { readSourceFiles, type SourceFile } from "./scanner.js"
 import { createExpressProject } from "./project.js"
+import { extractRoutes } from "./routes.js"
+import { routeToGraph } from "./graph.js"
 
 export interface ParseExpressOptions {
   /** Middleware / function names classified as ir:auth_gate (archmind.json `guards.auth_gate`). */
@@ -18,12 +20,11 @@ export interface ParseExpressOptions {
  * route. Takes the file list directly so tests can use synthetic fixtures;
  * parseExpressProjectAt reads a project from disk.
  *
- * v0.1.0 skeleton: the project is loaded; route extraction lands next.
  */
 export function parseExpressSources(sources: SourceFile[], _opts: ParseExpressOptions = {}): IntermediateExecutionGraph[] {
   if (sources.length === 0) return []
-  createExpressProject(sources)
-  return []
+  const { routes } = extractRoutes(createExpressProject(sources))
+  return routes.map(routeToGraph)
 }
 
 /**
