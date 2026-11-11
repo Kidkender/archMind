@@ -361,7 +361,7 @@ describe("parseExpressSources — graphs", () => {
     expect(g.entrypoint).toBe("POST /orders")
     expect(g.framework).toBe("express")
     expect(g.nodes.map((n) => n.type)).toEqual([
-      IR_NODE_TYPES.UNKNOWN_MIDDLEWARE, IR_NODE_TYPES.UNKNOWN_MIDDLEWARE, IR_NODE_TYPES.BUSINESS_HANDLER,
+      IR_NODE_TYPES.AUTH_GATE, IR_NODE_TYPES.VALIDATION_GATE, IR_NODE_TYPES.BUSINESS_HANDLER,
     ])
     expect(g.nodes[1]).toMatchObject({ symbol: "validate(schema)", args: ["schema"], file: "app.js", line: 3 })
     expect(g.edges.map((e) => `${e.from}->${e.to}`)).toEqual(["mw_0->mw_1", "mw_1->handler"])

@@ -202,6 +202,12 @@ function chainEntry(node: Node, values: Value[], ev: Evaluator, env: Env): Chain
   if (Node.isCallExpression(node)) {
     callee = node.getExpression()
     args = node.getArguments().map((a) => a.getText())
+    // a method chain is named after the call it starts from: body("email").isEmail() → "body"
+    while (Node.isPropertyAccessExpression(callee) && Node.isCallExpression(callee.getExpression())) {
+      const inner = callee.getExpression() as CallExpression
+      callee = inner.getExpression()
+      args = inner.getArguments().map((a) => a.getText())
+    }
   }
   const name = Node.isPropertyAccessExpression(callee) ? callee.getName()
     : Node.isIdentifier(callee) ? callee.getText()

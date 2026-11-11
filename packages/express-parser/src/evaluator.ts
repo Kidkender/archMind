@@ -19,6 +19,13 @@ export type Value =
   | { kind: "module"; file: SourceFile }
   /** An npm package or a member of one: "express", "express.Router", "passport.authenticate". */
   | { kind: "external"; name: string }
+  /**
+   * The result of calling a package member other than express itself:
+   * `helmet()` → "helmet", `rateLimit({...})` → "express-rate-limit",
+   * `body("email").isEmail()` → "express-validator.body" (methods called on
+   * the result keep its name).
+   */
+  | { kind: "externalCall"; name: string }
   | { kind: "object"; node: Node }
   | { kind: "array"; node: Node }
   | { kind: "string"; value: string }
@@ -159,6 +166,8 @@ export class Evaluator {
           return this.exportValue(obj.file, key)
         case "external":
           return [{ kind: "external", name: `${obj.name}.${key}` }]
+        case "externalCall":
+          return [obj]
         case "object":
           return this.objectProperty(obj.node, key, env)
         case "array": {
@@ -234,6 +243,8 @@ export class Evaluator {
           }
         } else if (r.kind === "routeChain" && VERBS.has(method)) {
           out.push(r)
+        } else if (r.kind === "externalCall") {
+          out.push(r)   // body("email").isEmail().withMessage(...)
         } else if (method === "bind" && r.kind === "function") {
           out.push(r)   // handler.bind(ctrl)
         }
@@ -245,8 +256,9 @@ export class Evaluator {
       if (fn.kind === "external") {
         if (fn.name === "express") return [this.newRouter(node, true)]
         if (fn.name === "express.Router" || fn.name === "express.default.Router") return [this.newRouter(node, false)]
-        return []
+        return [{ kind: "externalCall", name: fn.name }]
       }
+      if (fn.kind === "externalCall") return [fn]
       if (fn.kind === "function") {
         const returned = this.returnValues(fn.node)
         // A wrapper — a function returning a closure of its own, called with a
@@ -525,6 +537,7 @@ function valueKey(v: Value): string {
     case "instance": return `i:${v.classNode.getSourceFile().getFilePath()}:${v.classNode.getStart()}`
     case "module": return `m:${v.file.getFilePath()}`
     case "external": return `e:${v.name}`
+    case "externalCall": return `x:${v.name}`
     case "object": return `o:${v.node.getSourceFile().getFilePath()}:${v.node.getStart()}`
     case "array": return `a:${v.node.getSourceFile().getFilePath()}:${v.node.getStart()}`
     case "string": return `s:${v.value}`

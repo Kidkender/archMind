@@ -19,12 +19,11 @@ export interface ParseExpressOptions {
  * Parses already-read Express sources into one IntermediateExecutionGraph per
  * route. Takes the file list directly so tests can use synthetic fixtures;
  * parseExpressProjectAt reads a project from disk.
- *
  */
-export function parseExpressSources(sources: SourceFile[], _opts: ParseExpressOptions = {}): IntermediateExecutionGraph[] {
+export function parseExpressSources(sources: SourceFile[], opts: ParseExpressOptions = {}): IntermediateExecutionGraph[] {
   if (sources.length === 0) return []
   const { routes } = extractRoutes(createExpressProject(sources))
-  return routes.map(routeToGraph)
+  return routes.map((r) => routeToGraph(r, { authGates: opts.authGates, authzChecks: opts.authzChecks }))
 }
 
 /**
