@@ -121,3 +121,36 @@ describe("IR conformance — NestJS global-guard fixture", () => {
     expect(unknown).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Suite 4: Transaction fixture (txn boundary + writes)
+// None of the fixtures above opens a transaction, which is how a non-IR edge
+// relation between a transaction and its writes went unnoticed.
+// ---------------------------------------------------------------------------
+
+describe("IR conformance — NestJS transaction fixture", () => {
+  let graphs: IntermediateExecutionGraph[]
+
+  beforeAll(() => {
+    graphs = parseNestJSProject(join(process.cwd(), "../../research/cross-framework/auth-transaction/nestjs"))
+  })
+
+  test("the fixture opens a transaction with writes", () => {
+    const types = graphs.flatMap((g) => g.nodes.map((n) => n.type))
+    expect(types).toContain("ir:txn_boundary")
+    expect(types).toContain("ir:txn_write")
+  })
+
+  test("no unknown node types or edge relations", () => {
+    expect(unknownOnly(allGraphViolations(graphs))).toEqual([])
+  })
+
+  test("writes hang off the transaction by ir:wraps", () => {
+    const [g] = graphs
+    const txn = g.nodes.find((n) => n.type === "ir:txn_boundary")!
+    const writes = g.nodes.filter((n) => n.type === "ir:txn_write")
+    for (const w of writes) {
+      expect(g.edges).toContainEqual(expect.objectContaining({ from: txn.id, to: w.id, relation: "ir:wraps" }))
+    }
+  })
+})
