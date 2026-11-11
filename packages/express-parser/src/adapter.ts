@@ -1,3 +1,4 @@
+import { relative } from "path"
 import { loadUserConfig } from "@kidkender/archmind-protocol"
 import type { IntermediateExecutionGraph, SemanticAdapter } from "@kidkender/archmind-protocol"
 import { findExpressRoot } from "./detect.js"
@@ -40,12 +41,19 @@ export function parseExpressProjectAt(root: string, opts: ParseExpressOptions = 
   const appRoot = findExpressRoot(root)
   if (!appRoot) return []
   const userConfig = loadUserConfig(root)
-  return parseExpressSources(readSourceFiles(appRoot), {
+  const graphs = parseExpressSources(readSourceFiles(appRoot), {
     authGates:        userConfig?.guards?.auth_gate,
     authzChecks:      userConfig?.guards?.authz_check,
     ownershipSources: userConfig?.authorization?.ownershipSources,
     ...opts,
   })
+  // node files are relative to the app; report them relative to the project root
+  const prefix = relative(root, appRoot).replace(/\\/g, "/")
+  if (!prefix) return graphs
+  for (const g of graphs) {
+    for (const n of g.nodes) if (n.file) n.file = `${prefix}/${n.file}`
+  }
+  return graphs
 }
 
 export class ExpressAdapter implements SemanticAdapter {

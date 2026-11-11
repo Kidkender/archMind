@@ -51,7 +51,7 @@ describe("analyzeHandler — service calls", () => {
   test("calls into a service module become ir:service_call nodes; utilities, local helpers and req/res do not", () => {
     const g = graph(graphs(files), "POST /users")
     expect(g.nodes.filter((n) => n.type === IR_NODE_TYPES.SERVICE_CALL)).toEqual([
-      expect.objectContaining({ symbol: "userService.createUser", file: "src/services/user.service.js", line: 2 }),
+      expect.objectContaining({ symbol: "userService::createUser", file: "src/services/user.service.js", line: 2 }),
     ])
     expect(g.edges).toContainEqual(expect.objectContaining({ from: "handler", relation: IR_EDGE_RELATIONS.CALLS }))
   })
@@ -82,7 +82,7 @@ describe("analyzeHandler — service calls", () => {
       `,
     }), "GET /users")
     expect(g.nodes.find((n) => n.id === "handler")).toMatchObject({ symbol: "ctrl.list", file: "src/user.controller.ts", line: 5 })
-    expect(symbolsOf(g, IR_NODE_TYPES.SERVICE_CALL)).toEqual(["users.findAll"])
+    expect(symbolsOf(g, IR_NODE_TYPES.SERVICE_CALL)).toEqual(["users::findAll"])
   })
 })
 

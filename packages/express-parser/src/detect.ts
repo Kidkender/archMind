@@ -4,6 +4,9 @@ import { join } from "path"
 /** Directories that never hold the Express app's own package.json. */
 const SKIP_DIRS = new Set(["node_modules", "dist", "build", "coverage", "vendor", "public", "docs"])
 
+/** Files at a root that make it another kind of backend. */
+const OTHER_BACKEND_MARKERS = ["artisan", "composer.json", "go.mod", "pom.xml", "build.gradle", "build.gradle.kts", "nest-cli.json"]
+
 /** Packages whose presence means the project is not plain Express (it has its own parser). */
 const OTHER_FRAMEWORKS = ["@nestjs/core", "@nestjs/common"]
 
@@ -39,6 +42,9 @@ export function findExpressRoot(root: string): string | null {
   if (usesExpress(own)) return root
   // A NestJS app depends on express too; never look below a project that is NestJS.
   if (own && OTHER_FRAMEWORKS.some((name) => name in { ...own.devDependencies, ...own.dependencies })) return null
+  // A root that is another backend (a Laravel app with a small Node socket
+  // server in server/, a Go or Java service) is that backend, not Express.
+  if (OTHER_BACKEND_MARKERS.some((marker) => existsSync(join(root, marker)))) return null
 
   let entries: string[]
   try {

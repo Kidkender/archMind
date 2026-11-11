@@ -19,6 +19,7 @@ await build({
     "@kidkender/archmind-laravel-parser",
     "@kidkender/archmind-nestjs-parser",
     "@kidkender/archmind-go-parser",
+    "@kidkender/archmind-express-parser",
     "@kidkender/archmind-llm-client",
     "@kidkender/archmind-orchestrator",
     "@kidkender/archmind-protocol",

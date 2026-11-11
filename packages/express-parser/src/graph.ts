@@ -26,16 +26,21 @@ const NODE_FOR_KIND: Partial<Record<MiddlewareKind, { type: string; role: string
 export function routeToGraph(route: ExpressRoute, opts: ClassifyOptions = {}, facts?: HandlerFacts): IntermediateExecutionGraph {
   const nodes: ExecutionNode[] = []
   for (const mw of route.middleware) {
-    for (const kind of classifyMiddleware(mw, opts).kinds) {
+    const kinds = classifyMiddleware(mw, opts).kinds
+    // `auth("manageUsers")` is one check in two parts: the roles belong to the
+    // authorization node only, or the permission reads as checked twice
+    const split = kinds.includes("auth_gate") && kinds.includes("authz_check")
+    for (const kind of kinds) {
       const spec = NODE_FOR_KIND[kind]
       if (!spec) continue
+      const withArgs = mw.args.length > 0 && !(split && kind === "auth_gate")
       nodes.push({
         id:     `mw_${nodes.length}`,
         type:   spec.type,
         symbol: shorten(mw.text),
         file:   mw.file,
         line:   mw.line,
-        ...(mw.args.length > 0 ? { args: mw.args } : {}),
+        ...(withArgs ? { args: mw.args } : {}),
         role:   spec.role,
       })
     }

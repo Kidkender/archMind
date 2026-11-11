@@ -56,7 +56,7 @@ export function analyzeHandler(route: ExpressRoute, ev: Evaluator, opts: Handler
       seenServices.add(fn)
       serviceFns.push(fn)
       if (facts.services.length < MAX_SERVICES) {
-        facts.services.push({ symbol: calleeSymbol(callee), file: relativePath(fn.getSourceFile()), line: fn.getStartLineNumber() })
+        facts.services.push({ symbol: serviceSymbol(callee), file: relativePath(fn.getSourceFile()), line: fn.getStartLineNumber() })
       }
     }
   }
@@ -123,6 +123,16 @@ function ref(symbol: string, node: Node): CodeRef {
 
 function calleeSymbol(callee: Node): string {
   return callee.getText().replace(/\s+/g, "").replace(/^this\./, "")
+}
+
+/**
+ * `userService.createUser` → "userService::createUser", the Owner::method form
+ * the other adapters use, so dependents can be looked up by owner name.
+ */
+function serviceSymbol(callee: Node): string {
+  const text = calleeSymbol(callee)
+  const dot = text.lastIndexOf(".")
+  return dot > 0 && Node.isPropertyAccessExpression(callee) ? `${text.slice(0, dot)}::${text.slice(dot + 1)}` : text
 }
 
 function lastName(callee: Node): string {

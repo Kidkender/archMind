@@ -19,6 +19,7 @@
     "@kidkender/archmind-llm-client": "*",
     "@kidkender/archmind-nestjs-parser": "*",
     "@kidkender/archmind-go-parser": "*",
+    "@kidkender/archmind-express-parser": "*",
     "@kidkender/archmind-orchestrator": "*",
     "@kidkender/archmind-protocol": "*",
     "@kidkender/archmind-retrieval": "*",

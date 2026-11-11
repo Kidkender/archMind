@@ -53,6 +53,13 @@ describe("isExpressProject / findExpressRoot", () => {
     expect(isExpressProject(dir)).toBe(false)
   })
 
+  test("a Laravel (or Go, Java) root with a Node server in a subdirectory is not Express", () => {
+    write("artisan", "")
+    packageJson("package.json", { vite: "^5.0.0" })
+    packageJson("server/package.json", { express: "^4.19.0" })
+    expect(isExpressProject(dir)).toBe(false)
+  })
+
   test("node_modules is never taken for the app", () => {
     packageJson("package.json", { react: "^18.0.0" })
     packageJson("node_modules/package.json", { express: "^4.19.0" })
@@ -97,6 +104,15 @@ describe("createExpressProject", () => {
 })
 
 describe("parseExpressProjectAt", () => {
+  test("an app one directory down reports node files relative to the project root", () => {
+    packageJson("package.json", { react: "^18.0.0" })
+    packageJson("server/package.json", { express: "^4.19.0" })
+    write("server/src/app.js", "const app = require('express')(); app.get('/x', function show(req, res) {})")
+    const [g] = parseExpressProjectAt(dir)
+    expect(g.entrypoint).toBe("GET /x")
+    expect(g.nodes.find((n) => n.id === "handler")?.file).toBe("server/src/app.js")
+  })
+
   test("returns no graphs for a project that is not Express", () => {
     packageJson("package.json", { koa: "^2.0.0" })
     write("src/app.js", "")
