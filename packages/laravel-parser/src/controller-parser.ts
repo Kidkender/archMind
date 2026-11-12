@@ -1,7 +1,7 @@
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
-import { parsePhpFile } from "./php-source.js"
+import { parsePhpFile, findMethod } from "./php-source.js"
 import { extractReturnedResources } from "./resource-parser.js"
 import { classifyDispatch } from "./transaction-parser.js"
 import { isGuardClauseMethodNode } from "./guard-clause-parser.js"
@@ -258,10 +258,17 @@ export function parseFormRequestAuthorize(filePath: string): string | undefined 
 
 // ---- Use-statement extraction -----------------------------------------
 
+/** `use` maps by tree: a cached tree is analysed for many routes, the imports do not change. */
+const useMaps = new WeakMap<Parser.Tree, Map<string, string>>()
+
 export function extractUseMap(root: Parser.SyntaxNode): Map<string, string> {
+  const isRoot = !root.parent
+  const cached = isRoot ? useMaps.get(root.tree) : undefined
+  if (cached) return new Map(cached)
   const map = new Map<string, string>()
   gatherUseDecls(root, map)
-  return map
+  if (isRoot) useMaps.set(root.tree, map)
+  return new Map(map)
 }
 
 function registerUseClause(clause: Parser.SyntaxNode, prefix: string, map: Map<string, string>): void {
@@ -310,26 +317,7 @@ function lastSegment(fqcn: string): string {
 
 // ---- Method finder ----------------------------------------------------
 
-function findMethod(root: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  for (const child of root.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
-function findMethodIn(node: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  if (node.type === "method_declaration") {
-    const nameNode = node.childForFieldName("name")
-    if (nameNode?.text === name) return node
-  }
-
-  for (const child of node.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
 // ---- FormRequest extraction -------------------------------------------
 

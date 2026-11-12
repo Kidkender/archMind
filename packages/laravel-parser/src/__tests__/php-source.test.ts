@@ -2,8 +2,10 @@ import { describe, test, expect, jest, beforeEach, afterEach } from "@jest/globa
 import { mkdtempSync, writeFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import type Parser from "tree-sitter"
-import { parseOptionsFor, parseSource, parsePhpFile } from "../php-source.js"
+import Parser from "tree-sitter"
+// @ts-ignore — tree-sitter-php lacks ambient declarations in this workspace
+import PHP from "tree-sitter-php"
+import { parseOptionsFor, parseSource, parsePhpFile, findMethod } from "../php-source.js"
 import { parseTransactions } from "../transaction-parser.js"
 
 // A controller well past tree-sitter 0.21's default 32 KiB parse buffer: the
@@ -76,5 +78,39 @@ describe("php-source", () => {
     const message = String(warn.mock.calls[0]![0])
     expect(message).toContain("/app/Http/Controllers/X.php")
     expect(message).toContain("Invalid argument")
+  })
+
+  test("a file is parsed once while its content is unchanged, and again after it changes", () => {
+    const real = new Parser()
+    real.setLanguage((PHP as { php?: unknown }).php ?? PHP)
+    let parses = 0
+    const counting = { parse: (...args: unknown[]) => { parses++; return (real.parse as (...a: unknown[]) => Parser.Tree)(...args) } } as unknown as Parser
+    const file = join(dir, "Cached.php")
+
+    writeFileSync(file, "<?php class A { function one() {} }")
+    const first = parsePhpFile(counting, file)
+    const second = parsePhpFile(counting, file)
+    expect(parses).toBe(1)
+    expect(second?.tree).toBe(first?.tree)
+
+    writeFileSync(file, "<?php class A { function two() {} }")
+    const third = parsePhpFile(counting, file)
+    expect(parses).toBe(2)
+    expect(findMethod(third!.tree.rootNode, "two")).not.toBeNull()
+    expect(findMethod(third!.tree.rootNode, "one")).toBeNull()
+  })
+
+  test("findMethod returns the first method of that name in document order", () => {
+    const file = join(dir, "Methods.php")
+    writeFileSync(file, `<?php
+class First { public function handle() { return 1; } }
+class Second { public function handle() { return 2; } public function other() {} }`)
+    const real = new Parser()
+    real.setLanguage((PHP as { php?: unknown }).php ?? PHP)
+    const { tree } = parsePhpFile(real, file)!
+    const handle = findMethod(tree.rootNode, "handle")
+    expect(handle?.text).toContain("return 1")
+    expect(findMethod(tree.rootNode, "other")?.startPosition.row).toBe(2)
+    expect(findMethod(tree.rootNode, "missing")).toBeNull()
   })
 })
