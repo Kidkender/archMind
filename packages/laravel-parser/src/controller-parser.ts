@@ -869,6 +869,11 @@ function tryExtractBaseServiceCall(
   return null
 }
 
+/** Whether two tree-sitter nodes are the same node of the same tree (wrapper objects may differ). */
+function sameNode(a: Parser.SyntaxNode, b: Parser.SyntaxNode): boolean {
+  return a.startIndex === b.startIndex && a.endIndex === b.endIndex && a.type === b.type
+}
+
 function gatherServiceCalls(
   node: Parser.SyntaxNode,
   injections: Map<string, string>,
@@ -893,8 +898,11 @@ function gatherServiceCalls(
           })
           // objNode is fully consumed by the combined node above — recurse
           // into the rest of the chain but skip re-visiting it standalone.
+          // Compared by position, not `!==`: tree-sitter does not guarantee
+          // one JS object per node (it depends on its node cache and on GC),
+          // so identity made the base accessor show up again in some runs.
           for (const child of node.children as Parser.SyntaxNode[]) {
-            if (child !== objNode) gatherServiceCalls(child, injections, results, requestParamVars)
+            if (!sameNode(child, objNode)) gatherServiceCalls(child, injections, results, requestParamVars)
           }
           return
         }
