@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from "fs"
-import { join } from "path"
-import type { IntermediateExecutionGraph, ArchMindUserConfig } from "@kidkender/archmind-protocol"
+import { loadUserConfig } from "@kidkender/archmind-protocol"
+import type { IntermediateExecutionGraph } from "@kidkender/archmind-protocol"
 import type { SemanticAdapter } from "@kidkender/archmind-protocol"
 import type { Project } from "ts-morph"
 import { extractRoutes } from "./extractors/route.extractor.js"
@@ -12,16 +11,6 @@ import { parseDTOSchemas } from "./dto-scanner.js"
 import type { NestJSSemanticRoute } from "./types.js"
 import type { GuardDescriptor } from "./types.js"
 import type { DTOSchema } from "@kidkender/archmind-protocol"
-
-function loadUserConfig(projectRoot: string): ArchMindUserConfig | undefined {
-  const configPath = join(projectRoot, "archmind.json")
-  if (!existsSync(configPath)) return undefined
-  try {
-    return JSON.parse(readFileSync(configPath, "utf-8")) as ArchMindUserConfig
-  } catch {
-    return undefined
-  }
-}
 
 export class NestJSAdapter implements SemanticAdapter {
   parseProject(root: string): IntermediateExecutionGraph[] {

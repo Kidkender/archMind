@@ -51,6 +51,16 @@ export interface ArchMindUserConfig {
      */
     ownershipSources?: string[]
   }
+  /**
+   * Tenant isolation for multi-tenant apps. Go/Gin only for now (Laravel reads
+   * `conventions.tenantSignals` from .archmind.json).
+   */
+  isolation?: {
+    /** Tokens that mark a query as tenant-constrained, e.g. ["tenant", "organization_id"]. */
+    tenantSignals?: string[]
+    /** Tokens that mark a context key, middleware or accessor as the request's tenant. */
+    tenantContextKeys?: string[]
+  }
   /** Finding types to drop from the report, e.g. ["missing_authorization"]. */
   ignoreFindings?: string[]
 }

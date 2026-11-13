@@ -1,5 +1,5 @@
 import type { IntermediateExecutionGraph, ExecutionNode, ExecutionEdge, DTOSchema, EntrypointDescriptor } from "@kidkender/archmind-protocol"
-import { IR_VERSION, IR_NODE_TYPES } from "@kidkender/archmind-protocol"
+import { IR_VERSION, IR_NODE_TYPES, IR_EDGE_RELATIONS } from "@kidkender/archmind-protocol"
 import type { NestJSSemanticRoute } from "../types.js"
 
 const ADAPTER_VERSION = "0.2.0"
@@ -156,10 +156,11 @@ function emitGraph(
         symbol: `${w.entity}::${w.operation}`,
         role:   "persistence",
       })
+      // ir:wraps, as Laravel and Express emit it ("within_transaction" is not an IR relation)
       edges.push({
         from:         txnId,
         to:           writeId,
-        relation:     "within_transaction",
+        relation:     IR_EDGE_RELATIONS.WRAPS,
         traceability: "static",
       })
     }

@@ -1,0 +1,5 @@
+{
+  "name": "auth-validation-express",
+  "private": true,
+  "dependencies": { "express": "^4.19.0" }
+}

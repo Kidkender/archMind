@@ -10,6 +10,7 @@ import { join } from "path"
 import Parser from "tree-sitter"
 // @ts-ignore — tree-sitter-php lacks ambient declarations in this workspace
 import PHP from "tree-sitter-php"
+import { parseSource, readSource } from "./php-source.js"
 import type { IntermediateExecutionGraph, ExecutionNode } from "@kidkender/archmind-protocol"
 import { IR_NODE_TYPES } from "@kidkender/archmind-protocol"
 
@@ -21,21 +22,13 @@ const SKIP_DIRS = new Set(["node_modules", "vendor", "storage", "bootstrap", ".g
 
 /** Parse a single file for a ShouldQueue job class. Returns null if not a queued job. */
 export function parseQueuedJob(filePath: string): IntermediateExecutionGraph | null {
-  let source: string
-  try {
-    source = readFileSync(filePath, "utf-8")
-  } catch {
-    return null
-  }
+  const source = readSource(filePath)
+  if (source === null) return null
   // Cheap string pre-filter before paying for a tree-sitter parse.
   if (!source.includes("ShouldQueue")) return null
 
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const tree = parseSource(_parser, source, filePath)
+  if (!tree) return null
 
   const cls = findShouldQueueClass(tree.rootNode)
   if (!cls) return null

@@ -11,6 +11,17 @@ import { IR_NODE_TYPES, IR_EDGE_RELATIONS, IR_VERSION } from "@kidkender/archmin
 
 const ADAPTER_VERSION = "0.1.0"
 
+/**
+ * A graph pass that threw is skipped so the rest of the route's graph still
+ * comes out, but it is reported: the parsers already turn unreadable files into
+ * empty results, so what reaches these catches is a bug, and a silent catch made
+ * it read as "nothing found here".
+ */
+function reportSkipped(pass: string, file: string | undefined, err: unknown): void {
+  const reason = err instanceof Error ? err.message : String(err)
+  console.warn(`[archmind] laravel-parser: ${pass} skipped for ${file ?? "<unknown file>"}: ${reason}`)
+}
+
 // ---- Cached parse-op wrappers --------------------------------------------
 
 type CtrlL1   = ReturnType<typeof parseControllerMethod>
@@ -818,14 +829,14 @@ function expandServiceCalls(
         addTransactionNodes(nodes, edges, scNode.id, txnResult.blocks, l1?.serviceCalls ?? [])
         budget.remaining -= txnResult.blocks.length * 3
       }
-    } catch { /* file unreadable or parse error — skip gracefully */ }
+    } catch (err) { reportSkipped("transaction pass", scNode.file, err) }
 
     // Isolation/query pass inside service method
     try {
       const isoResult = isoRes(cache, filePath, isoConv, methodName)
       addIsolationNodes(nodes, edges, scNode.id, isoResult)
       budget.remaining -= isoResult.modelQueries.length
-    } catch { /* skip */ }
+    } catch (err) { reportSkipped("isolation pass", scNode.file, err) }
 
     // Audit-log pass inside service method (IR v1.5 Phase 5)
     try {
@@ -836,7 +847,7 @@ function expandServiceCalls(
           budget.remaining -= auditCalls.length
         }
       }
-    } catch { /* skip */ }
+    } catch (err) { reportSkipped("audit-log pass", scNode.file, err) }
 
     // Deeper service calls from this service method
     try {
@@ -862,7 +873,7 @@ function expandServiceCalls(
         const guardNodes = addSelfGuardClauseNodes(nodes, edges, scNode.id, scNode.file, scClass ?? "", l1.selfGuardCalls, newSvcNodes)
         budget.remaining -= guardNodes.length
       }
-    } catch { /* skip */ }
+    } catch (err) { reportSkipped("nested service-call pass", scNode.file, err) }
   }
 
   expandServiceCalls(nodes, edges, nextServiceNodes, projectRoot, config, depth - 1, visited, budget, focus, cache)
@@ -1254,7 +1265,8 @@ function expandJobBody(
   let l1: ReturnType<typeof parseControllerMethod>
   try {
     l1 = parseControllerMethod(filePath, "handle")
-  } catch {
+  } catch (err) {
+    reportSkipped("queued job handle()", jobNode.file, err)
     return
   }
   if (!l1) return

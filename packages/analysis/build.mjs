@@ -17,6 +17,7 @@ await build({
     "@kidkender/archmind-nestjs-parser",
     "@kidkender/archmind-springboot-parser",
     "@kidkender/archmind-go-parser",
+    "@kidkender/archmind-express-parser",
   ],
   minify:   false,
 })

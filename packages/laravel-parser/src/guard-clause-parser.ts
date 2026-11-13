@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile, findMethod } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -38,14 +38,9 @@ const NO_GUARD: GuardClauseResult = { isGuardClause: false, reason: null, condit
  * inside the method does not false-positive as a guard clause.
  */
 export function detectGuardClause(filePath: string, methodName: string): GuardClauseResult {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return NO_GUARD
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return NO_GUARD
+  const { source, tree } = parsed
 
   const methodNode = findMethod(tree.rootNode, methodName)
   if (!methodNode) return NO_GUARD
@@ -132,22 +127,4 @@ function isGuardIfStatement(stmt: Parser.SyntaxNode): boolean {
 
 // ---- Method finder ------------------------------------------------------
 
-function findMethod(root: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  for (const child of root.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
-function findMethodIn(node: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  if (node.type === "method_declaration") {
-    const nameNode = node.childForFieldName("name")
-    if (nameNode?.text === name) return node
-  }
-  for (const child of node.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}

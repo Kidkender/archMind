@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile, findMethod } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -69,14 +69,9 @@ export interface TransactionParseResult {
  * `delete()`'s graph — IR v1.5 Phase 3 fix).
  */
 export function parseTransactions(filePath: string, methodName?: string): TransactionParseResult {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return { hasTransaction: false, blocks: [] }
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return { hasTransaction: false, blocks: [] }
+  const { source, tree } = parsed
 
   const scanRoot = methodName ? findMethod(tree.rootNode, methodName) : tree.rootNode
   if (!scanRoot) return { hasTransaction: false, blocks: [] }
@@ -89,25 +84,7 @@ export function parseTransactions(filePath: string, methodName?: string): Transa
 
 // ---- Method finder ------------------------------------------------------
 
-function findMethod(root: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  for (const child of root.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
-function findMethodIn(node: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  if (node.type === "method_declaration") {
-    const nameNode = node.childForFieldName("name")
-    if (nameNode?.text === name) return node
-  }
-  for (const child of node.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
 // ---- Tree traversal ---------------------------------------------------
 

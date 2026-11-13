@@ -1,9 +1,9 @@
-import { readFileSync } from "fs"
 import { join, relative, normalize } from "path"
 // @ts-ignore
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 import type { AliasMap } from "./kernel-parser.js"
 
@@ -30,14 +30,9 @@ type AstNode = { type: string; children: AstNode[]; namedChildren: AstNode[]; te
  * Returns empty aliasMap and routeFiles if the file cannot be read or parsed.
  */
 export function parseBootstrap(filePath: string, projectRoot: string): BootstrapParseResult {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return { aliasMap: {}, routeFiles: [], routePrefixes: new Map() }
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return { aliasMap: {}, routeFiles: [], routePrefixes: new Map() }
+  const { source, tree } = parsed
   const root = tree.rootNode as AstNode
 
   const aliasMap = extractAliasMap(root)

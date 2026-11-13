@@ -5,10 +5,10 @@
 // Mirrors the Spring Boot @Scheduled and NestJS @Cron entrypoint kind so all
 // three frameworks emit an equivalent EntrypointDescriptor{type:"cron"}.
 // ---------------------------------------------------------------------------
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore — tree-sitter-php lacks ambient declarations in this workspace
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 import type { IntermediateExecutionGraph, ExecutionNode } from "@kidkender/archmind-protocol"
 import { IR_NODE_TYPES } from "@kidkender/archmind-protocol"
 
@@ -50,14 +50,9 @@ export interface ScheduledEntry {
 }
 
 export function parseSchedule(filePath: string): IntermediateExecutionGraph[] {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return []
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return []
+  const { source, tree } = parsed
 
   const scheduleMethod = findScheduleMethod(tree.rootNode)
   if (!scheduleMethod) return []

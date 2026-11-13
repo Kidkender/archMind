@@ -2,18 +2,20 @@ import { writeFileSync } from "fs"
 import { join, resolve } from "path"
 import { execSync } from "child_process"
 import type { IntermediateExecutionGraph, ExecutionNode } from "@kidkender/archmind-protocol"
-import { IR_NODE_TYPES, toIRNodeType } from "@kidkender/archmind-protocol"
+import { IR_NODE_TYPES, toIRNodeType, loadUserConfig } from "@kidkender/archmind-protocol"
 import { parseProject, requireProject } from "../utils/parse-project.js"
 
 // ---------------------------------------------------------------------------
 // Lazy import explainer (optional dep — visualize still works without findings)
 // ---------------------------------------------------------------------------
 
-function tryExplain(graph: IntermediateExecutionGraph): Finding[] {
+function tryExplain(graph: IntermediateExecutionGraph, ignore?: string[]): Finding[] {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { explain } = require("@kidkender/archmind-explainer") as { explain: (g: IntermediateExecutionGraph) => Finding[] }
-    return explain(graph)
+    const { explain } = require("@kidkender/archmind-explainer") as {
+      explain: (g: IntermediateExecutionGraph, query?: string, opts?: { ignore?: string[] }) => Finding[]
+    }
+    return explain(graph, undefined, { ignore })
   } catch {
     return []
   }
@@ -510,11 +512,12 @@ export async function runVisualize(flags: Record<string, string>): Promise<void>
   const { graphs, routeCount } = parseProject(projectRoot)
   console.log(`Parsed ${routeCount} routes`)
 
+  const ignore = loadUserConfig(projectRoot)?.ignoreFindings
   const routes: RouteData[] = []
   let criticalTotal = 0
 
   for (const graph of graphs) {
-    const findings = tryExplain(graph)
+    const findings = tryExplain(graph, ignore)
     const route    = buildRouteData(graph, findings)
     routes.push(route)
     criticalTotal += route.criticalCount

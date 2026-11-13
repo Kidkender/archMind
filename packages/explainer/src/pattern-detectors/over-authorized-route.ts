@@ -4,6 +4,7 @@ import { query } from "@kidkender/archmind-graph-query"
 import type { Finding } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
+import { validationCanAuthorize } from "./framework.js"
 
 // 3+ separate auth enforcement points signals over-engineering or
 // authorization logic spread across too many layers.
@@ -26,7 +27,8 @@ export function detectOverAuthorizedRoute(
 
   const authGates      = q.security().authenticationGates().toArray()
   const authzChecks    = q.security().authorizationChecks().toArray()
-  const validationGates = q.nodes().ofType(IR_NODE_TYPES.VALIDATION_GATE).toArray()
+  // a validation gate is an authorization layer only where it can authorize (FormRequest::authorize)
+  const validationGates = validationCanAuthorize(graph) ? q.nodes().ofType(IR_NODE_TYPES.VALIDATION_GATE).toArray() : []
 
   // Count distinct auth layers
   const layers: Array<{ label: string; nodes: typeof authGates }> = []

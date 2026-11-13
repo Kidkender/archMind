@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind-analysis",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Canonical analysis pipeline for ArchMind — parse project → RouteInfo[] with findings",
   "type": "module",
   "main": "./dist/analysis.cjs",
@@ -20,6 +20,7 @@
     "@kidkender/archmind-nestjs-parser": "*",
     "@kidkender/archmind-springboot-parser": "*",
     "@kidkender/archmind-go-parser": "*",
+    "@kidkender/archmind-express-parser": "*",
     "@kidkender/archmind-protocol": "*"
   },
   "devDependencies": {

@@ -1,6 +1,8 @@
 import { describe, test, expect } from "@jest/globals"
 import type { IntermediateExecutionGraph } from "@kidkender/archmind-protocol"
+import { IR_NODE_TYPES } from "@kidkender/archmind-protocol"
 import { detectMissingTenantScope } from "../pattern-detectors/missing-tenant-scope.js"
+import { explain } from "../index.js"
 import { FINDING_TYPES } from "../findings/types.js"
 
 function makeGraph(
@@ -129,5 +131,40 @@ describe("detectMissingTenantScope", () => {
   test("empty graph returns no findings", () => {
     const graph = makeGraph([], [])
     expect(detectMissingTenantScope([], graph)).toHaveLength(0)
+  })
+})
+
+describe("detectMissingTenantScope — Gin graphs (ir:tenant_context)", () => {
+  function ginGraph(): IntermediateExecutionGraph {
+    return {
+      entrypoint:  "GET /api/v1/orders/:id",
+      method:      "GET",
+      path:        "/api/v1/orders/:id",
+      annotations: [],
+      framework:   "gin",
+      nodes: [
+        { id: "handler",    type: IR_NODE_TYPES.BUSINESS_HANDLER, symbol: "handler.Get" },
+        { id: "tenant_ctx", type: IR_NODE_TYPES.TENANT_CONTEXT,   symbol: `tenant context: c.GetString("tenant_id")`, role: "runtime" },
+        { id: "iso_0",      type: IR_NODE_TYPES.UNSCOPED_QUERY,   symbol: "Order::First", role: "data_access" },
+      ],
+      edges: [
+        { from: "handler", to: "iso_0",      relation: "calls",                traceability: "static" },
+        { from: "iso_0",   to: "tenant_ctx", relation: "missing_tenant_scope", traceability: "semantic" },
+      ],
+    }
+  }
+
+  test("an unscoped GORM query linked to the tenant context is a finding with Go advice", () => {
+    const [f] = detectMissingTenantScope([], ginGraph())
+    expect(f?.type).toBe(FINDING_TYPES.MISSING_TENANT_SCOPE)
+    expect(f?.provenance.supporting_nodes).toEqual(["iso_0", "tenant_ctx"])
+    expect(f?.recommendations?.some((r) => r.includes(`Where("tenant_id = ?"`))).toBe(true)
+    expect(f?.recommendations?.some((r) => r.includes("AppServiceProvider"))).toBe(false)
+  })
+
+  test("the tenant context node does not also raise hidden_runtime_dependency", () => {
+    const types = explain(ginGraph()).map((x) => x.type)
+    expect(types).toContain(FINDING_TYPES.MISSING_TENANT_SCOPE)
+    expect(types).not.toContain(FINDING_TYPES.HIDDEN_RUNTIME_DEPENDENCY)
   })
 })

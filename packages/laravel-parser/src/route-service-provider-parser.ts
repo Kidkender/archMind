@@ -1,8 +1,8 @@
-import { readFileSync } from "fs"
 import { dirname, join, normalize, relative } from "path"
 import Parser from "tree-sitter"
 // @ts-ignore — tree-sitter lacks ambient declarations in this workspace
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -67,14 +67,9 @@ function parseProvider(
   const middleware: RouteWrappingMap = new Map()
   const namespace: RouteNamespaceMap = new Map()
   const prefix: RoutePrefixMap = new Map()
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return { middleware, namespace, prefix }
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return { middleware, namespace, prefix }
+  const { source, tree } = parsed
   const classNamespaceProperty = findClassNamespaceProperty(tree.rootNode)
   walk(tree.rootNode, filePath, projectRoot, middleware, namespace, prefix, classNamespaceProperty)
   return { middleware, namespace, prefix }

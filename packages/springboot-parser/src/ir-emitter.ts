@@ -230,5 +230,6 @@ function formatAuthSymbol(ann: AuthAnnotation): string {
     case "rolesAllowed": return `@RolesAllowed("${ann.expression}")`
     // "unknown" is handled earlier (emitted as ir:unknown_middleware) and never reaches here.
     case "unknown":      return ann.expression
+    case "custom":       return ann.expression
   }
 }

@@ -1,6 +1,7 @@
 import { parseRouteFile, augmentGraph, loadProjectConfig, resolveAliasMap, ParseCache } from "@kidkender/archmind-laravel-parser"
 import { parseNestJSProjectIncremental, createNestProject } from "@kidkender/archmind-nestjs-parser"
 import { parseGinProjectAt, isGinProject, findGoFiles } from "@kidkender/archmind-go-parser"
+import { parseExpressProjectAt, isExpressProject, findExpressRoot, findSourceFiles } from "@kidkender/archmind-express-parser"
 import type { IntermediateExecutionGraph } from "@kidkender/archmind-protocol"
 import { join, relative } from "path"
 import { existsSync, statSync, readdirSync } from "fs"
@@ -18,17 +19,21 @@ const nestProjects     = new Map<string, Project>()
 const nestTrackedFiles = new Map<string, Map<string, number>>()
 // Go: relPath → last-seen mtimeMs for every *.go file discovered by the last parse.
 const goTrackedFiles = new Map<string, Map<string, number>>()
+// Express: app-relative path → last-seen mtimeMs for every JS/TS server file of the last parse.
+const expressTrackedFiles = new Map<string, Map<string, number>>()
 
-export type Framework = "laravel" | "nestjs" | "go"
+export type Framework = "laravel" | "nestjs" | "go" | "express"
 
 // Auto-detect framework from project root.
 // nest-cli.json           → NestJS
 // go.mod (importing gin)  → Go/Gin
+// package.json → express  → Express (not NestJS; root or one directory down)
 // artisan                 → Laravel
 // default                 → Laravel
 export function detectFramework(projectRoot: string): Framework {
   if (existsSync(join(projectRoot, "nest-cli.json"))) return "nestjs"
   if (isGinProject(projectRoot)) return "go"
+  if (!existsSync(join(projectRoot, "artisan")) && isExpressProject(projectRoot)) return "express"
   return "laravel"
 }
 
@@ -83,6 +88,29 @@ export function hasAnyTrackedFileChanged(projectRoot: string): boolean {
 // unlike Laravel's ParseCache/NestJS's warm ts-morph Project —
 // correctness over parse speed for v1). Detects both edits to tracked
 // files and newly added/removed .go files. ──────────────────────────
+
+// ── Express: same whole-project mtime check as Go, over the app's JS/TS files ──
+
+function expressFileIndex(projectRoot: string): Map<string, number> {
+  const appRoot = findExpressRoot(projectRoot) ?? projectRoot
+  const index = new Map<string, number>()
+  for (const rel of findSourceFiles(appRoot)) {
+    const mtime = statMtime(join(appRoot, rel))
+    if (mtime !== null) index.set(rel, mtime)
+  }
+  return index
+}
+
+function hasAnyExpressFileChanged(projectRoot: string): boolean {
+  const index = expressTrackedFiles.get(projectRoot)
+  if (!index) return true
+  const current = expressFileIndex(projectRoot)
+  if (current.size !== index.size) return true
+  for (const [rel, mtime] of current) {
+    if (index.get(rel) !== mtime) return true
+  }
+  return false
+}
 
 function hasAnyGoFileChanged(projectRoot: string): boolean {
   const index = goTrackedFiles.get(projectRoot)
@@ -200,6 +228,18 @@ export function getGraphs(projectRoot: string): IntermediateExecutionGraph[] {
     return graphs
   }
 
+  if (framework === "express") {
+    if (cache.has(projectRoot) && hasAnyExpressFileChanged(projectRoot)) {
+      cache.delete(projectRoot)
+    }
+    if (cache.has(projectRoot)) return cache.get(projectRoot)!
+
+    const graphs = parseExpressProjectAt(projectRoot)
+    expressTrackedFiles.set(projectRoot, expressFileIndex(projectRoot))
+    cache.set(projectRoot, graphs)
+    return graphs
+  }
+
   if (framework === "nestjs") {
     // Auto-invalidate if tracked controller/config files changed.
     // Keep nestProjects alive — the cached Project will be refreshed below.
@@ -277,6 +317,7 @@ export function invalidate(projectRoot: string): void {
   nestProjects.delete(projectRoot)
   nestTrackedFiles.delete(projectRoot)
   goTrackedFiles.delete(projectRoot)
+  expressTrackedFiles.delete(projectRoot)
   // Don't clear parseCaches — content-hash keying means a changed file produces
   // a new hash (miss) while unchanged files stay warm. Clearing would only slow
   // the next full re-parse without gaining correctness.

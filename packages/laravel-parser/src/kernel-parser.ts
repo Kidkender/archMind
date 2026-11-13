@@ -1,8 +1,8 @@
 // @ts-ignore — tree-sitter lacks ambient declarations in this workspace
 import Parser from "tree-sitter"
-import { readFileSync } from "fs"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 const _parser = new Parser()
 _parser.setLanguage((PHP as { php?: unknown }).php ?? PHP)
@@ -20,14 +20,9 @@ export type MiddlewareGroupMap = Record<string, string[]>
  * Returns an empty map if the file cannot be read or no aliases are found.
  */
 export function parseKernel(filePath: string): AliasMap {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return {}
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return {}
+  const { source, tree } = parsed
   const out: AliasMap = {}
   findAliasProperty(tree.rootNode, out)
   return out
@@ -38,14 +33,9 @@ export function parseKernel(filePath: string): AliasMap {
  * Returns an empty map if the file cannot be read or no groups are found.
  */
 export function parseMiddlewareGroups(filePath: string): MiddlewareGroupMap {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return {}
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return {}
+  const { source, tree } = parsed
   const out: MiddlewareGroupMap = {}
   findMiddlewareGroupsProperty(tree.rootNode, out)
   return out

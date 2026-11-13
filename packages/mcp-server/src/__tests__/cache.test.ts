@@ -440,12 +440,12 @@ describe("getGraphs() Go/Gin (integration)", () => {
   test("re-parses after a tracked file's mtime changes", () => {
     const { tmp, mainFile } = makeGinTmp()
     getGraphs(tmp)
-    const before = _getGoTrackedFiles(tmp)!.get(join("cmd", "server", "main.go"))!
+    const before = _getGoTrackedFiles(tmp)!.get("cmd/server/main.go")!
 
     bumpMtime(mainFile)
     getGraphs(tmp)
 
-    const after = _getGoTrackedFiles(tmp)!.get(join("cmd", "server", "main.go"))!
+    const after = _getGoTrackedFiles(tmp)!.get("cmd/server/main.go")!
     expect(after).toBeGreaterThan(before)
   })
 

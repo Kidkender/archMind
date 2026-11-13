@@ -198,11 +198,10 @@ describe("NestJS: detectSynchronousMail", () => {
 // ── over_authorized_route ─────────────────────────────────────────────────────
 
 describe("NestJS: detectOverAuthorizedRoute", () => {
-  it("fires when all 3 distinct layer types present (auth_gate + authz_check + validation_gate)", () => {
-    // Detector counts distinct LAYER TYPES, not node count:
-    //   1. ir:auth_gate      → "auth middleware"
-    //   2. ir:authz_check    → "policy/Gate check"
-    //   3. ir:validation_gate → "FormRequest::authorize" (DTO validation in NestJS)
+  it("does not count DTO validation as an authorization layer (auth_gate + authz_check + validation_gate)", () => {
+    // Only a Laravel FormRequest can authorize (FormRequest::authorize). A NestJS
+    // DTO / ValidationPipe checks the input, so this route has two authorization
+    // layers (guard + roles), below the detector's threshold of three.
     const graph = nestjsGraph({
       method: "DELETE",
       path: "/admin/resources/:id",
@@ -218,9 +217,7 @@ describe("NestJS: detectOverAuthorizedRoute", () => {
         { from: "ctrl", to: "mw_2", relation: "validates",       traceability: "static" },
       ],
     })
-    const findings = detectOverAuthorizedRoute(graph)
-    expect(findings).toHaveLength(1)
-    expect(findings[0].type).toBe("over_authorized_route")
+    expect(detectOverAuthorizedRoute(graph)).toEqual([])
   })
 })
 

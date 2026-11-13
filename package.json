@@ -6,9 +6,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "node scripts/build-workspaces.mjs",
     "test": "npm run test --workspaces --if-present",
-    "trace": "node apps/cli/dist/index.js trace"
+    "trace": "node apps/cli/dist/index.cjs trace"
   },
   "overrides": {
     "js-yaml": "^4.2.0"

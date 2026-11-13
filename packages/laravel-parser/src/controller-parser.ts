@@ -1,7 +1,7 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile, findMethod } from "./php-source.js"
 import { extractReturnedResources } from "./resource-parser.js"
 import { classifyDispatch } from "./transaction-parser.js"
 import { isGuardClauseMethodNode } from "./guard-clause-parser.js"
@@ -122,14 +122,9 @@ export function parseControllerMethod(
   filePath: string,
   methodName: string
 ): ControllerL1 | null {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return null
+  const { source, tree } = parsed
   const root  = tree.rootNode
   const useMap = extractUseMap(root)
 
@@ -241,14 +236,9 @@ export function parseControllerMethod(
  * Returns undefined if the file can't be parsed or has no authorize() method.
  */
 export function parseFormRequestAuthorize(filePath: string): string | undefined {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return undefined
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return undefined
+  const { source, tree } = parsed
   const methodNode = findMethod(tree.rootNode, "authorize")
   if (!methodNode) return undefined
 
@@ -268,10 +258,17 @@ export function parseFormRequestAuthorize(filePath: string): string | undefined 
 
 // ---- Use-statement extraction -----------------------------------------
 
+/** `use` maps by tree: a cached tree is analysed for many routes, the imports do not change. */
+const useMaps = new WeakMap<Parser.Tree, Map<string, string>>()
+
 export function extractUseMap(root: Parser.SyntaxNode): Map<string, string> {
+  const isRoot = !root.parent
+  const cached = isRoot ? useMaps.get(root.tree) : undefined
+  if (cached) return new Map(cached)
   const map = new Map<string, string>()
   gatherUseDecls(root, map)
-  return map
+  if (isRoot) useMaps.set(root.tree, map)
+  return new Map(map)
 }
 
 function registerUseClause(clause: Parser.SyntaxNode, prefix: string, map: Map<string, string>): void {
@@ -320,26 +317,7 @@ function lastSegment(fqcn: string): string {
 
 // ---- Method finder ----------------------------------------------------
 
-function findMethod(root: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  for (const child of root.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
-function findMethodIn(node: Parser.SyntaxNode, name: string): Parser.SyntaxNode | null {
-  if (node.type === "method_declaration") {
-    const nameNode = node.childForFieldName("name")
-    if (nameNode?.text === name) return node
-  }
-
-  for (const child of node.children) {
-    const found = findMethodIn(child, name)
-    if (found) return found
-  }
-  return null
-}
 
 // ---- FormRequest extraction -------------------------------------------
 
@@ -891,6 +869,11 @@ function tryExtractBaseServiceCall(
   return null
 }
 
+/** Whether two tree-sitter nodes are the same node of the same tree (wrapper objects may differ). */
+function sameNode(a: Parser.SyntaxNode, b: Parser.SyntaxNode): boolean {
+  return a.startIndex === b.startIndex && a.endIndex === b.endIndex && a.type === b.type
+}
+
 function gatherServiceCalls(
   node: Parser.SyntaxNode,
   injections: Map<string, string>,
@@ -915,8 +898,11 @@ function gatherServiceCalls(
           })
           // objNode is fully consumed by the combined node above — recurse
           // into the rest of the chain but skip re-visiting it standalone.
+          // Compared by position, not `!==`: tree-sitter does not guarantee
+          // one JS object per node (it depends on its node cache and on GC),
+          // so identity made the base accessor show up again in some runs.
           for (const child of node.children as Parser.SyntaxNode[]) {
-            if (child !== objNode) gatherServiceCalls(child, injections, results, requestParamVars)
+            if (!sameNode(child, objNode)) gatherServiceCalls(child, injections, results, requestParamVars)
           }
           return
         }
@@ -1056,14 +1042,9 @@ export function detectParamDrivenBranch(
   argPosition: number,
   requestParamName: string
 ): ConditionalBranch | null {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return null
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return null
+  const { source, tree } = parsed
   const root = tree.rootNode
   const methodNode = findMethod(root, methodName)
   if (!methodNode) return null
