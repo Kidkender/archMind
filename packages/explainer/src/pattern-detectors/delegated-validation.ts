@@ -4,6 +4,7 @@ import type { Finding, ReasoningStep, Evidence, UncertaintyReason } from "../fin
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
 import { checkMissingNodes } from "../findings/uncertainty.js"
+import { validationCanAuthorize } from "./framework.js"
 
 function edgesAmong(graph: IntermediateExecutionGraph, nodeIds: string[]): string[] {
   const idSet = new Set(nodeIds)
@@ -17,6 +18,10 @@ export function detectDelegatedValidation(
   authNodeIds: string[],
   graph: IntermediateExecutionGraph
 ): Finding[] {
+  // "delegates authorization" is about FormRequest::authorize() returning true;
+  // a validation gate that cannot authorize has nothing to delegate
+  if (!validationCanAuthorize(graph)) return []
+
   const gateFacts = facts.filter(
     (f): f is ValidationGateFact =>
       f.kind === "validation_gate" && f.delegatesAuthorization

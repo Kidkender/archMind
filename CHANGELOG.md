@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **`@kidkender/archmind-explainer`: input validation outside Laravel is no longer counted as an authorization layer.** `over_authorized_route` counted every `ir:validation_gate` as a third authorization layer ("FormRequest::authorize") and `delegated_validation` reported validators as delegating authorization. Both describe Laravel's `FormRequest::authorize()`; a NestJS `ValidationPipe`, Spring `@Valid`, Gin binding or Express celebrate / express-validator only checks the input, so ordinary authenticated, role-checked, validated routes on those frameworks got these findings. The FormRequest meaning now applies when the graph's framework is `laravel` or unset. Outside Laravel a route has at most two authorization layers, so `over_authorized_route` does not fire there.
+- `@kidkender/archmind-nestjs-parser`: writes inside a transaction were linked to it by `within_transaction`, which is not an IR relation, so `validateGraph` reported it as unknown. They are now linked by `ir:wraps`, as in Laravel graphs. New conformance suite on a transaction fixture.
+- `@kidkender/archmind-laravel-parser`: the transaction, isolation, audit-log and nested service-call passes inside a service method, and a queued job's `handle()`, swallowed any error silently. The parsers already turn unreadable files into empty results, so what reached these catches was a bug that read as "nothing found". It is now reported on stderr (`[archmind] laravel-parser: <pass> skipped for <file>: <error>`) and the pass is skipped as before.
+- Flaky tests in `retrieval`, `nestjs-parser` and `mcp-server`: their tests load the tree-sitter parsers, whose module-level parser fails intermittently when Jest reuses one worker process across test files. Each test file now gets its own process (`maxWorkers`), as `laravel-parser` already did. Measured: `retrieval` with every file in one process failed 5 of 5 runs; with the fix it passed 10 of 10, as did `nestjs-parser`.
+- `npm run trace` at the repository root pointed at `apps/cli/dist/index.js`; the CLI builds to `index.cjs`.
+
 ## [0.9.1] - 2026-10-28
 
 ### Added
