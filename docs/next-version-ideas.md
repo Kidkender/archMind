@@ -3,6 +3,7 @@
 > Generated: 2026-06-30
 > Updated: 2026-07-03 — after v0.5.0 shipped (Spring Boot parser, AQL, Architecture Constraints, AI Context API, `archmind visualize`)
 > Updated: 2026-11-10 — statuses checked against the code at v0.9.1
+> Updated: 2026-11-13 — after v0.10.0 shipped (Express parser, Go tenant isolation, Spring Boot `guards`)
 
 ---
 
@@ -13,11 +14,14 @@
 - ✅ **Architecture Constraints** (`@kidkender/archmind-constraints`) — define/enforce structural rules
 - ✅ **AI Context API** (`@kidkender/archmind-context`) — `buildSemanticContext()`, exposed via `archmind_get_context` MCP tool
 - ✅ **`archmind visualize`** — Execution Timeline HTML report
-- ✅ **Framework #4: Go/Gin** (`@kidkender/archmind-go-parser`, v0.8.x) — route, auth-gate (including runtime skip-lists), authz-check, validation-gate, and GORM transaction-boundary detection for Gin projects. Isolation/tenant scoping is not implemented yet.
+- ✅ **Framework #4: Go/Gin** (`@kidkender/archmind-go-parser`, v0.8.x) — route, auth-gate (including runtime skip-lists), authz-check, validation-gate, and GORM transaction-boundary detection for Gin projects. Tenant isolation since v0.10.0 (see below).
 - ✅ **`@kidkender/archmind-lens`** (v0.9.0–0.9.1) — Go symbol-to-entry-point call graph, exposed as MCP `archmind_symbol_context`.
 - ✅ **Benchmark CLI (#2)** — `archmind benchmark` (`apps/cli/src/commands/benchmark.ts`) reads the pain specs and scores node/edge recall.
 - ✅ **Graph Diff for PR review (#1)** — `archmind diff --format markdown` plus the sticky-comment workflow in `docs/ci-templates/topology-guard.yml`.
-- ✅ **CI** — `.github/workflows/ci.yml` builds and tests on every push and PR to `main`.
+- ✅ **CI** — `.github/workflows/ci.yml` builds and tests on every push and PR to `main`. Since v0.10.0 a clean checkout builds (workspaces in dependency order), so CI is green on a fresh clone.
+- ✅ **Framework #5: Express.js** (`@kidkender/archmind-express-parser` 0.1.0, v0.10.0) — routers across files, middleware chain classified into auth / authz / validation, handlers through controllers and wrappers, service calls, transactions (Sequelize, TypeORM, Prisma, Mongoose, Knex). Wired into analysis, the CLI and the MCP server.
+- ✅ **Go tenant isolation** (`go-parser` 0.4.0, v0.10.0) — `ir:tenant_context` and scoped / unscoped queries on routes that resolve a tenant, followed through registries, typed locals, DAO and model wrappers; `archmind.json` `isolation`. On two real multi-tenant apps: 129 and 40 routes with a tenant, 15 and 8 distinct unscoped sites, none tenant-filtered in fact (rules were written against those two apps).
+- ✅ **Spring Boot `archmind.json` `guards`** (#10, v0.10.0) and Laravel parsing each file once per run (invoiceninja: out of memory → 22 s).
 
 These shipped features open up new follow-on ideas below (#5, #7) that weren't possible before.
 
@@ -76,6 +80,7 @@ archmind benchmark run --all --output=results/baseline.json
 
 **Priority:** Medium — mở rộng reach
 **Effort:** High (nhưng thấp hơn trước — đã có 3 parser để rút pattern chung)
+**Status:** Express.js ✅ Done (v0.10.0, `@kidkender/archmind-express-parser` 0.1.0). Still open: FastAPI/Django, and the adapter kit (shared interface + conformance suite) — Express was built the old way, with its own conformance cases in `research/cross-framework`. Express limits: decorator routing (routing-controllers, tsoa) yields no routes; no tenant isolation, side effects or response shaping; not yet through the LLM accuracy benchmark.
 
 Đã có Laravel + NestJS + Spring Boot. Với 3 parser, giờ là lúc tách phần chung (route extraction, auth gate detection, transaction boundary detection) thành spec/interface tái sử dụng được trước khi thêm framework thứ 4 — tránh mỗi parser tự implement lại từ đầu.
 
@@ -198,7 +203,7 @@ Benchmarked against akaunting (642 routes) as a fresh, previously-unseen repo �
 
 **Priority:** High — undermines trust in the whole test suite and any CI built on top of it
 **Effort:** Medium
-**Status:** ✅ Done (2026-11-10) for laravel-parser and springboot-parser — read+parse sites go through `php-source.ts` / `java-source.ts`: an unreadable file yields nothing, a parse failure is printed on stderr with the file path and the file is skipped. This also fixed files over 32 KiB (tree-sitter 0.21 throws "Invalid argument" past its default buffer; only `route-parser.ts` passed `bufferSize`, so every other parser silently returned nothing for large controllers and services). Still open: the broad `catch { /* skip */ }` around whole passes in `graph-augmenter.ts`.
+**Status:** ✅ Done (2026-11-10) for laravel-parser and springboot-parser — read+parse sites go through `php-source.ts` / `java-source.ts`: an unreadable file yields nothing, a parse failure is printed on stderr with the file path and the file is skipped. This also fixed files over 32 KiB (tree-sitter 0.21 throws "Invalid argument" past its default buffer; only `route-parser.ts` passed `bufferSize`, so every other parser silently returned nothing for large controllers and services). The pass-level catches in `laravel-parser/src/graph-augmenter.ts` now report on stderr (`reportSkipped`, v0.10.0) instead of swallowing the error.
 
 Initial hypothesis (below, kept for record) was a `tree-sitter@^0.21.0` / `tree-sitter-php@^0.23.12` ABI skew. **That was wrong** — disproved empirically: a plain-Node script reusing the same `Parser` singleton for 500 heavy parses in a row had zero failures. The real cause: Jest reuses one worker *process* across multiple test files in the same package; each file re-imports that package's module-level `new Parser()` singleton, and repeatedly re-loading the native tree-sitter addon into the same process is what makes `_parser.parse(source)` intermittently throw — not the grammar/core version pairing itself. Confirmed by setting `maxWorkers` high enough (in `laravel-parser`'s and `springboot-parser`'s `jest.config.js`) that every test file always gets its own process: 5/5 and then 3/3 repeated full-suite runs came back completely clean, both isolated and via `npm test`.
 
@@ -231,21 +236,40 @@ Count at v0.9.1 of bare `catch {` in parser sources (tests excluded): laravel 36
 
 After 0.3.0: `gin-vue-admin` ~201/250 routes, `go-admin` 99/109. Patterns from the 0.8.2 spot-check still not handled: engine held in a struct field and mutated by a receiver method, engine wrapped in a custom type with its own `.GET()`/`.POST()`, functional-options chains, Wire-style DI. Lens limits: embedded interfaces, two types with the same name in different packages.
 
+Fixed in v0.10.0: group prefixes joined like Gin (`Group("api").Group("v1")` was `apiv1…`; 233 of 267 routes malformed on one project), and the CLI detects a `go.mod` one directory down.
+
+---
+
+## 12. Go tenant isolation: measure blind and cut by-design noise
+
+**Priority:** Medium
+**Effort:** Low-Medium
+**Status:** Open
+
+The v0.10.0 rules were written against the two apps they were measured on (thingspanel, ginfast), so precision on an unseen app is unknown. Of 23 distinct unscoped sites there, about 10 are worth reporting (lookups by id or full loads without a tenant filter) and about 13 are global by design (login, username / email uniqueness, super-admin setup, a user's own record by token id).
+
+- Measure on one or two multi-tenant Gin apps not used to write the rules, and review each unscoped site by hand.
+- A way to mark a query or function as global by design (an `archmind.json` list, or recognising login / uniqueness checks), since `ignoreFindings` drops every `missing_tenant_scope`.
+- Types are matched by bare name across packages: two DAOs or models with the same name in different packages can be confused.
+- Not seen: GORM plugins, global scopes outside a registered callback, scopes whose name and arguments carry no tenant signal.
+
 ---
 
 ## Summary Table
 
 | Idea | Impact | Effort | Recommended Order |
 |------|--------|--------|-------------------|
-| Go tenant scoping | Medium | Medium | **3rd** |
-| Remaining Gin layouts + lens limits (#11) | Medium | Medium | **4th** |
-| Modular Laravel support (#8, partial) | Medium | Medium | **5th** |
-| Auto-fix Suggestions (#4) | Medium | Medium | **6th** |
-| Framework #5 + adapter kit (#3) | High | High | **7th** |
-| Web UI Visualizer (#6) | Medium | High | **8th** |
-| OTel Runtime Expansion (#7) | High | High | **9th** |
+| Go tenant isolation: blind measurement + by-design noise (#12) | Medium | Low-Medium | **1st** |
+| Remaining Gin layouts + lens limits (#11) | Medium | Medium | **2nd** |
+| Modular Laravel support (#8, partial) | Medium | Medium | **3rd** |
+| Auto-fix Suggestions (#4) | Medium | Medium | **4th** |
+| Adapter kit + Framework #6 (FastAPI/Django) (#3) | High | High | **5th** |
+| Web UI Visualizer (#6) | Medium | High | **6th** |
+| OTel Runtime Expansion (#7) | High | High | **7th** |
+| ~~Go tenant scoping~~ | | | Done (v0.10.0) — `go-parser` 0.4.0 |
+| ~~Framework #5: Express.js (#3)~~ | | | Done (v0.10.0) — `express-parser` 0.1.0 |
 | ~~AQL/Constraints in CI (#5)~~ | | | Done |
 | ~~Benchmark CLI (#2)~~ | | | Done |
 | ~~Graph Diff PR Comment (#1)~~ | | | Done |
 | ~~Spring Boot reads `archmind.json` (#10)~~ | | | Done |
-| ~~Narrow swallow-catch in parsers (#9)~~ | | | Done (graph-augmenter pass-level catches remain) |
+| ~~Narrow swallow-catch in parsers (#9)~~ | | | Done (graph-augmenter pass-level catches report since v0.10.0) |
