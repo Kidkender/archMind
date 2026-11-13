@@ -34,7 +34,7 @@ export function isGinProject(root: string): boolean {
 /**
  * Walks the project for every `*.go` file (excluding `_test.go` — test
  * files aren't part of the routing surface and only add noise), skipping
- * vendor/build/VCS directories. Returns paths relative to `root`.
+ * vendor/build/VCS directories. Returns paths relative to `root`, with `/` separators on every OS.
  */
 export function findGoFiles(root: string, opts: ScanOptions = {}): string[] {
   const out: string[] = []
@@ -63,7 +63,7 @@ function walk(root: string, dir: string, out: string[], depth: number, includeTe
     if (isDir) {
       walk(root, abs, out, depth + 1, includeTests)
     } else if (entry.endsWith(".go") && (includeTests || !entry.endsWith("_test.go"))) {
-      out.push(relative(root, abs))
+      out.push(relative(root, abs).replace(/\\/g, "/"))
     }
   }
 }
