@@ -97,8 +97,9 @@ export function detectFramework(projectRoot: string): Framework {
 
   // go.mod is a strong, cheap-to-check signal unique to Go — checked before
   // the fallback heuristics below so a Gin project never falls through to
-  // the Laravel default.
-  if (existsSync(join(projectRoot, "go.mod")) && isGinProject(projectRoot)) return "go"
+  // the Laravel default. isGinProject also finds a go.mod one directory down
+  // (api/, server/), as analysis and the MCP server do.
+  if (isGinProject(projectRoot)) return "go"
 
   // Fallback heuristics
   if (existsSync(join(projectRoot, "artisan"))) return "laravel"
