@@ -53,13 +53,21 @@ export interface TenantContextRead {
   line:   number
 }
 
-/** The first place in `method` that reads the request's tenant, or null. */
+/**
+ * The first place in `method` that reads the request's tenant, or null:
+ *  - a getter on the request context with a tenant key: `c.GetString("tenant_id")`;
+ *  - an accessor named for the tenant: `GetTenantID(c)`, `tenant.FromContext(ctx)`;
+ *  - a function named for the tenant handed the request context: `tenanthelper.TenantScope(c)`;
+ *  - a field named for the tenant read off a value: `claims.TenantID` (JWT claims put
+ *    in the context by middleware).
+ */
 export function findTenantContextRead(method: HandlerMethod, keyMatch: TokenMatcher): TenantContextRead | null {
   const body = method.node.childForFieldName("body")
   if (!body) return null
   const contextParams = new Set(
     [...functionParamTypes(method.node)].filter(([, type]) => type === "Context").map(([name]) => name),
   )
+  const at = (node: SyntaxNode): TenantContextRead => ({ symbol: shorten(node.text), file: method.file, line: node.startPosition.row + 1 })
 
   for (const node of findCalls(body)) {
     const parts = callParts(node)
@@ -73,9 +81,15 @@ export function findTenantContextRead(method: HandlerMethod, keyMatch: TokenMatc
     const isAccessor =
       ACCESSOR_NAME.test(parts.method) &&
       (keyMatch(parts.method) || (!!receiverTail && keyMatch(receiverTail)))
-    if (isContextGetter || isAccessor) {
-      return { symbol: shorten(node.text), file: method.file, line: node.startPosition.row + 1 }
-    }
+    const isTenantFunctionOfContext =
+      keyMatch(parts.method) && parts.args.some((a) => contextParams.has(a.text))
+    if (isContextGetter || isAccessor || isTenantFunctionOfContext) return at(node)
+  }
+  for (const node of walk(body)) {
+    if (node.type !== "selector_expression") continue
+    const operand = node.childForFieldName("operand")
+    const field = node.childForFieldName("field")
+    if (operand?.type === "identifier" && field && keyMatch(field.text)) return at(node)
   }
   return null
 }
@@ -105,14 +119,110 @@ export interface GormOperation {
   line:      number
 }
 
+/** Methods a DAO / repository / model wrapper exposes for reads and writes, beyond GORM's own. */
+const DAO_READ_OPS  = new Set([...READ_OPS, "Get", "GetByID", "GetById", "FindByID", "FindById", "FindOne", "List", "Page", "Query", "Exists"])
+const DAO_WRITE_OPS = new Set([...WRITE_OPS, "Insert", "Remove", "Upsert", "BatchCreate", "CreateInBatches"])
+
+/** Which GORM callback chain an operation goes through. */
+function callbackOf(operation: string, kind: "read" | "write"): "create" | "update" | "delete" | "query" {
+  if (kind === "read") return "query"
+  if (/^(Delete|Remove)$/.test(operation)) return "delete"
+  if (/^(Update|Updates|UpdateColumn|UpdateColumns)$/.test(operation)) return "update"
+  return "create"
+}
+
+/** What findGormOperations needs to see past plain GORM chains. */
+export interface DataAccessContext {
+  /** Type of a receiver expression at a call site in the method (`db`, `s.repo`, `service.GroupApp.Board`). */
+  resolveType:  (receiver: string) => string | null
+  /** Whether a type is a DAO / repository / model (declared under dal/, models/, ... or named so). */
+  isDataType:   (typeName: string) => boolean
+  /** Argument text at the call site that reached this method, for scopes passed in (`Scopes(funcs...)`). */
+  callerArgs:   string
+  /** GORM callbacks that add the tenant on their own (a create hook that sets TenantID). */
+  tenantHooks:  ReadonlySet<"create" | "update" | "delete" | "query">
+  /** The project method a call resolves to, if any. */
+  calleeOf:     (typeName: string, method: string) => HandlerMethod | null
+  /** The method's variadic parameters (`scopes ...func(*gorm.DB) *gorm.DB`): conditions its caller hands in. */
+  passedParams: ReadonlySet<string>
+}
+
+/** `Preload("Tenant")` loads a relation, it does not filter rows: drop it before looking for a tenant signal. */
+function withoutPreloads(text: string): string {
+  return text.replace(/\.Preload\(\s*("[^"]*"|`[^`]*`)[^)]*\)/g, "")
+}
+
+/** Whether any text forwards one of the method's variadic parameters (`scopes...`). */
+function forwardsPassedParam(texts: string[], params: ReadonlySet<string>): boolean {
+  return [...params].some((p) => texts.some((t) => new RegExp(`\\b${p}\\s*\\.\\.\\.`).test(t)))
+}
+
+/** The names of a function's variadic parameters. */
+export function variadicParamNames(fn: SyntaxNode): Set<string> {
+  const out = new Set<string>()
+  for (const p of fn.childForFieldName("parameters")?.namedChildren ?? []) {
+    if (p.type !== "variadic_parameter_declaration") continue
+    const name = p.childForFieldName("name")?.text
+    if (name) out.add(name)
+  }
+  return out
+}
+
+export interface DaoCall {
+  kind:   "read" | "write"
+  type:   string
+  scoped: boolean
+  /**
+   * Whether the call is judged where it is made instead of inside the callee:
+   * the callee takes its conditions from the caller (`First(ctx, option ...gen.Condition)`,
+   * `Find(c, funcs ...func(*gorm.DB) *gorm.DB)`) or is not in the project, or it is
+   * a write whose record the caller has already tied to the tenant.
+   */
+  leaf:   boolean
+}
+
+/** A read/write-named call on a DAO, repository or model wrapper, or null. */
+export function daoCall(call: SyntaxNode, body: SyntaxNode, data: DataAccessContext, signalMatch: TokenMatcher): DaoCall | null {
+  const parts = callParts(call)
+  if (!parts?.receiver) return null
+  const kind = DAO_READ_OPS.has(parts.method) ? "read" : DAO_WRITE_OPS.has(parts.method) ? "write" : null
+  if (!kind) return null
+  const type = data.resolveType(parts.receiver)
+  if (!type || !data.isDataType(type)) return null
+
+  const texts = [call.text]
+  for (const a of parts.args) {
+    const name = /^([A-Za-z_]\w*)(\.\.\.)?$/.exec(a.text)?.[1]
+    if (name) texts.push(...assignmentsTo(body, name))   // queryScopes := append(..., scopes...)
+  }
+  if (kind === "write") for (const a of parts.args) texts.push(...statementsMentioning(body, destinationVar(a)))
+  const scoped = texts.some((t) => signalMatch(withoutPreloads(t))) ||
+    (forwardsPassedParam(texts, data.passedParams) && signalMatch(data.callerArgs)) ||
+    data.tenantHooks.has(callbackOf(parts.method, kind))
+
+  const callee = data.calleeOf(type, parts.method)
+  const takesConditions = !callee || hasVariadicParameter(callee.node)
+  return { kind, type, scoped, leaf: takesConditions || (kind === "write" && scoped) }
+}
+
+function hasVariadicParameter(fn: SyntaxNode): boolean {
+  return fn.childForFieldName("parameters")?.namedChildren.some((p) => p.type === "variadic_parameter_declaration") ?? false
+}
+
 /**
  * GORM reads and writes in `method`'s body. `receiverFields` maps the method's
  * receiver struct fields to their bare types, so `r.db` typed `*gorm.DB` counts.
+ * With `data`, a read/write-named call on a DAO or model wrapper
+ * (`db.First(ctx, query.Board.TenantID.Eq(t))`, `list.Find(c, TenantScope(c))`)
+ * counts too, scoped by its arguments; a scope a wrapper receives as a parameter
+ * (`Scopes(funcs...)`) is judged by the arguments at the call site that reached it;
+ * and an operation whose GORM callback adds the tenant counts as scoped.
  */
 export function findGormOperations(
   method: HandlerMethod,
   receiverFields: ReadonlyMap<string, string>,
   signalMatch: TokenMatcher,
+  data?: DataAccessContext,
 ): GormOperation[] {
   const body = method.node.childForFieldName("body")
   if (!body) return []
@@ -122,30 +232,77 @@ export function findGormOperations(
   for (const node of findCalls(body)) {
     const parts = callParts(node)
     if (!parts) continue
-    const kind = READ_OPS.has(parts.method) ? "read" : WRITE_OPS.has(parts.method) ? "write" : null
-    if (!kind) continue
+
+    // a DAO / repository / model wrapper call, checked first so a wrapper held in a
+    // variable named `db` (db := dal.UserQuery{}) is not taken for *gorm.DB.
+    // Judged here when it is a leaf (db.First(ctx, query.Board.TenantID.Eq(t)),
+    // list.Find(c, scopes...)); otherwise followed into the callee (see methodsOnPath).
+    const dao = data ? daoCall(node, body, data, signalMatch) : null
+    if (dao) {
+      if (dao.leaf) {
+        out.push({
+          kind: dao.kind, operation: parts.method, model: dao.type, scoped: dao.scoped,
+          file: method.file, line: node.startPosition.row + 1,
+        })
+      }
+      continue
+    }
 
     const { base, calls } = chainOf(node)
+    const kind = READ_OPS.has(parts.method) ? "read" : WRITE_OPS.has(parts.method) ? "write" : null
     const baseAssignments = base?.type === "identifier" ? assignmentsTo(body, base.text) : []
-    const chainIsGorm = calls.slice(1).some((c) => GORM_CHAIN.has(callParts(c)?.method ?? ""))
-    const baseIsGorm =
+    const chainIsGorm = !!kind && calls.slice(1).some((c) => GORM_CHAIN.has(callParts(c)?.method ?? ""))
+    const baseIsGorm = !!kind && (
       isDbExpression(base, paramTypes, receiverFields) ||
-      baseAssignments.some((text) => /\.(db|DB|tx)\b|\.(Where|Model|Table|WithContext|Scopes)\(/.test(text))
-    if (!chainIsGorm && !baseIsGorm) continue
+      baseAssignments.some((text) => /\.(db|DB|tx)\b|\.(Where|Model|Table|WithContext|Scopes)\(/.test(text)))
 
-    const texts = [node.text, ...baseAssignments]
-    if (kind === "write") texts.push(...statementsMentioning(body, destinationVar(parts.args[0])))
-
-    out.push({
-      kind,
-      operation: parts.method,
-      model:     modelOf(calls, parts.args[0], body) ?? "gorm",
-      scoped:    texts.some(signalMatch),
-      file:      method.file,
-      line:      node.startPosition.row + 1,
-    })
+    if (chainIsGorm || baseIsGorm) {
+      const texts = [node.text, ...baseAssignments]
+      // a subquery or condition built in a variable: Where("device_id IN (?)", devices)
+      for (const c of calls) {
+        for (const a of callParts(c)?.args ?? []) {
+          if (a.type === "identifier" && a.text !== base?.text) texts.push(...assignmentsTo(body, a.text))
+        }
+      }
+      if (kind === "write") texts.push(...statementsMentioning(body, destinationVar(parts.args[0])))
+      // a scope handed in by the caller: Scopes(funcs...) with funcs a parameter
+      const passedScope = calls.some((c) => {
+        const p = callParts(c)
+        return p?.method === "Scopes" && p.args.some((a) => paramTypes.has(a.text.replace(/\.\.\.$/, "")) || /\.\.\.$/.test(a.text))
+      })
+      const scoped = texts.some((t) => signalMatch(withoutPreloads(t))) ||
+        (passedScope && !!data && signalMatch(data.callerArgs)) ||
+        (!!data && data.tenantHooks.has(callbackOf(parts.method, kind!)))
+      out.push({
+        kind: kind!,
+        operation: parts.method,
+        model:     modelOf(calls, parts.args[0], body) ?? valueModel(parts.args[0], data) ??
+                   genModel(base, baseAssignments) ?? "gorm",
+        scoped,
+        file:      method.file,
+        line:      node.startPosition.row + 1,
+      })
+    }
   }
   return out
+}
+
+/** First(t) on the receiver or a typed local: the model is that value's type, when it is a project model. */
+function valueModel(arg: SyntaxNode | undefined, data: DataAccessContext | undefined): string | null {
+  const name = destinationVar(arg)
+  if (!name || !data) return null
+  const type = data.resolveType(name)
+  return type && data.isDataType(type) ? type : null
+}
+
+/** gorm-gen: `query.Device.WithContext(ctx)...First()` or `users := query.User; users.Where(...)` → the model name. */
+function genModel(base: SyntaxNode | null, baseAssignments: string[]): string | null {
+  const texts = [base?.text ?? "", ...baseAssignments.map((a) => a.split(/:?=/).pop()!.trim())]
+  for (const t of texts) {
+    const m = /^\w+\.([A-Z]\w*)$/.exec(t)
+    if (m) return m[1]
+  }
+  return null
 }
 
 /** The receiver chain of a call: `r.db.Where(...).First(&x)` → base `r.db`, calls [First, Where]. */
@@ -179,14 +336,35 @@ function isDbExpression(
 }
 
 /** Texts of `name := ...` / `name = ...` / `var name = ...` statements in a body. */
-function assignmentsTo(body: SyntaxNode, name: string): string[] {
-  const out: string[] = []
-  for (const n of walk(body)) {
-    if (n.type !== "short_var_declaration" && n.type !== "assignment_statement" && n.type !== "var_spec") continue
-    const left = n.childForFieldName("left") ?? n.childForFieldName("name")
-    if (left && (left.text.split(/\s*,\s*/).includes(name))) out.push(n.text)
+/**
+ * Assignments in a body, by assigned name. Built once per body (one walk) and
+ * kept per tree, keyed by the body's span: tree-sitter does not guarantee one
+ * JS object per node, so nodes are not used as keys.
+ */
+const assignmentIndex = new WeakMap<object, Map<string, Map<string, string[]>>>()
+
+function assignmentsIn(body: SyntaxNode): Map<string, string[]> {
+  let perTree = assignmentIndex.get(body.tree)
+  if (!perTree) { perTree = new Map(); assignmentIndex.set(body.tree, perTree) }
+  const key = `${body.startIndex}:${body.endIndex}`
+  let byName = perTree.get(key)
+  if (!byName) {
+    byName = new Map()
+    for (const n of walk(body)) {
+      if (n.type !== "short_var_declaration" && n.type !== "assignment_statement" && n.type !== "var_spec") continue
+      const left = n.childForFieldName("left") ?? n.childForFieldName("name")
+      if (!left) continue
+      for (const name of new Set(left.text.split(/\s*,\s*/))) {
+        byName.set(name, [...(byName.get(name) ?? []), n.text])
+      }
+    }
+    perTree.set(key, byName)
   }
-  return out
+  return byName
+}
+
+function assignmentsTo(body: SyntaxNode, name: string): string[] {
+  return assignmentsIn(body).get(name) ?? []
 }
 
 /** `&order` / `order` → "order"; anything else → null. */

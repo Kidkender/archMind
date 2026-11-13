@@ -8,8 +8,9 @@ import { buildConstRegistry, resolveConstExpr } from "./const-resolver.js"
 import { buildMethodRegistry, findBindCalls, resolveVarDtoType, type HandlerMethod } from "./handler-parser.js"
 import { resolveDtoBinding, findStructFieldTypes } from "./dto-binding-parser.js"
 import { findTransactionBoundaries } from "./transaction-parser.js"
+import { buildCodeIndex, resolveReceiverType, isDataType, modelHasTenantField, type CodeIndex } from "./code-index.js"
 import {
-  findTenantContextRead, findGormOperations, tokenMatcher,
+  findTenantContextRead, findGormOperations, tokenMatcher, daoCall, variadicParamNames, type DataAccessContext,
   DEFAULT_TENANT_SIGNALS, DEFAULT_TENANT_CONTEXT_KEYS,
   type IsolationOptions, type TokenMatcher, type GormOperation,
 } from "./isolation-parser.js"
@@ -267,6 +268,15 @@ interface IsolationContext {
   fieldTypesOf:   (typeName: string) => Map<string, string>
   keyMatch:       TokenMatcher
   signalMatch:    TokenMatcher
+  codeIndex:      CodeIndex
+  /** GORM callbacks registered by the project whose function sets or filters the tenant. */
+  tenantHooks:    ReadonlySet<"create" | "update" | "delete" | "query">
+}
+
+/** A method on a request's path, with the argument text of the call that reached it. */
+interface PathEntry {
+  method:     HandlerMethod
+  callerArgs: string
 }
 
 /** How far below the handler queries are looked for: handler → service → repository. */
@@ -294,32 +304,48 @@ function receiverName(fn: SyntaxNode): string | null {
   return decl?.namedChildren.find((c) => c.type === "identifier")?.text ?? null
 }
 
-/** The handler plus the methods it reaches through its receiver and struct fields, up to ISOLATION_MAX_DEPTH. */
-function methodsOnPath(handler: HandlerMethod, ctx: IsolationContext): HandlerMethod[] {
-  const out: HandlerMethod[] = []
+function dataAccessContext(m: HandlerMethod, callerArgs: string, ctx: IsolationContext): DataAccessContext {
+  return {
+    resolveType: (receiver) => resolveReceiverType(m, receiver, ctx.fieldTypesOf, ctx.codeIndex),
+    isDataType:  (t) => isDataType(t, ctx.codeIndex),
+    calleeOf:    (t, name) => resolveMethod(ctx.methodRegistry, t, name),
+    passedParams: variadicParamNames(m.node),
+    callerArgs,
+    tenantHooks: ctx.tenantHooks,
+  }
+}
+
+/**
+ * The handler plus the methods it reaches, up to ISOLATION_MAX_DEPTH: through
+ * its receiver and struct fields (`s.repo.Find`), locals and parameters of a
+ * known type (`db := dal.BoardQuery{}`), and package-level variables
+ * (`service.GroupApp.Board.CreateBoard`). A read/write call on a DAO or model
+ * wrapper is recorded where it is made (its arguments carry the scope), so the
+ * generic wrapper behind it is not followed.
+ */
+function methodsOnPath(handler: HandlerMethod, ctx: IsolationContext): PathEntry[] {
+  const out: PathEntry[] = []
   const seen = new Set<SyntaxNode>()
-  let frontier: HandlerMethod[] = [handler]
+  let frontier: PathEntry[] = [{ method: handler, callerArgs: "" }]
   for (let depth = 0; depth <= ISOLATION_MAX_DEPTH && frontier.length > 0; depth++) {
-    const next: HandlerMethod[] = []
-    for (const m of frontier) {
+    const next: PathEntry[] = []
+    for (const entry of frontier) {
+      const m = entry.method
       if (seen.has(m.node)) continue
       seen.add(m.node)
-      out.push(m)
-      const recvType = receiverTypeName(m.node)
+      out.push(entry)
       const body = m.node.childForFieldName("body")
-      if (!recvType || !body) continue
-      const fields = ctx.fieldTypesOf(recvType)
-      const recvName = receiverName(m.node)
+      if (!body) continue
+      const data = dataAccessContext(m, "", ctx)
       for (const call of findCalls(body)) {
         const parts = callParts(call)
         if (!parts?.receiver) continue
-        // `s.helper(...)` on the same receiver, or `s.repo.Find(...)` through a field
-        const target = parts.receiver.includes(".")
-          ? fields.get(parts.receiver.slice(parts.receiver.lastIndexOf(".") + 1))
-          : (parts.receiver === recvName ? recvType : undefined)
-        if (!target) continue
+        const target = resolveReceiverType(m, parts.receiver, ctx.fieldTypesOf, ctx.codeIndex)
+        if (!target || daoCall(call, body, data, ctx.signalMatch)?.leaf) continue
         const callee = resolveMethod(ctx.methodRegistry, target, parts.method)
-        if (callee && !seen.has(callee.node)) next.push(callee)
+        if (callee && !seen.has(callee.node)) {
+          next.push({ method: callee, callerArgs: parts.args.map((a) => a.text).join(", ") })
+        }
       }
     }
     frontier = next
@@ -353,7 +379,7 @@ function isolationGraphPart(
       file: tenantMiddleware.file, line: tenantMiddleware.line, role: "runtime",
     }
   }
-  for (const m of path) {
+  for (const { method: m } of path) {
     if (tenantNode) break
     const read = findTenantContextRead(m, ctx.keyMatch)
     if (read) {
@@ -366,9 +392,9 @@ function isolationGraphPart(
   if (!tenantNode) return { nodes: [], edges: [] }
 
   const ops: GormOperation[] = []
-  for (const m of path) {
+  for (const { method: m, callerArgs } of path) {
     const recvType = receiverTypeName(m.node)
-    ops.push(...findGormOperations(m, recvType ? ctx.fieldTypesOf(recvType) : new Map(), ctx.signalMatch))
+    ops.push(...findGormOperations(m, recvType ? ctx.fieldTypesOf(recvType) : new Map(), ctx.signalMatch, dataAccessContext(m, callerArgs, ctx)))
   }
 
   const nodes: ExecutionNode[] = [tenantNode]
@@ -377,6 +403,9 @@ function isolationGraphPart(
   for (const op of ops) {
     if (index >= ISOLATION_MAX_QUERIES) break
     if (op.kind === "write" && op.scoped) continue   // like Laravel: only unscoped writes become nodes
+    // an unscoped query only misses a tenant on a model whose rows carry one;
+    // shared tables declared in the project without a tenant field (menus, the tenants table) are not reported
+    if (!op.scoped && !modelHasTenantField(op.model, ctx.codeIndex, ctx.signalMatch)) continue
     const type = op.scoped
       ? IR_NODE_TYPES.SCOPED_QUERY
       : op.kind === "write" ? IR_NODE_TYPES.UNSCOPED_WRITE : IR_NODE_TYPES.UNSCOPED_QUERY
@@ -487,6 +516,16 @@ export function parseGinProject(files: GoSourceFile[], opts: ParseGinOptions = {
 
   const ownershipSources = new Set(opts.ownershipSources ?? [])
 
+  const signalMatch = tokenMatcher(opts.isolation?.tenantSignals ?? DEFAULT_TENANT_SIGNALS)
+  const codeIndex = buildCodeIndex(parsed)
+  // a GORM callback whose function mentions the tenant (sets TenantID on create, filters by it on query)
+  const tenantHooks = new Set<"create" | "update" | "delete" | "query">()
+  for (const [op, names] of codeIndex.callbacks) {
+    if (names.some((n) => { const fn = codeIndex.functions.get(n); return !!fn && signalMatch(fn.text) })) {
+      tenantHooks.add(op as "create" | "update" | "delete" | "query")
+    }
+  }
+
   const fieldTypeCache = new Map<string, Map<string, string>>()
   const isolation: IsolationContext = {
     methodRegistry,
@@ -503,8 +542,46 @@ export function parseGinProject(files: GoSourceFile[], opts: ParseGinOptions = {
       return fields
     },
     keyMatch:    tokenMatcher(opts.isolation?.tenantContextKeys ?? DEFAULT_TENANT_CONTEXT_KEYS),
-    signalMatch: tokenMatcher(opts.isolation?.tenantSignals ?? DEFAULT_TENANT_SIGNALS),
+    signalMatch,
+    codeIndex,
+    tenantHooks,
   }
 
-  return routes.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed, ownershipSources, isolation))
+  const resolved = routes.map((r) => withHandlerReceiver(r, parsed, isolation))
+  return resolved.map((r) => routeToGraph(r, skipListIndex, constRegistry, methodRegistry, parsed, ownershipSources, isolation))
+}
+
+/**
+ * Fills in a route's handler receiver type when route extraction could not:
+ * a handler reached through a package-level variable (`api.Controllers.BoardApi.CreateBoard`)
+ * or through a local of the registering function (`roles := controllers.NewSysRoleController()`
+ * then `roles.List`). Resolved from the function that registers the route, so the
+ * validation, transaction, ownership and isolation passes can read the handler.
+ */
+function withHandlerReceiver(route: RouteInfo, parsed: ParsedFile[], ctx: IsolationContext): RouteInfo {
+  if (route.handlerReceiverType) return route
+  const dot = route.handlerText.lastIndexOf(".")
+  if (dot <= 0 || /[\s(){}]/.test(route.handlerText)) return route
+  const receiver = route.handlerText.slice(0, dot)
+  const methodName = route.handlerText.slice(dot + 1)
+  const file = parsed.find((f) => f.path === route.file)
+  const enclosing = file ? enclosingFunction(file.root, route.line) : null
+  const site: HandlerMethod = enclosing
+    ? { node: enclosing, file: route.file, line: enclosing.startPosition.row + 1 }
+    : { node: file?.root ?? parsed[0].root, file: route.file, line: route.line }
+  const type = resolveReceiverType(site, receiver, ctx.fieldTypesOf, ctx.codeIndex)
+  const handler = type ? resolveMethod(ctx.methodRegistry, type, methodName) : null
+  const receiverType = handler ? receiverTypeName(handler.node) : null
+  return receiverType ? { ...route, handlerReceiverType: receiverType } : route
+}
+
+/** The innermost function or method declaration spanning a 1-based line. */
+function enclosingFunction(root: SyntaxNode, line: number): SyntaxNode | null {
+  let best: SyntaxNode | null = null
+  for (const fn of findFunctionDecls(root)) {
+    const start = fn.startPosition.row + 1
+    const end = fn.endPosition.row + 1
+    if (start <= line && line <= end && (!best || fn.startPosition.row >= best.startPosition.row)) best = fn
+  }
+  return best
 }
