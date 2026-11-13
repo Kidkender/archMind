@@ -1,0 +1,6 @@
+export { parseExpressSources, parseExpressProjectAt, ExpressAdapter, type ParseExpressOptions } from "./adapter.js"
+export { isExpressProject, findExpressRoot } from "./detect.js"
+export { findSourceFiles, readSourceFiles, type SourceFile } from "./scanner.js"
+export { extractRoutes, type ExpressRoute, type ChainEntry, type HandlerRef, type ExtractResult } from "./routes.js"
+export { createExpressProject } from "./project.js"
+export { classifyMiddleware, type Classification, type MiddlewareKind, type ClassifyOptions } from "./middleware.js"

@@ -20,6 +20,7 @@
     "@kidkender/archmind-nestjs-parser": "*",
     "@kidkender/archmind-springboot-parser": "*",
     "@kidkender/archmind-go-parser": "*",
+    "@kidkender/archmind-express-parser": "*",
     "@kidkender/archmind-protocol": "*"
   },
   "devDependencies": {

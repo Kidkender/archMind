@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- **`@kidkender/archmind-express-parser` 0.1.0 (new package): Express.js, JavaScript and TypeScript.** One graph per route: routers mounted across files (`require` / `module.exports`, ES modules, `router.route()` chains, routers mounted from arrays in a `forEach`, registrar functions handed the app); the middleware chain in Express order, classified by npm package, name and — for project middleware — body into `ir:auth_gate`, `ir:authz_check` and `ir:validation_gate` (rate limiting, optional auth and CSRF as `ir:unknown_middleware` with that role; body parsers, logging, CORS left out); the handler through controller modules, class methods and wrappers; service calls, including class controllers with constructor-injected services; transactions (Sequelize, TypeORM, Prisma, Mongoose, Knex) in the handler or one call below, with the writes inside them as `ir:txn_write`; ownership checks from `archmind.json`.
+- `analysis`, the CLI and the MCP server detect an Express project (`package.json` depends on `express`, not NestJS; at the root or one directory down when the root is not another backend) after every other framework. The MCP server caches Express graphs and re-parses when a JS/TS file changes; `archmind_get_dependents` indexes Express service calls (`userService` / `userService::createUser`).
+- `research/cross-framework`: Express versions of auth-only, auth-authz, auth-validation, auth-service-call and auth-transaction; Express matches NestJS and Laravel on each.
+- `research/express-corpus`: the projects, commits, scripts and results the parser was measured with.
+
+### Changed
+- `analysis`: a route counts as throttled when a node has role `rate_limiting` (Express rate limiters, Laravel `throttle:`), not only when an auth node is named so; without it every rate-limited login route reported `no_rate_limiting`.
+
+### Measured, with limits
+- On six projects read while building it: 163 of 163 route registration sites (regex count). On six it had not seen: 101 of 101 real registrations (the regex also counted three HTTP client calls), every route that opens a transaction in a production Sequelize app (sfbrigade/bats-server), and 9 of 15 security middleware classified correctly blind, 15 of 15 after fixes made on that same set.
+- Decorator-based routing (routing-controllers, tsoa) is not read: such a project yields no routes. Not extracted: tenant isolation, side effects, response shaping. Not yet through the LLM accuracy benchmark.
+
 ### Fixed
 - **`@kidkender/archmind-explainer`: input validation outside Laravel is no longer counted as an authorization layer.** `over_authorized_route` counted every `ir:validation_gate` as a third authorization layer ("FormRequest::authorize") and `delegated_validation` reported validators as delegating authorization. Both describe Laravel's `FormRequest::authorize()`; a NestJS `ValidationPipe`, Spring `@Valid`, Gin binding or Express celebrate / express-validator only checks the input, so ordinary authenticated, role-checked, validated routes on those frameworks got these findings. The FormRequest meaning now applies when the graph's framework is `laravel` or unset. Outside Laravel a route has at most two authorization layers, so `over_authorized_route` does not fire there.
 - `@kidkender/archmind-nestjs-parser`: writes inside a transaction were linked to it by `within_transaction`, which is not an IR relation, so `validateGraph` reported it as unknown. They are now linked by `ir:wraps`, as in Laravel graphs. New conformance suite on a transaction fixture.

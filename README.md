@@ -1,6 +1,6 @@
 # ArchMind
 
-**Semantic execution graph engine for Laravel, NestJS, Spring Boot, and Go/Gin — built for AI assistants and CI.**
+**Semantic execution graph engine for Laravel, NestJS, Spring Boot, Go/Gin and Express — built for AI assistants and CI.**
 
 ArchMind parses your app into a structured execution graph and gives AI assistants (Claude, Cursor, Copilot) the minimal relevant subgraph for a query — achieving comparable or better answer quality at a fraction of the tokens that naive file-dump RAG uses.
 
@@ -28,6 +28,8 @@ ArchMind's accuracy pass has also surfaced real, previously undocumented securit
 The difference compounds on large codebases where a single route touches dozens of files.
 
 **Go/Gin support is newer and not yet held to the same bar.** The numbers above are Laravel/NestJS/Spring Boot only, from hand-verified ground truth compared against real LLM calls. Go/Gin has been validated structurally — full-project parsing against 3 real Gin+GORM codebases with zero crashes and spot-checked node accuracy — but not yet run through the same hand-verified accuracy benchmark. Treat it as functional but less battle-tested until that benchmark exists.
+
+**Express support is the newest, measured structurally only.** On six projects it had not seen it found every real route (101 of 101) and every transaction-opening route of a production app, and classified 9 of 15 security middleware correctly before fixes made on that same set (15 of 15 after) — see [`research/express-corpus`](research/express-corpus/README.md). It has not been through the LLM accuracy benchmark either.
 
 ---
 
@@ -226,12 +228,21 @@ DELETE /api/vaults/{id}
 
 A handler that calls one of them (directly, or one hop into a helper method on the same receiver) is treated as authorized by ownership. A handler that acts on a URL `:id` without resolving the caller is still reported — that is the case worth looking at. `ignoreFindings` drops whole finding types (e.g. `["missing_authorization"]`) for a project where the rule does not apply at all.
 
+### Express
+
+- JavaScript and TypeScript; routers mounted across files through `require` / `module.exports` and ES modules, `router.route()` chains, routers mounted from arrays, registrar functions handed the app
+- Middleware chain in Express order (global, path-scoped, per-router, per-route, arrays), classified by package, name and — for project middleware — body: passport / express-jwt / custom JWT checks as auth gates, role checks as authorization, celebrate / express-validator / Joi wrappers as validation, rate limiters, CSRF, optional auth; body parsers, logging, CORS and the like left out
+- Handlers resolved through controller modules, class methods and wrappers (`catchAsync`); service calls, including class controllers with constructor-injected services
+- Transactions (Sequelize, TypeORM, Prisma, Mongoose, Knex) in the handler or one call below, with the writes inside them
+- Ownership authorization (as above) and `guards` from `archmind.json`
+- Not read: decorator-based routing (routing-controllers, tsoa); tenant isolation and side effects are not extracted. Details: [`packages/express-parser`](packages/express-parser/README.md)
+
 ---
 
 ## Requirements
 
 - Node.js ≥ 18
-- A Laravel (≥8, tested on 10/11/12), NestJS, Spring Boot (Maven or Gradle), or Go/Gin project
+- A Laravel (≥8, tested on 10/11/12), NestJS, Spring Boot (Maven or Gradle), Go/Gin, or Express project
 
 ## License
 

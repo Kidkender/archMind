@@ -10,9 +10,10 @@ import {
 } from "@kidkender/archmind-laravel-parser"
 import { parseNestJSProject } from "@kidkender/archmind-nestjs-parser"
 import { parseGinProjectAt, isGinProject, findGoFiles } from "@kidkender/archmind-go-parser"
+import { parseExpressProjectAt, isExpressProject, findExpressRoot, findSourceFiles } from "@kidkender/archmind-express-parser"
 import type { IntermediateExecutionGraph } from "@kidkender/archmind-protocol"
 
-export type Framework = "laravel" | "nestjs" | "springboot" | "go" | "unknown"
+export type Framework = "laravel" | "nestjs" | "springboot" | "go" | "express" | "unknown"
 
 function tryParseSpringBoot(root: string): { graphs: IntermediateExecutionGraph[]; fileCount: number } | null {
   try {
@@ -103,6 +104,8 @@ export function detectFramework(projectRoot: string): Framework {
   if (existsSync(join(projectRoot, "artisan"))) return "laravel"
   if (existsSync(join(projectRoot, "nest-cli.json"))) return "nestjs"
   if (existsSync(join(projectRoot, "pom.xml")) || existsSync(join(projectRoot, "build.gradle"))) return "springboot"
+  // last: express is a dependency of many Node projects, so every other signal wins
+  if (isExpressProject(projectRoot)) return "express"
 
   return "unknown"
 }
@@ -124,6 +127,12 @@ export function parseProject(projectRoot: string): ParsedProject {
   if (framework === "go") {
     const graphs = parseGinProjectAt(projectRoot)
     return { graphs, routeCount: graphs.length, fileCount: findGoFiles(projectRoot).length, projectRoot, framework }
+  }
+
+  if (framework === "express") {
+    const graphs = parseExpressProjectAt(projectRoot)
+    const appRoot = findExpressRoot(projectRoot) ?? projectRoot
+    return { graphs, routeCount: graphs.length, fileCount: findSourceFiles(appRoot).length, projectRoot, framework }
   }
 
   // Default: Laravel

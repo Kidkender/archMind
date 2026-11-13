@@ -18,6 +18,8 @@ export async function analyzeProject(projectRoot: string): Promise<RouteInfo[]> 
   const springbootParser = require("@kidkender/archmind-springboot-parser")
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const goParser = require("@kidkender/archmind-go-parser")
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const expressParser = require("@kidkender/archmind-express-parser")
 
   const isNestJS = existsSync(join(projectRoot, "nest-cli.json"))
   const isSpringBoot = !isNestJS && springbootParser.isSpringBootProject(projectRoot)
@@ -25,6 +27,9 @@ export async function analyzeProject(projectRoot: string): Promise<RouteInfo[]> 
   // the PHP/JS/Java branches so a Gin project never falls through to the
   // Laravel default below.
   const isGin = !isNestJS && !isSpringBoot && goParser.isGinProject(projectRoot)
+  // Express last before the Laravel default: a package.json depending on
+  // express (and not NestJS), at the root or one directory down.
+  const isExpress = !isNestJS && !isSpringBoot && !isGin && expressParser.isExpressProject(projectRoot)
 
   if (isNestJS) {
     return analyzeNestJS(projectRoot, nestjsParser, userConfig)
@@ -34,6 +39,9 @@ export async function analyzeProject(projectRoot: string): Promise<RouteInfo[]> 
   }
   if (isGin) {
     return analyzeGin(projectRoot, goParser, userConfig)
+  }
+  if (isExpress) {
+    return analyzeExpress(projectRoot, expressParser, userConfig)
   }
   return analyzeLaravel(projectRoot, laravelParser, userConfig)
 }
@@ -120,6 +128,22 @@ function analyzeGin(projectRoot: string, parser: any, userConfig?: ArchMindUserC
   return routes
 }
 
+function analyzeExpress(projectRoot: string, parser: any, userConfig?: ArchMindUserConfig): RouteInfo[] {
+  const { parseExpressProjectAt } = parser
+  const graphs = parseExpressProjectAt(projectRoot) as any[]
+  const routes: RouteInfo[] = []
+
+  for (const graph of graphs) {
+    const handler = graph.nodes.find((n: any) => n.type === "ir:business_handler")
+    if (!handler) continue
+    try {
+      routes.push(buildRoute(graph, handler, "express", projectRoot, userConfig))
+    } catch { /* skip */ }
+  }
+
+  return routes
+}
+
 function inferPublicRoutes(routes: RouteInfo[]): void {
   const someHaveAuth = routes.some(r => r.authGates.length > 0)
   if (!someHaveAuth) return
@@ -138,8 +162,8 @@ function buildRoute(graph: any, handler: any, framework: string, projectRoot?: s
   const services    = graph.nodes.filter((n: any) => n.type === "ir:service_call").map((n: any) => n.symbol as string)
   const hasTxn      = graph.nodes.some((n: any) => n.type === "ir:txn_boundary")
   const throttled   = graph.nodes.some((n: any) =>
-    (n.type === "ir:auth_gate" || n.type === "ir:authz_check") &&
-    THROTTLE_RE.test(n.symbol as string)
+    n.role === "rate_limiting" ||
+    ((n.type === "ir:auth_gate" || n.type === "ir:authz_check") && THROTTLE_RE.test(n.symbol as string))
   )
 
   const line = resolveHandlerLine(handler, projectRoot)

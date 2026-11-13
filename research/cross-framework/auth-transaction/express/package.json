@@ -1,0 +1,5 @@
+{
+  "name": "auth-transaction-express",
+  "private": true,
+  "dependencies": { "express": "^4.19.0" }
+}
