@@ -66,6 +66,11 @@ const methods = parseControllerFile("/path/to/OrderController.java")
 
 ### Security
 - **Per-method annotations:** `@PreAuthorize`, `@Secured`, `@RolesAllowed`
+- **Project-specific annotations from `archmind.json`:** names listed under `guards.auth_gate` become `ir:auth_gate`; names under `guards.authz_check` become `ir:auth_gate` → `ir:authz_check`. They take precedence over the built-in rules, so a known-but-unclassified annotation such as Shiro's `@RequiresRoles` stops being `ir:unknown_middleware` once it is listed:
+
+  ```json
+  { "guards": { "auth_gate": ["RequireLogin"], "authz_check": ["RequiresRoles", "CheckPermission"] } }
+  ```
 - **Global `SecurityFilterChain` rules:** parses `requestMatchers().hasRole()` / `hasAnyRole()` / `permitAll()` / `denyAll()` chains and applies them to matching routes automatically
 
 ### Validation

@@ -1,8 +1,8 @@
-import { readFileSync } from "fs"
 import { dirname, join } from "path"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 import type {
   IntermediateExecutionGraph,
   ExecutionNode,
@@ -80,16 +80,9 @@ function processFile(
   out: IntermediateExecutionGraph[],
   opts: ParseOptions
 ): void {
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(filePath, "utf-8")
-    // Large files (> 32KB) require a bigger internal parse buffer
-    const bufferSize = source.length > 32_768 ? 1024 * 1024 : undefined
-    tree = _parser.parse(source, undefined, bufferSize ? { bufferSize } : undefined)
-  } catch {
-    return
-  }
+  const parsed = parsePhpFile(_parser, filePath)
+  if (!parsed) return
+  const { tree } = parsed
   const useMap = extractUseMap(tree.rootNode)
   walkBlock(tree.rootNode, ctx, out, filePath, opts, useMap)
 }

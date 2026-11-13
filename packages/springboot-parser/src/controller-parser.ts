@@ -1,7 +1,8 @@
-import { readFileSync } from "fs"
 import Parser from "tree-sitter"
 // @ts-ignore
 import Java from "tree-sitter-java"
+import { parseJavaFile } from "./java-source.js"
+import type { ArchMindUserConfig } from "@kidkender/archmind-protocol"
 import { moduleRootOf } from "./security-config-parser.js"
 import type {
   SpringControllerMethod, AuthAnnotation, ServiceCall, DataAccessCall, EventPublication, HttpMethod,
@@ -55,20 +56,11 @@ const MESSAGING_LISTENER_ANNS: Record<string, string> = {
 export function parseControllerFile(
   filePath: string,
   baseClassIndex?: Map<string, string>,
+  userConfig?: ArchMindUserConfig,
 ): SpringControllerMethod[] {
-  let source: string
-  try {
-    source = readFileSync(filePath, "utf-8")
-  } catch {
-    return []
-  }
-
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    tree = _parser.parse(source)
-  } catch {
-    return []
-  }
+  const parsed = parseJavaFile(_parser, filePath)
+  if (!parsed) return []
+  const { source, tree } = parsed
 
   const root = tree.rootNode
   const out:  SpringControllerMethod[] = []
@@ -131,7 +123,7 @@ export function parseControllerFile(
       const methodTxn   = classTxn || hasAnnotation(mods, new Set(["Transactional"]))
       const readOnly    = isReadOnlyTxn(mods)
 
-      const authAnnotations = extractAuthAnnotations(mods)
+      const authAnnotations = extractAuthAnnotations(mods, userConfig)
       const { hasValidation, validatedParamTypes } = extractValidationInfo(methodNode)
 
       const body = methodNode.childForFieldName("body") ??
@@ -365,12 +357,24 @@ const UNKNOWN_SECURITY_ANN_NAMES = new Set([
   "CheckPermission",         // common custom naming
 ])
 
-function extractAuthAnnotations(modifiers: Parser.SyntaxNode): AuthAnnotation[] {
+function extractAuthAnnotations(modifiers: Parser.SyntaxNode, userConfig?: ArchMindUserConfig): AuthAnnotation[] {
   const out: AuthAnnotation[] = []
+  const customAuthGate  = userConfig?.guards?.auth_gate
+  const customAuthzCheck = userConfig?.guards?.authz_check
   for (const child of modifiers.children) {
     if (child.type !== "annotation" && child.type !== "marker_annotation") continue
     const name = getAnnotationName(child)
     if (!name) continue
+
+    // archmind.json `guards` names the project's own security annotations.
+    // The project knows their meaning, so this wins over the built-in rules.
+    const isCustomAuthz = customAuthzCheck?.includes(name) ?? false
+    const isCustomAuth  = !isCustomAuthz && (customAuthGate?.includes(name) ?? false)
+    if (isCustomAuthz || isCustomAuth) {
+      const expr = getAnnotationStringArg(child) ?? ""
+      out.push({ kind: "custom", expression: `@${name}${expr ? `(${expr})` : ""}`, isAuthOnly: isCustomAuth })
+      continue
+    }
 
     if (name === "PreAuthorize") {
       const expr = getAnnotationStringArg(child) ?? ""

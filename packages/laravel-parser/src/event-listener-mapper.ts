@@ -4,6 +4,7 @@ import { join } from "path"
 import Parser from "tree-sitter"
 // @ts-ignore
 import PHP from "tree-sitter-php"
+import { parsePhpFile } from "./php-source.js"
 
 import { extractUseMap } from "./controller-parser.js"
 import { fqcnToPath } from "./project-config.js"
@@ -43,14 +44,9 @@ export function parseEventListeners(
   const providerPath = join(projectRoot, "app/Providers/EventServiceProvider.php")
   if (!existsSync(providerPath)) return new Map()
 
-  let source: string
-  let tree: ReturnType<typeof _parser.parse>
-  try {
-    source = readFileSync(providerPath, "utf-8")
-    tree = _parser.parse(source)
-  } catch {
-    return new Map()
-  }
+  const parsed = parsePhpFile(_parser, providerPath)
+  if (!parsed) return new Map()
+  const { source, tree } = parsed
 
   const root   = tree.rootNode as AstNode
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
