@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind-explainer",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Explanation engine for ArchMind — fact extraction, pattern detection, evidence packaging, and finding ranking for Laravel/NestJS execution graphs.",
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,7 @@
     "test": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js"
   },
   "dependencies": {
-    "@kidkender/archmind-protocol": "^0.5.0",
+    "@kidkender/archmind-protocol": "^0.6.0",
     "@kidkender/archmind-graph-query": "*"
   },
   "devDependencies": {
