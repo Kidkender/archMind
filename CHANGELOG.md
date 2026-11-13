@@ -33,6 +33,7 @@
 
 ### Release notes
 - Versions: CLI 0.10.0, `express-parser` 0.1.0 (new), `go-parser` 0.4.0, `springboot-parser` 0.5.0, `protocol` 0.6.0, `analysis` 0.3.0, `mcp-server` 0.8.0, `explainer` 0.3.4, `laravel-parser` 0.5.3, `nestjs-parser` 0.7.2, `lsp` 0.1.4, `lens` 0.2.1 (needs `go-parser` ^0.4.0). Packages that depended on `protocol` ^0.5 now need ^0.6.0.
+- `lsp` 0.1.4 loads `analysis` from its own install instead of bundling it (`analysis` pulls in `go-parser`'s native tree-sitter-go, which cannot be bundled), so `analysis` ^0.3.0 is now a dependency of `lsp`.
 - Publish order: `protocol`, `laravel-parser`, `springboot-parser`, `nestjs-parser`, `go-parser`, `express-parser`, `explainer`, `lens`, `analysis`, `lsp`, `mcp-server`, CLI.
 
 ## [0.9.1] - 2026-10-28

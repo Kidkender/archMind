@@ -11,6 +11,7 @@
     "dev": "node --loader ts-node/esm src/server.ts"
   },
   "dependencies": {
+    "@kidkender/archmind-analysis": "^0.3.0",
     "tree-sitter": "^0.21.0",
     "tree-sitter-php": "^0.23.0",
     "tree-sitter-java": "^0.23.0",
@@ -20,7 +21,6 @@
     "@kidkender/archmind-laravel-parser": "*",
     "@kidkender/archmind-nestjs-parser": "*",
     "@kidkender/archmind-protocol": "*",
-    "@kidkender/archmind-analysis": "*",
     "@types/node": "^20.0.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.0",
