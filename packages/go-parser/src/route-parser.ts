@@ -21,7 +21,7 @@ export interface MiddlewareRef {
 
 export interface RouteInfo {
   method: string
-  /** Fully resolved path — concatenation of every enclosing Group() prefix. */
+  /** Fully resolved path — every enclosing Group() prefix joined the way Gin joins them. */
   path: string
   /** Raw text of the final (handler) argument, e.g. "handler.CreateOrder". */
   handlerText: string
@@ -170,7 +170,18 @@ function groupOf(expr: SyntaxNode, file: string, groups: Map<string, GroupState>
   const refs = (nodes: SyntaxNode[]): MiddlewareRef[] => nodes.map((a) => toMiddlewareRef(a, file)).filter((m): m is MiddlewareRef => !!m)
   if (method === "Use") return { ...base, middleware: [...base.middleware, ...refs(args)] }
   const [pathArg, ...mwArgs] = args
-  return { prefix: base.prefix + (pathArg ? stringLiteralValue(pathArg) ?? "" : ""), middleware: [...base.middleware, ...refs(mwArgs)] }
+  return { prefix: joinPaths(base.prefix, pathArg ? stringLiteralValue(pathArg) ?? "" : ""), middleware: [...base.middleware, ...refs(mwArgs)] }
+}
+
+/**
+ * Gin's joinPaths: `path.Join(base, relative)`, keeping a trailing slash the
+ * relative path has. `Group("api").Group("v1").POST("device")` is /api/v1/device,
+ * and `Group("/api/").GET("/x")` is /api/x — not a plain concatenation.
+ */
+export function joinPaths(base: string, relative: string): string {
+  if (relative === "") return base
+  const joined = "/" + [...base.split("/"), ...relative.split("/")].filter((s) => s !== "" && s !== ".").join("/")
+  return relative.endsWith("/") && !joined.endsWith("/") ? `${joined}/` : joined
 }
 
 /**
@@ -313,7 +324,7 @@ function handleStatement(
 
     routes.push({
       method:              parts.method,
-      path:                state.prefix + suffix,
+      path:                joinPaths(state.prefix, suffix) || "/",
       handlerText:         handlerArg.text,
       handlerReceiverType: handlerReceiverType(handlerArg, paramTypes),
       middleware:          [...state.middleware, ...inlineMw],
