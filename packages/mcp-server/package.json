@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind-mcp",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "MCP server that tells Claude Code, Cursor and other AI assistants what each route of your Laravel, NestJS, Express or Go/Gin app checks — and what it is missing (auth, policy, transaction, tenant scope).",
   "type": "module",
   "bin": {

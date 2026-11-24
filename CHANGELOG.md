@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.11.0] - 2026-11-24
 
 ### Fixed — false positives on real Laravel apps
 Measured on invoiceninja, monica, akaunting, koel and BookStack with no config: HIGH/CRITICAL findings 951 → 63, default output 92 lines across the five apps. All 63 remaining HIGH/CRITICAL findings were read by hand: 38 are worth a look and 25 are false positives; none is a confirmed vulnerability. Details and every remaining false positive: `research/laravel-scan/README.md`.
@@ -23,6 +23,15 @@ Measured on invoiceninja, monica, akaunting, koel and BookStack with no config: 
 
 ### Changed
 - README leads with what ArchMind finds and how noisy it is; npm descriptions/keywords updated (the MCP server lists the frameworks it supports — not Spring Boot).
+- **CLI exit codes (check your CI):** `findings` now exits 1 only for CRITICAL/HIGH (MEDIUM no longer fails a build), and exits 2 when no framework or no entrypoint is found (it used to print "No findings." and exit 0).
+
+### Security
+- `mcp-server`: `@modelcontextprotocol/sdk` 1.29.0 → 1.32.2, bundled into `archmind-mcp` (OAuth credential leak to a server-chosen authorization server, tasks not tied to their session, unbounded request bodies, cross-origin redirects re-sending headers, bearer tokens for another service).
+- Lockfile: `handlebars` 4.7.10, `proxy-addr` 2.0.8, `brace-expansion` 1.1.22 / 2.1.8, `fast-uri` 3.1.9, `hono` 4.13.21, `qs` 6.17.1. Still open, needing a major bump: `@hono/node-server` `serveStatic` (not used), `minimatch` under `ts-morph` 23, `zod` 3.
+
+### Release notes
+- Versions: CLI 0.11.0, `laravel-parser` 0.5.4, `explainer` 0.3.5, `mcp-server` 0.8.1. Other packages are unchanged.
+- Publish order: `laravel-parser`, `explainer`, `mcp-server`, CLI.
 
 ## [0.10.0] - 2026-11-13
 
