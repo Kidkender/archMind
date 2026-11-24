@@ -26,11 +26,16 @@ HIGH+CRITICAL findings: **951 → 63 (−93%)**. Default output (what a new user
 |---|---|---|
 | **Worth a look** (verified) | 30 | invoiceninja `POST /api/v1/reports/*` ×28 — `GenericReportRequest::authorize()` returns `true`; a non-admin without `view_reports` is not rejected, their input is blanked in `prepareForValidation()` and the report job still runs. invoiceninja `POST /quickbooks/action` — `authorize()` returns `true`, any company user can force-push/pull an invoice to QuickBooks. koel `GET /api/youtube/search/song/{song}` — no `SongPolicy::access` check (only matters for private songs in Plus). |
 | **False positive** (verified) | 12 | invoiceninja `system_logs` store/update/destroy ×4 (handlers always return 400, no write); `quickbooks/settings` and client `payment_methods` PUT/PATCH ×2 (routed methods don't exist; controllers use traits so ArchMind can't prove it); `client/subscriptions/{subscription}/purchase` ×3 (public checkout page by design). koel `itunes/song/{album}` (redirects to iTunes, no private data); koel collaboration-invite token (returned to the inviter by design). |
-| **Not verified** | 21 | invoiceninja app-level actions: check_subdomain, reactivate_email, feedback, filters, connected_account ×2, companies/current, emails/entityHistory, one_time_token, preview ×2, quickbooks/reconnect_url, support/messages/send, self-update/check_version, tasks/sort, verify ×2, subscriptions/steps/check, client credit_response, client payment_methods POST, client quotes/download. |
-| **Confirmed vulnerability** | 0 | Two candidates (invoiceninja client/vendor `documents/download_multiple`, company-only query) were withdrawn: `DownloadMultipleDocumentsRequest::authorize()` checks every document with `contactCanAccessDocument()`. |
+| **Worth a look** (second pass, 2026-11-24) | 8 | invoiceninja: FormRequests returning `true` on company-scoped actions with no `view_*`/`edit_*` permission check (`emails/entityHistory`, `preview`, `preview/purchase_order`, `tasks/sort`), account-level SMS verification open to any user (`verify`, `verify/confirm`), and two flows under private review (`one_time_token`, `reactivate_email/{bounce_id}`). |
+| **False positive** (second pass) | 13 | invoiceninja: no-side-effect handlers (`check_subdomain`, `filters/{entity}`, `self-update/check_version`, `subscriptions/steps/check`); actions only on the caller's own user (`feedback`, `connected_account` ×2, `companies/current`, `support/messages/send`); `quickbooks/reconnect_url` (pinned to the stored realm ID); client `payments/credit_response` (unguessable payment hash); client `payment_methods` POST (contact's own client); client `quotes/download` (scoped by `client_contact_id` inside a helper method). |
+| **Confirmed vulnerability** | 0 | Two earlier candidates (invoiceninja client/vendor `documents/download_multiple`, company-only query) were withdrawn: `DownloadMultipleDocumentsRequest::authorize()` checks every document with `contactCanAccessDocument()`. Two flows from the second pass are being reported privately to the maintainers; nothing has been confirmed at runtime. |
 
-Verified precision: **30 of 42 (71%)** are worth a reviewer's attention; 12 of 42 are false positives.
+Precision on all 63: **38 (60%)** are worth a reviewer's attention; **25 (40%)** are false positives.
 None is a confirmed vulnerability — do not market this as "found N vulnerabilities".
+
+The 13 second-pass false positives point at four detector gaps (not fixed yet): handlers with no side
+effect, actions only on `auth()->user()` or the contact's own client, lookups keyed by an unguessable
+secret, and caller-scoped queries inside a called helper method.
 
 ## What was wrong, and the fix (each with a test in laravel-parser / explainer)
 
@@ -68,11 +73,12 @@ None is a confirmed vulnerability — do not market this as "found N vulnerabili
 - Any `ir:service_call` still counts as an authorization layer in `missing_authorization` (explainer
   fact extraction) — a source of false negatives, not false positives. Changing it affects every framework.
 - MEDIUM/LOW findings were not triaged.
-- 21 HIGH findings above are unverified.
 
 ## Exit bar status
 
 Set in the first version of this file: "≥ 70% real or worth a look, and no app > ~30 HIGH/CRITICAL without config".
-- Precision bar: met on the verified set (71%), with zero confirmed vulnerabilities.
+- Precision bar: **not met** — 60% on all 63 (71% on the first 42 read; the last 21 were mostly
+  invoiceninja app-level actions with 13 false positives). Closing the four detector gaps above is
+  the next step.
 - Volume bar: met for 4 of 5 apps; invoiceninja has 60 (28 are one report pattern). An `archmind.json`
   `ignoreFindings` or a per-route ignore would bring it under; not added.

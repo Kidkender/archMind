@@ -45,9 +45,9 @@ Detector coverage differs per framework — see [Supported frameworks](#supporte
 
 Measured on five real Laravel apps (invoiceninja, monica, akaunting, koel, BookStack), no config:
 **92 findings shown** by default across all five, **63 HIGH/CRITICAL** (down from 951 in 0.10.0).
-Of the HIGH/CRITICAL ones we checked by reading the code, 71% were worth a reviewer's attention and
-29% were false positives; none was a confirmed vulnerability. Every number, and each false positive,
-is in [`research/laravel-scan`](research/laravel-scan/README.md).
+We read the code behind all 63: 60% were worth a reviewer's attention and 40% were false positives;
+none is a confirmed vulnerability. Every number, and each false positive, is in
+[`research/laravel-scan`](research/laravel-scan/README.md).
 
 > Coming from **Enlightn** (archived in January 2026)? ArchMind covers a different, complementary area — route-level authorization, tenant isolation and transactions, with a CI regression guard — and runs on Windows, macOS and Linux.
 
