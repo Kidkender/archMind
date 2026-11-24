@@ -17,6 +17,7 @@ export function runFindings(flags: Record<string, string>, positional: string[])
   const projectRoot = requireProject(flags)
   const routeFilter = positional[0]
   const isJson      = "json" in flags
+  const showAll     = "all" in flags
 
   const { graphs } = parseProject(projectRoot)
   const ignore = loadUserConfig(projectRoot)?.ignoreFindings
@@ -37,15 +38,30 @@ export function runFindings(flags: Record<string, string>, positional: string[])
     }
   }
 
+  // Shown by default: CRITICAL / HIGH / MEDIUM. LOW findings are code-quality
+  // notes (fat_controller…) and INFO ones describe the graph ("authorization is
+  // delegated to middleware") — both hidden unless --all. Only CRITICAL/HIGH fail CI.
+  const isProblem = (f: Finding): boolean => ["critical", "high", "medium"].includes(f.severity.toLowerCase())
+  const failsBuild = allFindings.some(({ finding: f }) => ["critical", "high"].includes(f.severity.toLowerCase()))
+
   if (isJson) {
     // Use exitCode + return so stdout flushes before the process ends
-    process.exitCode = allFindings.length > 0 ? 1 : 0
+    process.exitCode = graphs.length === 0 ? 2 : failsBuild ? 1 : 0
     process.stdout.write(JSON.stringify(allFindings, null, 2) + "\n")
     return
   }
 
+  if (graphs.length === 0) {
+    // parseProject already explained why on stderr; don't claim a clean result
+    console.log("No entrypoints analyzed — no findings can be reported.")
+    process.exit(2)
+  }
+
+  const hiddenInfo = showAll ? 0 : allFindings.filter(({ finding }) => !isProblem(finding)).length
+  if (!showAll) allFindings = allFindings.filter(({ finding }) => isProblem(finding))
+
   if (allFindings.length === 0) {
-    console.log("No findings.")
+    console.log(hiddenInfo > 0 ? `No findings (${hiddenInfo} low/informational hidden — use --all).` : "No findings.")
     process.exit(0)
   }
 
@@ -76,7 +92,10 @@ export function runFindings(flags: Record<string, string>, positional: string[])
     }
   }
 
-  console.log(`\n${total} finding(s) across ${byRoute.size} route(s)`)
+  console.log(
+    `\n${total} finding(s) across ${byRoute.size} route(s)` +
+    (hiddenInfo > 0 ? ` — ${hiddenInfo} low/informational hidden, use --all` : ""),
+  )
 
   const hasHighPlus = allFindings.some(({ finding: f }) =>
     ["critical", "high"].includes(f.severity.toLowerCase())

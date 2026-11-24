@@ -1,4 +1,6 @@
 import { join, dirname } from "path"
+import { writeFileSync, mkdtempSync } from "fs"
+import { tmpdir } from "os"
 import { fileURLToPath } from "url"
 import { parseRouteFile } from "../route-parser.js"
 import { parseConstantClass } from "../constant-resolver.js"
@@ -58,7 +60,7 @@ describe("parseRouteFile — nested middleware groups", () => {
     const types = g.nodes.map((n) => n.type)
     expect(types).toEqual([
       "ir:auth_gate",
-      "ir:auth_gate",
+      "ir:unknown_middleware", // ResolveTenant — tenant context, not authentication
       "ir:authz_check",
       "ir:business_handler",
     ])
@@ -175,5 +177,24 @@ describe("parseConstantClass", () => {
     expect(map["Permissions"]["TASK_VIEW"]).toBe("task.view")
     expect(map["Permissions"]["TASK_UPDATE"]).toBe("task.update")
     expect(map["Permissions"]["TASK_DELETE"]).toBe("task.delete")
+  })
+})
+
+describe("parseRouteFile — namespace alias import (BookStack routes/api.php)", () => {
+  test("EntityControllers\PageApiController resolves through `use … as EntityControllers`", () => {
+    const graphs = parseRouteFile(fixture("routes-namespace-alias.php"), { namespaces: { "BookStack\\": "app/" } })
+    const ctrl = graphs[0]!.nodes.find((n) => n.type === "ir:business_handler")
+    expect(ctrl?.file).toBe("app/Entities/Controllers/PageApiController.php")
+  })
+})
+
+describe("parseRouteFile — nested resource", () => {
+  test("apiResource('artists.songs') → /artists/{artist}/songs", () => {
+    const dir = mkdtempSync(join(tmpdir(), "am-nested-"))
+    const file = join(dir, "api.php")
+    writeFileSync(file, "<?php\nRoute::apiResource('artists.songs', ArtistSongController::class);\n")
+    const paths = parseRouteFile(file).map((g) => g.entrypoint)
+    expect(paths).toContain("GET /artists/{artist}/songs")
+    expect(paths).toContain("PUT /artists/{artist}/songs/{id}")
   })
 })

@@ -21,12 +21,29 @@ export interface AuthorizeCall {
   ability:   string   // first string arg, e.g. "update"
   mechanism: string   // full call text, e.g. "$this->authorize('update', $task)"
   modelVar?: string   // second arg variable name, e.g. "$task"
+  /**
+   * "policy" (default): resolved through a Laravel policy — $this->authorize(),
+   * Gate::allows(), authorizeResource(). "helper": an authorization check that
+   * isn't a policy lookup — $this->checkPermission(), $user->can(), userCan() —
+   * so no policy class is inferred (and no missing_policy can be raised).
+   */
+  kind?:       "policy" | "helper"
+  /** Model class the policy is resolved from (Laravel picks the policy by model, not by controller). */
+  modelClass?: string
+  /** Helper name for kind "helper", e.g. "checkOwnablePermission". */
+  helper?:     string
 }
 
 export interface ModelParam {
   className: string   // e.g. "Product"
   classFqcn: string   // e.g. "App\Models\Product"
   paramName: string   // e.g. "$product"
+  /**
+   * Whether the handler body references the param. A bound model the handler
+   * never touches (invoiceninja's ProfileController::edit renders the logged-in
+   * contact, not `$client_contact`) can't expose another user's record.
+   */
+  usedInBody?: boolean
 }
 
 export interface ServiceCall {
@@ -150,8 +167,11 @@ export function parseControllerMethod(
 
   const formRequests         = extractFormRequests(methodNode, useMap)
   const modelParams          = extractModelParams(methodNode, useMap)
-  const authorizeCalls       = extractAuthorizeCalls(methodNode, modelParams)
-  const serviceCalls         = extractServiceCalls(methodNode, allInjections, useMap, requestParamVars)
+  const authorizeCalls       = [
+    ...extractAuthorizeCalls(methodNode, modelParams),
+    ...extractAuthorizeResource(root, methodName, modelParams),
+  ]
+  const serviceCalls       = extractServiceCalls(methodNode, allInjections, useMap, requestParamVars)
   const returnedResources      = extractReturnedResources(methodNode, useMap)
   const standaloneDispatches   = extractStandaloneDispatches(methodNode, useMap)
   const standaloneNotifications = extractNotificationDispatches(methodNode, useMap)
@@ -245,15 +265,30 @@ export function parseFormRequestAuthorize(filePath: string): string | undefined 
   const body = methodNode.childForFieldName("body")
   if (!body) return undefined
 
+  let topReturn: string | undefined
   for (const child of body.children) {
     if (child.type === "return_statement") {
       const expr = child.children.find(
         (c) => c.type !== "return" && c.type !== ";" && c.text.trim() !== ""
       )
-      if (expr) return expr.text.trim()
+      if (expr) { topReturn = expr.text.trim(); break }
     }
   }
-  return undefined
+
+  // `if ($this->user()->cannot('edit', $this->client)) { return false; } return true;`
+  // — the final `return true` hides a real check made earlier in the body.
+  // Report the (compacted) body so the check is not read as a passthrough.
+  const bodyText = body.text
+  // A conditional `return false` is a deny branch — e.g. invoiceninja's
+  // DownloadMultipleDocumentsRequest loops `if (! $this->contactCanAccessDocument(...)) return false;`
+  // — unless the only condition is "is someone logged in".
+  const authOnlyBody = /^\{\s*(if\s*\(\s*!\s*(auth\(\)->check\(\)|Auth::check\(\)|\$this->user\(\)|auth\(\)->user\(\))\s*\)\s*\{?\s*return\s+false;\s*\}?\s*)?return\s+true;\s*\}$/
+  const conditionalDeny = /return\s+false/.test(bodyText) && !authOnlyBody.test(bodyText.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "").trim())
+  const checksEarlier = conditionalDeny || /->(can|cannot|cant|hasPermissionTo|hasPermission|hasRole|hasAnyRole|isAdmin|isOwner)\s*\(|Gate::|authorize\s*\(|abort(_if|_unless)?\s*\(/.test(bodyText)
+  if ((topReturn === undefined || /^true$/i.test(topReturn)) && checksEarlier) {
+    return bodyText.replace(/^\{|\}$/g, "").replace(/\s+/g, " ").trim().slice(0, 240)
+  }
+  return topReturn
 }
 
 // ---- Use-statement extraction -----------------------------------------
@@ -394,7 +429,9 @@ function extractModelParams(
     const classFqcn = useMap.get(typeName) ?? typeName
     if (SKIP_FQCN.has(classFqcn)) continue
 
-    results.push({ className: typeName, classFqcn, paramName: varNode.text })
+    const bodyText = methodNode.childForFieldName("body")?.text ?? ""
+    const usedInBody = new RegExp(`\\${varNode.text}\\b`).test(bodyText)
+    results.push({ className: typeName, classFqcn, paramName: varNode.text, usedInBody })
   }
 
   return results
@@ -410,23 +447,101 @@ function extractAuthorizeCalls(methodNode: Parser.SyntaxNode, modelParams: Model
   return results
 }
 
+// Gate facade methods that resolve an ability (policy or Gate::define)
+const GATE_METHODS = new Set(["authorize", "allows", "check", "denies", "any", "none", "inspect"])
+
+// $this->helper(...) names that perform an authorization check, e.g.
+// BookStack's checkOwnablePermission() / checkPermission(), ensureCanEdit(),
+// authorizeOwner(). Plain "authorize" is the policy call handled above.
+const SELF_HELPER_RE =
+  /^(authorize\w+|check\w*(permission|access|abilit|role|owner|admin|can)\w*|ensure\w*(permission|access|can|owner|role|admin|allowed|authori)\w*|require\w*(permission|role|admin|owner|access)\w*|deny\w*|abortUnless\w*|abortIf(Not|Cannot)\w*)$/i
+
+// ->method(...) on any object: $request->user()->can('x'), Gate::forUser($u)->allows(...),
+// spatie/laravel-permission's hasPermissionTo / hasRole.
+const MEMBER_CHECK_METHODS = new Set([
+  "can", "cannot", "cant", "allows", "denies",
+  "hasPermissionTo", "hasPermission", "hasAnyPermission", "hasAllPermissions", "checkPermissionTo",
+  "hasRole", "hasAnyRole", "hasAllRoles", "isAdmin", "isSuperAdmin", "isOwner", "isOwnerOf",
+])
+
+const SELF_WRITE_METHODS = new Set(["delete", "update", "save", "create", "updateOrCreate", "forceDelete", "attach", "detach", "sync", "toggle"])
+// current user, optionally followed by ONE relation call: group 2 = relation name
+const CALLER_CHAIN_RE = /^(\$request->user\(\)|auth\(\)->user\(\)|Auth::user\(\)|\$this->user\(\)|request\(\)->user\(\))(?:\s*->\s*(\w+)\s*\(\))?/
+const SHARED_PARENT_RE = /^(company|companies|account|team|teams|organi[sz]ation|tenant|workspace|vault|vaults|group|project|currentTeam)$/i
+// An expression that yields the caller: auth()->user(), auth()->guard('x')->user(), $request->user(), Auth::id()…
+const CALLER_EXPR_RE = /auth\(\)(->guard\([^)]*\))?->(user|id)\(\)|Auth::(user|id)\(\)|\$request->user\(\)|request\(\)->user\(\)|\$this->user\(\)/
+const SHARED_KEY_RE = /^(company|account|team|tenant|organi[sz]ation|workspace|group|project)_id$/
+
+// Global helper functions that check permissions (BookStack's userCan()).
+const FUNCTION_HELPER_RE = /^(userCan\w*|user_can|authorize\w*|check\w*Permission\w*)$/
+
 function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[], modelParams: ModelParam[]): void {
-  // $this->authorize('ability', $model)
   if (node.type === "member_call_expression") {
     const obj  = node.childForFieldName("object")
-    const name = node.childForFieldName("name")
-    if (obj?.text === "$this" && name?.text === "authorize") {
-      pushAuthorizeCall(node, results, modelParams)
+    const name = node.childForFieldName("name")?.text
+    if (obj?.text === "$this" && (name === "authorize" || name === "authorizeForUser")) {
+      // $this->authorize('ability', $model) — a policy lookup
+      pushAuthorizeCall(node, results, modelParams, "policy", name === "authorizeForUser" ? 1 : 0)
+    } else if (obj?.text === "$this" && name && SELF_HELPER_RE.test(name) && name !== "authorizeResource") {
+      pushAuthorizeCall(node, results, modelParams, "helper", 0, name)
+    } else if (obj?.text !== "$this" && name && MEMBER_CHECK_METHODS.has(name)) {
+      pushAuthorizeCall(node, results, modelParams, "helper", 0, name)
     }
   }
 
-  // Gate::authorize('ability', $model) or Gate::allows('ability', $model)
+  // Gate::authorize('ability', $model), Gate::allows / denies / check / any / none / inspect
   // tree-sitter-php uses "scoped_call_expression" with field "scope" for the class
   if (node.type === "scoped_call_expression") {
     const cls    = node.childForFieldName("scope")
     const method = node.childForFieldName("name")
-    if (cls?.text === "Gate" && (method?.text === "authorize" || method?.text === "allows" || method?.text === "check")) {
-      pushAuthorizeCall(node, results, modelParams)
+    if (cls?.text === "Gate" && method && GATE_METHODS.has(method.text)) {
+      pushAuthorizeCall(node, results, modelParams, "policy", 0)
+    }
+  }
+
+  if (node.type === "function_call_expression") {
+    const fn = node.childForFieldName("function")?.text
+    if (fn && FUNCTION_HELPER_RE.test(fn)) {
+      pushAuthorizeCall(node, results, modelParams, "helper", 0, fn)
+    }
+  }
+
+  // A query filtered on the caller's own key — `->whereClientId(auth()->guard('contact')
+  // ->user()->client_id)` (invoiceninja client portal), `->where('user_id', auth()->id())`
+  // — returns only the caller's rows. Filtering on a SHARED key (company_id, account_id,
+  // team_id…) does not: other users/clients of the same company still match.
+  if (node.type === "member_call_expression") {
+    const name = node.childForFieldName("name")?.text ?? ""
+    const args = node.childForFieldName("arguments")?.text ?? ""
+    const col = /^where[A-Z]\w*Id$/.test(name)
+      ? name.slice(5).replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase()       // whereClientId → client_id
+      : name === "where" ? (args.match(/^\(\s*['"]([\w.]+)['"]/)?.[1]?.split(".").pop() ?? "") : ""
+    if (col && /_id$/.test(col) && CALLER_EXPR_RE.test(args) && !SHARED_KEY_RE.test(col)) {
+      results.push({
+        ability:   col,
+        mechanism: node.text.slice(0, 160),
+        kind:      "helper",
+        helper:    "query scoped to caller",
+      })
+    }
+  }
+
+  // A write that goes through the caller's own record can only touch that
+  // caller's data: `$request->user()->userTokens()->where(...)->delete()`
+  // (monica), `auth()->user()->update([...])`. Shared parents — the caller's
+  // company / account / team — are excluded: writing there still needs a role check.
+  if (node.type === "member_call_expression") {
+    const name = node.childForFieldName("name")?.text
+    if (name && SELF_WRITE_METHODS.has(name)) {
+      const m = node.text.match(CALLER_CHAIN_RE)
+      if (m && !SHARED_PARENT_RE.test(m[2] ?? "")) {
+        results.push({
+          ability:   m[2] ? `${m[2]}()->${name}` : name,
+          mechanism: node.text.slice(0, 160),
+          kind:      "helper",
+          helper:    "scoped to caller",
+        })
+      }
     }
   }
 
@@ -435,26 +550,102 @@ function gatherAuthorizeCalls(node: Parser.SyntaxNode, results: AuthorizeCall[],
   }
 }
 
-function pushAuthorizeCall(node: Parser.SyntaxNode, results: AuthorizeCall[], modelParams: ModelParam[]): void {
+function pushAuthorizeCall(
+  node: Parser.SyntaxNode,
+  results: AuthorizeCall[],
+  modelParams: ModelParam[],
+  kind: "policy" | "helper",
+  abilityIndex: number,
+  helper?: string,
+): void {
   const argsNode = node.childForFieldName("arguments")
-  if (!argsNode) return
-  const argValues = (argsNode.children as Parser.SyntaxNode[])
-    .filter((c) => c.type === "argument")
-    .map((c) => c.firstNamedChild)
-    .filter((c): c is Parser.SyntaxNode => c !== null)
-  const ability = argValues[0] ? resolveStringNode(argValues[0]) : "unknown"
+  const argValues = argsNode
+    ? (argsNode.children as Parser.SyntaxNode[])
+        .filter((c) => c.type === "argument")
+        .map((c) => c.firstNamedChild)
+        .filter((c): c is Parser.SyntaxNode => c !== null)
+    : []
+  const abilityNode = argValues[abilityIndex]
+  // Helpers like isAdmin() take no ability argument — name the check by the helper itself
+  const ability = abilityNode ? resolveStringNode(abilityNode) : (helper ?? "unknown")
 
-  // Extract the model variable from the second arg (e.g. "$task" from authorize('update', $task))
-  let modelVar: string | undefined
-  if (argValues[1]?.type === "variable_name") {
-    const varText = argValues[1].text  // e.g. "$task"
-    // Only set modelVar if we have a matching typed model param
-    if (modelParams.some((mp) => mp.paramName === varText)) {
-      modelVar = varText
+  // The model the check targets: a typed route-model param passed as any later
+  // argument ($this->authorize('update', $task)), or Model::class.
+  let modelVar:   string | undefined
+  let modelClass: string | undefined
+  for (const arg of argValues.slice(abilityIndex + 1)) {
+    if (arg.type === "variable_name") {
+      const mp = modelParams.find((p) => p.paramName === arg.text)
+      if (mp) { modelVar = mp.paramName; modelClass = mp.className; break }
+    }
+    if (arg.type === "class_constant_access_expression" && /::class$/.test(arg.text)) {
+      modelClass = arg.text.replace(/::class$/, "").split("\\").pop()
+      break
     }
   }
 
-  results.push({ ability, mechanism: node.text, modelVar })
+  results.push({
+    ability,
+    mechanism: node.text,
+    modelVar,
+    kind,
+    ...(modelClass ? { modelClass } : {}),
+    ...(helper ? { helper } : {}),
+  })
+}
+
+// ---- authorizeResource() in the constructor ----------------------------
+
+// Controller method → ability, as Laravel's AuthorizesRequests::resourceAbilityMap()
+const RESOURCE_ABILITY_MAP: Record<string, string> = {
+  index: "viewAny", show: "view", create: "create", store: "create",
+  edit: "update", update: "update", destroy: "delete",
+}
+
+/**
+ * `$this->authorizeResource(Post::class, 'post')` in __construct() authorizes
+ * every resource method through PostPolicy (unless excluded via `['except' => …]`).
+ */
+function extractAuthorizeResource(
+  root: Parser.SyntaxNode,
+  methodName: string,
+  modelParams: ModelParam[],
+): AuthorizeCall[] {
+  const ability = RESOURCE_ABILITY_MAP[methodName]
+  if (!ability) return []
+  const ctor = findMethod(root, "__construct")
+  const body = ctor?.childForFieldName("body")
+  if (!body) return []
+
+  const found: AuthorizeCall[] = []
+  const walk = (node: Parser.SyntaxNode): void => {
+    if (node.type === "member_call_expression") {
+      const obj  = node.childForFieldName("object")
+      const name = node.childForFieldName("name")
+      if (obj?.text === "$this" && name?.text === "authorizeResource") {
+        const text = node.text
+        const except = text.match(/['"]except['"]\s*=>\s*\[([^\]]*)\]/)
+        const only   = text.match(/['"]only['"]\s*=>\s*\[([^\]]*)\]/)
+        const listed = (m: RegExpMatchArray | null) => (m?.[1] ?? "").includes(`'${methodName}'`) || (m?.[1] ?? "").includes(`"${methodName}"`)
+        if (except && listed(except)) return
+        if (only && !listed(only)) return
+        const classArg = text.match(/authorizeResource\(\s*([\w\\]+)::class/)
+        const modelClass = classArg?.[1]?.split("\\").pop()
+        const mp = modelParams.find((p) => p.className === modelClass)
+        found.push({
+          ability,
+          mechanism: text,
+          kind: "policy",
+          ...(modelClass ? { modelClass } : {}),
+          ...(mp ? { modelVar: mp.paramName } : {}),
+        })
+        return
+      }
+    }
+    for (const child of node.children as Parser.SyntaxNode[]) walk(child)
+  }
+  walk(body)
+  return found
 }
 
 // ---- Private method call extraction ----------------------------------
@@ -553,7 +744,32 @@ function collectMiddlewareCalls(node: Parser.SyntaxNode, results: ConstructorMid
                 }
               }
 
-              results.push({ raw, except, only })
+              // $this->middleware('auth')->only(['edit']) / ->except('index')
+              const parent = node.parent
+              if (parent?.type === "member_call_expression") {
+                const chained = parent.childForFieldName("name")?.text
+                const chainArgs = parent.childForFieldName("arguments")
+                if ((chained === "only" || chained === "except") && chainArgs) {
+                  const vals = [...chainArgs.text.matchAll(/['"]([\w-]+)['"]/g)].map((m) => m[1]!)
+                  if (chained === "only") only = vals
+                  else except = vals
+                }
+              }
+
+              // An array of middleware: one entry each. Non-literal entries such as
+              // BookStack's `Permission::SettingsManage->middleware()` (an enum that
+              // returns 'can:settings-manage') are kept as a `can:` check rather than
+              // dropped — they are authorization middleware by construction.
+              const raws = firstVal.type === "array_creation_expression"
+                ? (firstVal.namedChildren as Parser.SyntaxNode[])
+                    .filter((e) => e.type === "array_element_initializer")
+                    .map((e) => e.firstNamedChild)
+                    .filter((v): v is Parser.SyntaxNode => v !== null)
+                    .map((v) => (v.type === "string" || v.type === "encapsed_string")
+                      ? resolveStringNode(v)
+                      : /->middleware\(\)|Permission|Role|Ability/.test(v.text) ? `can:${v.text}` : v.text)
+                : [raw]
+              for (const r of raws) if (r) results.push({ raw: r, except, only })
             }
           }
         }
@@ -775,7 +991,7 @@ function extractServiceCalls(
   const results: ServiceCall[] = []
   const body = methodNode.childForFieldName("body")
   if (!body) return results
-  gatherServiceCalls(body, injections, results, requestParamVars)
+  gatherServiceCalls(body, injections, results, requestParamVars, _useMap)
   return results
 }
 
@@ -811,7 +1027,8 @@ function findRequestParamArg(
 function tryExtractBaseServiceCall(
   callNode: Parser.SyntaxNode,
   injections: Map<string, string>,
-  requestParamVars: Map<string, string> = new Map()
+  requestParamVars: Map<string, string> = new Map(),
+  useMap: Map<string, string> = new Map()
 ): ServiceCall | null {
   const objNode  = callNode.childForFieldName("object")
   const nameNode = callNode.childForFieldName("name")
@@ -866,6 +1083,31 @@ function tryExtractBaseServiceCall(
     }
   }
 
+  // Pattern 3: (new UpdateVault)->execute($data) — a service built inline
+  // (monica's action/service classes). Only project classes imported via `use`
+  // count, so (new Carbon)->… and the like stay out.
+  const created = objNode?.type === "parenthesized_expression" ? objNode.firstNamedChild : objNode
+  if (created?.type === "object_creation_expression") {
+    const clsNode = (created.namedChildren as Parser.SyntaxNode[]).find(
+      (c) => c.type === "name" || c.type === "qualified_name"
+    )
+    const short = clsNode?.text.replace(/^\\/, "").split("\\").pop()
+    const fqcn  = short ? useMap.get(short) : undefined
+    if (short && fqcn && !/^(Illuminate|Carbon|Symfony|GuzzleHttp)\\/.test(fqcn)) {
+      const argsNode   = callNode.childForFieldName("arguments")
+      const stringArgs = argsNode ? extractStringCallArgs(argsNode) : []
+      const requestParamArg = findRequestParamArg(argsNode, requestParamVars)
+      return {
+        propertyName: `new ${short}`,
+        serviceClass: short,
+        serviceFqcn:  fqcn,
+        method:       nameNode.text,
+        args:         stringArgs,
+        ...(requestParamArg ? { requestParamArg } : {}),
+      }
+    }
+  }
+
   return null
 }
 
@@ -878,7 +1120,8 @@ function gatherServiceCalls(
   node: Parser.SyntaxNode,
   injections: Map<string, string>,
   results: ServiceCall[],
-  requestParamVars: Map<string, string> = new Map()
+  requestParamVars: Map<string, string> = new Map(),
+  useMap: Map<string, string> = new Map()
 ): void {
   if (node.type === "member_call_expression") {
     const objNode  = node.childForFieldName("object")
@@ -889,7 +1132,7 @@ function gatherServiceCalls(
       // $user->apiTokens()->delete() — fold into one node instead of dropping
       // the mutation or double-emitting the base accessor separately.
       if (objNode?.type === "member_call_expression" && MUTATING_METHODS.has(nameNode.text)) {
-        const base = tryExtractBaseServiceCall(objNode, injections, requestParamVars)
+        const base = tryExtractBaseServiceCall(objNode, injections, requestParamVars, useMap)
         if (base) {
           results.push({
             ...base,
@@ -902,19 +1145,19 @@ function gatherServiceCalls(
           // one JS object per node (it depends on its node cache and on GC),
           // so identity made the base accessor show up again in some runs.
           for (const child of node.children as Parser.SyntaxNode[]) {
-            if (!sameNode(child, objNode)) gatherServiceCalls(child, injections, results, requestParamVars)
+            if (!sameNode(child, objNode)) gatherServiceCalls(child, injections, results, requestParamVars, useMap)
           }
           return
         }
       }
 
-      const base = tryExtractBaseServiceCall(node, injections, requestParamVars)
+      const base = tryExtractBaseServiceCall(node, injections, requestParamVars, useMap)
       if (base) results.push(base)
     }
   }
 
   for (const child of node.children as Parser.SyntaxNode[]) {
-    gatherServiceCalls(child, injections, results, requestParamVars)
+    gatherServiceCalls(child, injections, results, requestParamVars, useMap)
   }
 }
 

@@ -31,12 +31,15 @@ describe("parseKernel", () => {
 describe("parseRouteFile — alias resolution", () => {
   const KERNEL = join(FIXTURES, "app/Http/Kernel.php")
 
-  test("without aliasMap: role:admin emits honest unknown_middleware node", () => {
+  test("without aliasMap: role:admin is still an authorization check (like permission:)", () => {
+    // Laravel 11+ apps have no Kernel.php to resolve aliases; `role:` (spatie's
+    // conventional alias) is classified by its shape, the same way `permission:`
+    // always was — reading it as unknown made role-gated routes look unauthorized.
     const graphs = parseRouteFile(join(FIXTURES, "routes-alias.php"))
     const g = graphs.find((g) => g.path === "/reports")!
     const roleNode = g.nodes.find((n) => n.symbol === "role:admin")
     expect(roleNode).toBeDefined()
-    expect(roleNode!.type).toBe("ir:unknown_middleware")
+    expect(roleNode!.type).toBe("ir:authz_check")
   })
 
   test("with aliasMap: role:admin resolves to authorization_check", () => {

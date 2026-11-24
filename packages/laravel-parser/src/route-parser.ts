@@ -211,7 +211,12 @@ function handleRouteExpression(
       .flatMap((m) => resolveMiddlewareArgs(m.args, opts.constants))
     const allMiddleware = [...ctx.middleware, ...inlineMiddleware]
 
-    const rawPath  = resolveString(resourceVerb.args[0], opts.constants) ?? "/"
+    const rawName  = resolveString(resourceVerb.args[0], opts.constants) ?? "/"
+    // Nested resource: 'artists.songs' → artists/{artist}/songs (Laravel names the
+    // parent parameter after the singular segment).
+    const rawPath  = rawName.includes(".")
+      ? rawName.split(".").map((seg, i, all) => (i < all.length - 1 ? `${seg}/{${singularize(seg)}}` : seg)).join("/")
+      : rawName
     const fullPath = joinPath(ctx.prefix, rawPath)
     // Controller arg: [VaultController::class] or ['App\...\VaultController']
     const ctrlArg  = resourceVerb.args[1]
@@ -325,7 +330,16 @@ function buildGraph(
   // backslash as "already complete" silently dropped the group namespace for this pattern
   // (found via real-repo blind test on Akaunting's classic RouteServiceProvider-namespaced
   // routes).
+  // A qualified name whose first segment is a `use … as Alias` import resolves
+  // through that import (PHP name resolution): with
+  // `use BookStack\Entities\Controllers as EntityControllers;`,
+  // `EntityControllers\PageApiController` is BookStack\Entities\Controllers\PageApiController.
+  // Missing this left every BookStack API controller unresolved — no file, so
+  // none of its authorization checks were read.
+  const firstSegment = !controller.startsWith("\\") && controller.includes("\\") ? controller.split("\\")[0]! : ""
+  const aliasedNamespace = firstSegment ? useMap.get(firstSegment) : undefined
   const fqcnFromMap = useMap.get(controller)
+    ?? (aliasedNamespace ? `${aliasedNamespace}\\${controller.slice(firstSegment.length + 1)}` : undefined)
   const fqcn = fqcnFromMap
     ?? (controller.startsWith("\\")
       ? controller.slice(1)
@@ -608,6 +622,15 @@ function unquote(s: string): string {
     return s.slice(1, -1)
   }
   return s
+}
+
+/** English singular of a resource segment, the way Laravel names nested params (artists → artist, categories → category). */
+function singularize(word: string): string {
+  if (/ies$/i.test(word)) return word.slice(0, -3) + "y"
+  if (/(ss|us)$/i.test(word)) return word
+  if (/(xes|ches|shes|sses)$/i.test(word)) return word.slice(0, -2)
+  if (/s$/i.test(word)) return word.slice(0, -1)
+  return word
 }
 
 function joinPath(base: string, segment: string): string {

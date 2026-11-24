@@ -6,6 +6,9 @@ import type { Finding, Evidence } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
 
+const SELF_SERVICE_PATH =
+  /(^|\/)(me|my|my-account|myaccount|profile|preferences|logout|sign-?out|\w*two[-_]?factor\w*|2fa|mfa|password_timeout|broadcasting\/auth|user\/(profile|password|preferences|settings)|settings\/(profile|account|personal|password|security|appearance|language|preferences|cancel))(\/|$)/i
+
 /**
  * Detects mutation routes (POST/PUT/PATCH/DELETE) that have an authentication
  * gate but no authorization layer (policy or authorization_check node).
@@ -37,6 +40,11 @@ export function detectMissingAuthorization(
 
   // Guard: authz node directly on graph (covers cases fact-layer misses)
   if (q.security().hasAuthorization()) return []
+
+  // Self-service routes (/me, /profile, /preferences, /my-account, logout…) act
+  // on the caller's own record: being logged in IS the authorization. Only when
+  // the route doesn't load some other record by ID (no route-bound resource).
+  if (SELF_SERVICE_PATH.test(graph.path ?? "") && !q.data().resources().exists()) return []
 
   const gateFact = authFacts.find((f) => f.layer === "middleware")!
   const evidence: Evidence[] = [

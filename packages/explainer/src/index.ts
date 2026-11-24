@@ -14,6 +14,8 @@ export interface ExplainOptions {
 }
 
 export function explain(graph: IntermediateExecutionGraph, query?: string, options: ExplainOptions = {}): Finding[] {
+  // A route whose handler method doesn't exist can't be reached — nothing to report.
+  if (graph.annotations?.some((a) => a.type === "handler_not_found")) return []
   const facts = extractFacts(graph)
   const ignored = new Set(options.ignore ?? [])
   const ranked = rankFindings(detect(facts, graph).filter((f) => !ignored.has(f.type)))

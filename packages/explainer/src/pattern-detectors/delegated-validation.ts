@@ -5,6 +5,7 @@ import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
 import { checkMissingNodes } from "../findings/uncertainty.js"
 import { validationCanAuthorize } from "./framework.js"
+import { isPublicByDesign } from "./public-paths.js"
 
 function edgesAmong(graph: IntermediateExecutionGraph, nodeIds: string[]): string[] {
   const idSet = new Set(nodeIds)
@@ -82,7 +83,10 @@ export function detectDelegatedValidation(
       })
     }
 
-    const severity = authNodeIds.length > 0 ? "INFO" as const : "MEDIUM" as const
+    // Login, signup, password reset, webhooks… are public by design: a FormRequest
+    // that returns true there is expected, not a gap.
+    const publicByDesign = isPublicByDesign(graph.path)
+    const severity = authNodeIds.length > 0 || publicByDesign ? "INFO" as const : "MEDIUM" as const
     const confidence = gate.confidence
 
     findings.push({

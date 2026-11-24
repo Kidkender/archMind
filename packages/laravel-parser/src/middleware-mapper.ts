@@ -19,10 +19,24 @@ interface MiddlewareMapping {
  */
 function classifyFqcn(fqcn: string): MiddlewareMapping {
   const short = fqcn.split("\\").pop() ?? fqcn
-  if (/Authenticate|Guard/.test(short)) {
+  // Guest-only middleware (RedirectIfAuthenticated, the `guest` alias) is the
+  // opposite of authentication — the route is for logged-OUT users (login,
+  // register, password reset). It must never read as an auth gate.
+  if (/RedirectIfAuthenticated|Guest/.test(short)) {
+    return { type: IR_NODE_TYPES.UNKNOWN_MIDDLEWARE, role: "guest" }
+  }
+  // Signed-URL validation (Illuminate ValidateSignature, app subclasses)
+  if (/ValidateSignature|SignedUrl|ValidateSigned/.test(short)) {
+    return { type: "signature_check", role: "authentication" }
+  }
+  // "Authorize…" contains "Auth" — check it before the authentication patterns
+  if (/Authoriz/.test(short)) {
+    return { type: IR_NODE_TYPES.AUTHZ_CHECK, role: "authorization" }
+  }
+  if (/Authenticat|Guard|^Auth|Auth(Middleware)?$|Jwt|JWT|TokenAuth|CheckLogin|RequireLogin|LoggedIn/.test(short)) {
     return { type: IR_NODE_TYPES.AUTH_GATE, role: "authentication" }
   }
-  if (/Permission|Role|Authorize|CheckAccess|HasRole|EnsureRole|EnsureUser/.test(short)) {
+  if (/Permission|Role|CheckAccess|HasRole|EnsureRole|EnsureUser|Admin|Owner/.test(short)) {
     return { type: IR_NODE_TYPES.AUTHZ_CHECK, role: "authorization" }
   }
   if (/Throttle|RateLimit/.test(short)) {
@@ -77,13 +91,30 @@ function mapMiddleware(raw: string): MiddlewareMapping {
     }
   }
 
+  // Laravel's built-in aliases, recognised even without a Kernel.php to resolve
+  // them (Laravel 11+ registers them in the framework, not in the app):
+  //   auth / auth.basic        → Authenticate
+  //   can:update,post          → Authorize (policy / Gate ability)
+  //   role:, ability:, abilities: (spatie, sanctum token abilities)
+  //   guest                    → RedirectIfAuthenticated (logged-out only)
+  if (raw === "auth" || raw === "auth.basic") {
+    return { type: IR_NODE_TYPES.AUTH_GATE, role: "authentication" }
+  }
+  const abilityMatch = raw.match(/^(can|role|roles|ability|abilities|role_or_permission):(.+)$/)
+  if (abilityMatch) {
+    return { type: IR_NODE_TYPES.AUTHZ_CHECK, role: "authorization", args: abilityMatch[2]!.split(/[|,]/) }
+  }
+  if (raw === "guest") {
+    return { type: IR_NODE_TYPES.UNKNOWN_MIDDLEWARE, role: "guest" }
+  }
+
   // throttle:60,1
   if (/^throttle:/.test(raw)) {
     return { type: "rate_limiter", role: "rate_limiting" }
   }
 
-  // signed
-  if (raw === "signed") {
+  // signed, signed:relative — a signed URL: only holders of the link get in
+  if (raw === "signed" || /^signed:/.test(raw)) {
     return { type: "signature_check", role: "authentication" }
   }
 
@@ -92,9 +123,13 @@ function mapMiddleware(raw: string): MiddlewareMapping {
     return { type: "email_verification", role: "authentication" }
   }
 
-  // Class-based middleware — use short class name as symbol
+  // Class-based middleware — classify by class name, the same heuristics as an
+  // alias resolved to its FQCN. Defaulting every class to auth_gate made
+  // session/locale/domain middleware (invoiceninja's SessionDomains) read as
+  // "authenticated" on public routes such as password reset.
   if (raw.includes("\\") || /^[A-Z]/.test(raw)) {
-    return { type: IR_NODE_TYPES.AUTH_GATE, role: "middleware", args: [raw] }
+    const fqcn = raw.replace(/::class$/, "")
+    return { ...classifyFqcn(fqcn), args: [raw] }
   }
 
   // Bare, unresolved string with no class/keyword signal (e.g. a group name like

@@ -1,7 +1,7 @@
 {
   "name": "@kidkender/archmind-mcp",
   "version": "0.8.0",
-  "description": "ArchMind MCP server — semantic execution graph intelligence for Laravel, NestJS, and Go/Gin projects, wired into Claude Code and any MCP-compatible AI client.",
+  "description": "MCP server that tells Claude Code, Cursor and other AI assistants what each route of your Laravel, NestJS, Express or Go/Gin app checks — and what it is missing (auth, policy, transaction, tenant scope).",
   "type": "module",
   "bin": {
     "archmind-mcp": "dist/index.cjs"
@@ -36,16 +36,25 @@
   "keywords": [
     "laravel",
     "nestjs",
-    "mcp",
-    "static-analysis",
+    "express",
+    "gin",
     "security",
-    "execution-graph",
-    "claude-code"
+    "authorization",
+    "multi-tenant",
+    "static-analysis",
+    "sast",
+    "ci",
+    "mcp",
+    "mcp-server",
+    "claude-code",
+    "cursor",
+    "ai",
+    "execution-graph"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Architecture-Mind/archMind.git"
+    "url": "git+https://github.com/Kidkender/archMind.git"
   },
   "engines": {
     "node": ">=18"
@@ -55,5 +64,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "homepage": "https://github.com/Kidkender/archMind#readme",
+  "bugs": {
+    "url": "https://github.com/Kidkender/archMind/issues"
   }
 }

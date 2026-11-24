@@ -145,8 +145,15 @@ function extractArrayFields(arrayNode: Parser.SyntaxNode, fields: ResourceField[
       if (keyNode.type === "string") {
         const key = resolveString(keyNode)
         const valueExpr = valNode.text.trim()
-        // Skip $this->when(...) — captured separately as conditional
-        const isSensitive = SENSITIVE_PATTERNS.test(key)
+        // A field returned through $this->when(<condition on the CALLER>, …) is only
+        // sent to that caller (koel: subsonic_api_key `when($isCurrentUser)`), and
+        // is_/has_/can_ keys are boolean flags (has_password says a password exists,
+        // not what it is) — neither leaks the secret. A condition on the serialized
+        // record itself (`when($this->isAdmin(), $this->api_token)`) still does.
+        const cond = valueExpr.match(/^\$this->(?:when|mergeWhen)\s*\(([^,]*),/)?.[1] ?? ""
+        const conditional = /isCurrentUser|currentUser|\bauth\(\)|Auth::|\$request->user\(\)|->can\(|->is\(|isOwner|isSelf/i.test(cond)
+        const booleanFlag = /^(is|has|can)_/i.test(key)
+        const isSensitive = SENSITIVE_PATTERNS.test(key) && !conditional && !booleanFlag
         fields.push({ key, valueExpr, isSensitive })
       }
     }
