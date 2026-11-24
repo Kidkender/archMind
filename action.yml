@@ -1,0 +1,75 @@
+name: ArchMind Route Guard
+description: Fail the PR when a route loses its auth, authorization, transaction or tenant scope; report routes missing authorization.
+author: kidkender
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  command:
+    description: >
+      What to run. "verify" fails when a route loses a check compared to the committed baseline
+      (.archmind/baselines/). "findings" fails when any finding is reported. "diff" prints a
+      Markdown topology diff (exit 1 on regression).
+    required: false
+    default: verify
+  project:
+    description: Path to the app (Laravel, NestJS, Express, Spring Boot, Go/Gin).
+    required: false
+    default: .
+  version:
+    description: "@kidkender/archmind version to run (npm version or tag)."
+    required: false
+    default: latest
+  node-version:
+    description: Node.js version used to run ArchMind.
+    required: false
+    default: "20"
+  fail:
+    description: Set to "false" to report without failing the job.
+    required: false
+    default: "true"
+
+outputs:
+  exit-code:
+    description: Exit code of the ArchMind command (0 clean, 1 regression/findings, 2 nothing analyzed).
+    value: ${{ steps.run.outputs.exit_code }}
+  report:
+    description: Command output (Markdown for "diff").
+    value: ${{ steps.run.outputs.report }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - id: run
+      shell: bash
+      env:
+        AM_COMMAND: ${{ inputs.command }}
+        AM_PROJECT: ${{ inputs.project }}
+        AM_VERSION: ${{ inputs.version }}
+      run: |
+        set +e
+        case "$AM_COMMAND" in
+          verify)   ARGS=(verify --project "$AM_PROJECT") ;;
+          findings) ARGS=(findings --project "$AM_PROJECT") ;;
+          diff)     ARGS=(diff --project "$AM_PROJECT" --format markdown) ;;
+          *) echo "::error::Unknown command '$AM_COMMAND' (use verify, findings or diff)"; exit 2 ;;
+        esac
+        OUTPUT=$(npx --yes "@kidkender/archmind@${AM_VERSION}" "${ARGS[@]}" 2>&1)
+        CODE=$?
+        echo "$OUTPUT"
+        echo "exit_code=$CODE" >> "$GITHUB_OUTPUT"
+        DELIM="ARCHMIND_$(date +%s%N)"
+        { echo "report<<$DELIM"; echo "$OUTPUT"; echo "$DELIM"; } >> "$GITHUB_OUTPUT"
+        if [ "$AM_COMMAND" = "diff" ]; then echo "$OUTPUT" >> "$GITHUB_STEP_SUMMARY"; fi
+        exit 0
+
+    - if: ${{ inputs.fail == 'true' && steps.run.outputs.exit_code != '0' }}
+      shell: bash
+      run: |
+        echo "::error::ArchMind ${{ inputs.command }} exited with ${{ steps.run.outputs.exit_code }} — see the log above."
+        exit 1

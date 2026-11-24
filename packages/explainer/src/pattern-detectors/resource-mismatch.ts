@@ -51,8 +51,24 @@ export function detectResourceMismatch(
 
   const ctrlNode = query(graph).nodes().ofType(IR_NODE_TYPES.BUSINESS_HANDLER).first()
 
-  // RESOURCE_UNPROTECTED: accessed resource has no matching authorizes edge
-  for (const acc of accessed) {
+  // RESOURCE_UNPROTECTED: accessed resource has no matching authorizes edge.
+  //
+  // Only claimed when the route has no authorization of any kind. An authz
+  // check that isn't wired to this resource (a permission helper, a service
+  // rule, FormRequest::authorize(), a role middleware) may well cover it — we
+  // can't prove it doesn't, and RESOURCE_MISMATCH below handles the provable case.
+  const q = query(graph)
+  const anyAuthorization = q.security().hasAuthorization()
+  const authenticated = q.security().authenticationGates().exists()
+  // An authenticated mutation with no authorization is already reported, with
+  // the same evidence, by missing_authorization — don't report it twice.
+  const coveredByMissingAuthorization = authenticated && q.isMutation()
+  // A signed URL (Laravel `signed` middleware) is a capability: only someone
+  // holding the link the app generated can load the record.
+  const signedUrl = graph.nodes.some((n) => n.type === "signature_check")
+  const unprotectedCandidates = anyAuthorization || coveredByMissingAuthorization || signedUrl ? [] : accessed
+
+  for (const acc of unprotectedCandidates) {
     if (authorizedClasses.has(acc.className)) continue
 
     const evidence = [
@@ -71,7 +87,9 @@ export function detectResourceMismatch(
     findings.push({
       id: `${FINDING_TYPES.RESOURCE_UNPROTECTED}-${stableHash([acc.nodeId, graph.entrypoint ?? ""])}`,
       type: FINDING_TYPES.RESOURCE_UNPROTECTED,
-      severity: "CRITICAL",
+      // CRITICAL only when anyone, not logged in, can reach the record by ID;
+      // behind a login it is an IDOR risk among authenticated users.
+      severity: authenticated ? "HIGH" : "CRITICAL",
       confidence: "HIGH",
       provenance: {
         detector: FINDING_TYPES.RESOURCE_UNPROTECTED,
@@ -81,7 +99,9 @@ export function detectResourceMismatch(
           .filter((e) => e.to === acc.nodeId || e.from === acc.nodeId)
           .map((e) => `${e.from}:${e.relation}:${e.to}`),
       },
-      summary: `${acc.className} is accessed without authorization — no policy or Gate check covers this resource`,
+      summary: authenticated
+        ? `${acc.className} is loaded by ID with no authorization check — any logged-in user can reach any ${acc.className}`
+        : `${acc.className} is loaded by ID on a public route with no authentication or authorization`,
       reasoning: [
         {
           type: "resource_accessed",

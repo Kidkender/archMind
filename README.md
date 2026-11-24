@@ -1,67 +1,56 @@
 # ArchMind
 
-**Semantic execution graph engine for Laravel, NestJS, Spring Boot, Go/Gin and Express — built for AI assistants and CI.**
+**Find the routes that forgot to check something — and stop the next refactor from forgetting it again.**
 
-ArchMind parses your app into a structured execution graph and gives AI assistants (Claude, Cursor, Copilot) the minimal relevant subgraph for a query — achieving comparable or better answer quality at a fraction of the tokens that naive file-dump RAG uses.
+ArchMind reads your Laravel, NestJS, Express, Spring Boot or Go/Gin app and builds, for every route, a graph of what it actually checks: authentication, authorization (policy / role / gate), validation, transaction boundaries, tenant scoping. It reports what is **missing**, fails CI when a check **disappears**, and gives AI assistants the same evidence over MCP.
 
----
-
-## Why execution graphs beat naive RAG
-
-Naive RAG dumps raw source files into the LLM context. ArchMind retrieves only the nodes relevant to the question — authentication gates, policy checks, transaction boundaries, tenant isolation — and nothing else.
-
-### Benchmark results (real repos, hand-verified ground truth, real GPT-4o calls — not simulated)
-
-| Benchmark | Sample | archMind | Baseline (raw file dump) |
-|---|---|---|---|
-| Guest-access / authorization accuracy — 5 real Laravel apps (invoiceninja, monica, akaunting, koel, BookStack) | 50 hand-verified entrypoints | 66% correct, 98% correct+partial | 68% correct, 100% correct+partial |
-| Token cost, same benchmark | 50 entrypoints | **5.08× fewer prompt tokens** (14,517 vs 73,712) | baseline |
-| Guest-access / authorization accuracy — 5 fresh, previously-unseen repos across Laravel/Spring Boot/NestJS (panel, attendize, spring-petclinic, SpringBlade, nestjs-boilerplate) | 20 entrypoints | **90% correct** (18/20), 0 incorrect | 65% correct (13/20), 5 confidently incorrect |
-| Token cost, same cross-framework set | 24 calls | **73.4% fewer prompt tokens** (7,116 vs 26,764) | baseline |
-
-**Read the accuracy numbers honestly:** on Laravel alone, raw accuracy is statistically tied with a naive file dump — the win there is almost entirely token efficiency (same answer quality, 1/5th the context). The larger accuracy edge shows up on the cross-framework sample, and traces to a specific mechanism, not "the LLM likes archMind more": ArchMind's evidence package marks facts as explicitly **present or ABSENT** (e.g. `✗ auth_middleware`), which lets the model correctly infer "no auth required" instead of reading silence as ambiguity — a raw file dump gives the model no equivalent signal to reason from, so it hedges to `UNCLEAR` far more often (5 of the baseline's misses were exactly this).
-
-ArchMind's accuracy pass has also surfaced real, previously undocumented security issues in the repos it was tested against — including an unauthenticated multi-tenant data exposure and a path-traversal-adjacent unguarded file endpoint — precisely because the graph's explicit absence-marking caught missing auth that a raw-file read past over.
-
-**Where it doesn't win:** deeper reasoning benchmarks (cross-file causality, multi-turn sessions) show archMind edging ahead but with concrete, documented gaps — transaction-scope flattening (the graph knows *a* transaction exists but not precisely which downstream calls are inside it) and an accessor-vs-terminal-mutation gap (a relationship accessor is captured as touched, without confirming the chained `.delete()` on it actually ran). These are IR-granularity ceilings, not retrieval-reach problems, and are being worked on incrementally rather than glossed over.
-
-The difference compounds on large codebases where a single route touches dozens of files.
-
-**Go/Gin support is newer and not yet held to the same bar.** The numbers above are Laravel/NestJS/Spring Boot only, from hand-verified ground truth compared against real LLM calls. Go/Gin has been validated structurally — full-project parsing against 3 real Gin+GORM codebases with zero crashes and spot-checked node accuracy — but not yet run through the same hand-verified accuracy benchmark. Treat it as functional but less battle-tested until that benchmark exists.
-
-**Express support is the newest, measured structurally only.** On six projects it had not seen it found every real route (101 of 101) and every transaction-opening route of a production app, and classified 9 of 15 security middleware correctly before fixes made on that same set (15 of 15 after) — see [`research/express-corpus`](research/express-corpus/README.md). It has not been through the LLM accuracy benchmark either.
-
----
-
-## MCP Server (Claude Code / AI assistants)
-
-ArchMind ships an MCP server that gives AI assistants structured execution graph access.
+Offline. No LLM, no API key, no account.
 
 ```bash
-npm install -g @kidkender/archmind-mcp
+npx @kidkender/archmind findings --project .
 ```
 
-Add to your MCP settings:
+```
+DELETE /api/vaults/{id}
+  ! HIGH    missing_authorization
+            DELETE /api/vaults/{id} is authenticated but not authorized — any logged-in user can perform this mutation
 
-```json
-{
-  "archmind": {
-    "command": "archmind-mcp"
-  }
-}
+GET /api/invoices/{id}
+  ! HIGH    missing_tenant_scope
+            Invoice::find fetches by raw ID with no tenant constraint — any authenticated user can access another tenant's Invoice by guessing the ID
 ```
 
-Ask Claude: *"Why is authorization checked twice on POST /orders?"* — it calls `archmind_get_execution_graph` and reasons over the actual execution path, not a raw file dump.
+On real open-source apps it has surfaced previously undocumented issues, including an **unauthenticated multi-tenant data exposure** and an **unguarded file endpoint** — found because ArchMind records a missing check as an explicit fact (`✗ auth_middleware`), not as silence.
 
-### MCP tools
+### What it checks
 
-| Tool | What it does |
-|------|-------------|
-| `archmind_list_entrypoints` | All routes in the project |
-| `archmind_get_execution_graph` | Execution graph for a specific route (with optional focus pruning) |
-| `archmind_get_findings` | Static detectors — auth gaps, transaction anomalies, isolation issues |
-| `archmind_get_dependents` | Cross-route impact: what breaks if I change `OrderService`? |
-| `archmind_invalidate_cache` | Force re-parse after source changes |
+| Problem | Finding / guard |
+|---|---|
+| Logged-in user can change data they shouldn't (no policy, gate or role check) | `missing_authorization` |
+| Policy referenced but the class doesn't exist | `missing_policy` |
+| Record fetched by ID in a multi-tenant route without the tenant filter | `missing_tenant_scope` |
+| Public route that returns business data or sensitive fields | `exposed_read_endpoint`, `api_resource_unprotected`, `sensitive_field_exposed` |
+| Event or job dispatched inside a transaction that may roll back | `event_before_commit` |
+| A refactor drops auth middleware, a `DB::transaction()` or a tenant scope | `archmind verify` fails the build |
+
+Detector coverage differs per framework — see [Supported frameworks](#supported-frameworks).
+
+### Who it's for
+
+- **Teams running multi-tenant SaaS** who need every route tenant-scoped and authorized.
+- **Reviewers** who want a PR comment saying "this PR removed the transaction from `POST /orders`" instead of reading the diff.
+- **AI-assisted development** (Claude Code, Cursor, Copilot): the assistant asks ArchMind what a route checks instead of guessing from raw files.
+
+### How noisy is it?
+
+Measured on five real Laravel apps (invoiceninja, monica, akaunting, koel, BookStack), no config:
+**92 findings shown** by default across all five, **63 HIGH/CRITICAL** (down from 951 in 0.10.0).
+Of the HIGH/CRITICAL ones we checked by reading the code, 71% were worth a reviewer's attention and
+29% were false positives; none was a confirmed vulnerability. Every number, and each false positive,
+is in [`research/laravel-scan`](research/laravel-scan/README.md).
+
+> Coming from **Enlightn** (archived in January 2026)? ArchMind covers a different, complementary area — route-level authorization, tenant isolation and transactions, with a CI regression guard — and runs on Windows, macOS and Linux.
+
 
 ---
 
@@ -105,6 +94,21 @@ If this is intentional, run: archmind verify --project . --update
 
 ### CI Integration
 
+With the GitHub Action:
+
+```yaml
+# .github/workflows/archmind.yml
+on: pull_request
+jobs:
+  archmind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Kidkender/archMind@main   # command: verify (default) | findings | diff
+```
+
+Or with plain npm:
+
 ```yaml
 # .github/workflows/topology-guard.yml
 - uses: actions/setup-node@v4
@@ -129,14 +133,48 @@ git commit -m "chore: add topology baseline"
 
 ---
 
+## MCP Server (Claude Code / AI assistants)
+
+ArchMind ships an MCP server that gives AI assistants structured execution graph access. It supports Laravel, NestJS, Express and Go/Gin; Spring Boot is available in the CLI only for now.
+
+```bash
+npm install -g @kidkender/archmind-mcp
+```
+
+Add to your MCP settings:
+
+```json
+{
+  "archmind": {
+    "command": "archmind-mcp"
+  }
+}
+```
+
+Ask Claude: *"Why is authorization checked twice on POST /orders?"* — it calls `archmind_get_execution_graph` and reasons over the actual execution path, not a raw file dump.
+
+### MCP tools
+
+| Tool | What it does |
+|------|-------------|
+| `archmind_list_entrypoints` | All routes in the project |
+| `archmind_get_execution_graph` | Execution graph for a specific route (with optional focus pruning) |
+| `archmind_get_findings` | Static detectors — auth gaps, transaction anomalies, isolation issues |
+| `archmind_get_dependents` | Cross-route impact: what breaks if I change `OrderService`? |
+| `archmind_invalidate_cache` | Force re-parse after source changes |
+
+---
+
 ## CLI commands
 
 ```bash
 # Trace the execution graph of any route
 archmind trace --project . "POST /orders"
 
-# Find security gaps across all routes
+# Find security gaps across all routes (CRITICAL / HIGH / MEDIUM; exit 1 on CRITICAL or HIGH)
 archmind findings --project .
+archmind findings --project . --all    # also LOW (code quality) and INFO notes
+archmind findings --project . --json   # machine-readable, all severities
 
 # Save baseline, then verify on every PR
 archmind verify --project . --update   # save
@@ -173,6 +211,34 @@ DELETE /api/vaults/{id}
 
 4 finding(s) across 4 route(s)
 ```
+
+---
+
+## Benchmarks: does it help AI assistants?
+
+Naive RAG dumps raw source files into the LLM context. ArchMind retrieves only the nodes relevant to the question — authentication gates, policy checks, transaction boundaries, tenant isolation — and nothing else.
+
+### Benchmark results (real repos, hand-verified ground truth, real GPT-4o calls — not simulated)
+
+| Benchmark | Sample | archMind | Baseline (raw file dump) |
+|---|---|---|---|
+| Guest-access / authorization accuracy — 5 real Laravel apps (invoiceninja, monica, akaunting, koel, BookStack) | 50 hand-verified entrypoints | 66% correct, 98% correct+partial | 68% correct, 100% correct+partial |
+| Token cost, same benchmark | 50 entrypoints | **5.08× fewer prompt tokens** (14,517 vs 73,712) | baseline |
+| Guest-access / authorization accuracy — 5 fresh, previously-unseen repos across Laravel/Spring Boot/NestJS (panel, attendize, spring-petclinic, SpringBlade, nestjs-boilerplate) | 20 entrypoints | **90% correct** (18/20), 0 incorrect | 65% correct (13/20), 5 confidently incorrect |
+| Token cost, same cross-framework set | 24 calls | **73.4% fewer prompt tokens** (7,116 vs 26,764) | baseline |
+
+**Read the accuracy numbers honestly:** on Laravel alone, raw accuracy is statistically tied with a naive file dump — the win there is almost entirely token efficiency (same answer quality, 1/5th the context). The larger accuracy edge shows up on the cross-framework sample, and traces to a specific mechanism, not "the LLM likes archMind more": ArchMind's evidence package marks facts as explicitly **present or ABSENT** (e.g. `✗ auth_middleware`), which lets the model correctly infer "no auth required" instead of reading silence as ambiguity — a raw file dump gives the model no equivalent signal to reason from, so it hedges to `UNCLEAR` far more often (5 of the baseline's misses were exactly this).
+
+ArchMind's accuracy pass has also surfaced real, previously undocumented security issues in the repos it was tested against — including an unauthenticated multi-tenant data exposure and a path-traversal-adjacent unguarded file endpoint — precisely because the graph's explicit absence-marking caught missing auth that a raw-file read past over.
+
+**Where it doesn't win:** deeper reasoning benchmarks (cross-file causality, multi-turn sessions) show archMind edging ahead but with concrete, documented gaps — transaction-scope flattening (the graph knows *a* transaction exists but not precisely which downstream calls are inside it) and an accessor-vs-terminal-mutation gap (a relationship accessor is captured as touched, without confirming the chained `.delete()` on it actually ran). These are IR-granularity ceilings, not retrieval-reach problems, and are being worked on incrementally rather than glossed over.
+
+The difference compounds on large codebases where a single route touches dozens of files.
+
+**Go/Gin support is newer and not yet held to the same bar.** The numbers above are Laravel/NestJS/Spring Boot only, from hand-verified ground truth compared against real LLM calls. Go/Gin has been validated structurally — full-project parsing against 3 real Gin+GORM codebases with zero crashes and spot-checked node accuracy — but not yet run through the same hand-verified accuracy benchmark. Treat it as functional but less battle-tested until that benchmark exists.
+
+**Express support is the newest, measured structurally only.** On six projects it had not seen it found every real route (101 of 101) and every transaction-opening route of a production app, and classified 9 of 15 security middleware correctly before fixes made on that same set (15 of 15 after) — see [`research/express-corpus`](research/express-corpus/README.md). It has not been through the LLM accuracy benchmark either.
+
 
 ---
 

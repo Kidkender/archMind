@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed — false positives on real Laravel apps
+Measured on invoiceninja, monica, akaunting, koel and BookStack with no config: HIGH/CRITICAL findings 951 → 63, default output 92 lines across the five apps. Of the remaining HIGH/CRITICAL findings read by hand, 30 of 42 are worth a look and 12 are false positives; none is a confirmed vulnerability. Details and every remaining false positive: `research/laravel-scan/README.md`.
+- `laravel-parser`: unresolved class middleware is classified by name instead of defaulting to `ir:auth_gate` (invoiceninja `SessionDomains` made public routes read as authenticated); `RedirectIfAuthenticated` / `guest` are never auth gates; `ValidateSignature` / `signed` / `signed:relative` are signature checks.
+- `laravel-parser`: Laravel's built-in aliases are recognised without a `Kernel.php` (Laravel 11+): `auth`, `auth.basic`, `can:…`, `role:…`, `ability:…`, `abilities:…`, `guest`.
+- `laravel-parser`: authorization in the controller is read beyond `$this->authorize()` / `Gate::allows()`: permission helpers (`$this->checkPermission()`, `checkOwnablePermission()`, `ensure…`), `$user->can()` / `hasRole()` / `hasPermissionTo()`, global `userCan()`, `Gate::denies/any/none/inspect`, `authorizeForUser()`, `authorizeResource()` in the constructor (with `except`/`only`), and constructor `$this->middleware([...])` arrays, enum entries and chained `->only()` / `->except()`.
+- `laravel-parser`: authorization outside the controller: `FormRequest::authorize()` with a real check (not `true` or a login test, including per-item `return false` loops), service classes with a `permissions()` rule list or a Gate/can/403 check in the called method, inline `(new Service)->method()` calls, repository queries scoped to the caller (`accessible()`, `withUserContext()`, `whereBelongsTo(auth()…)`), controller queries filtered on the caller's key (`whereClientId(<caller>)`, `where('user_id', auth()->id())`) and writes through the caller's own relations (`$request->user()->tokens()->delete()`). Filters on shared keys (`company_id`, `account_id`, `team_id`…) do not count.
+- `laravel-parser`: `missing_policy` names the policy after the model passed to `authorize()` (Laravel's rule), not the controller; it looks in policy sub-folders and `$policies` / `Gate::policy()` / `#[UsePolicy]` registrations, and is not raised for interface-typed params or calls without a model.
+- `laravel-parser`: only Eloquent models the handler actually uses become `ir:resource` nodes (helpers like `SearchResultsFormatter` were reported as unprotected resources).
+- `laravel-parser`: route files using `use Foo\Controllers as Alias;` + `Alias\XController` resolve to the controller file (BookStack's API had no controller analysis at all); `apiResource('artists.songs')` is `/artists/{artist}/songs`; routes to methods a controller can't have get a `handler_not_found` annotation and no findings.
+- `laravel-parser`: API resource fields sent only to the caller (`$this->when($isCurrentUser, …)`) and boolean flags (`is_…`, `has_…`) are not sensitive fields.
+- `explainer`: `resource_unprotected` is only raised when the route has no authorization and no signed URL, is HIGH behind a login and CRITICAL only on public routes, and no longer duplicates `missing_authorization` on authenticated mutations.
+- `explainer`: `missing_authorization` skips self-service routes that load no other record (`/me`, `/profile`, `/preferences`, `/my-account`, logout, two-factor, `broadcasting/auth`); `exposed_read_endpoint` and `delegated_validation` are INFO on public-by-design paths (login, register, password, verify, SSO/SAML/OIDC callbacks, invitations, webhooks, health).
+- CLI: `findings` shows CRITICAL/HIGH/MEDIUM by default (`--all` for LOW and INFO) and only CRITICAL/HIGH set exit code 1, in text and `--json`. When no framework is detected or 0 entrypoints are found it says so on stderr and exits 2 instead of printing "No findings."
+- CLI: the npm package now depends on `tree-sitter-java`; without it every Spring Boot project silently produced no routes.
+
+### Added
+- `action.yml`: GitHub Action (`uses: Kidkender/archMind@<tag>`) running `verify`, `findings` or `diff`.
+- `.github/ISSUE_TEMPLATE/wrong-finding.yml` for false positives, missed problems and unparsed projects.
+
+### Changed
+- README leads with what ArchMind finds and how noisy it is; npm descriptions/keywords updated (the MCP server lists the frameworks it supports — not Spring Boot).
+
 ## [0.10.0] - 2026-11-13
 
 ### Added

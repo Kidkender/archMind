@@ -1,0 +1,442 @@
+[
+ {
+  "repo": "invoiceninja",
+  "route": "POST /client/documents/download_multiple",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /client/documents/download_multiple is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_8_auth_contact",
+   "ctrl_app_http_controllers_clientportal_documentcontroller_downloadMultiple"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "PATCH /api/v1/system_logs/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PATCH /api/v1/system_logs/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_systemlogcontroller_update"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "POST /api/v1/reports/contacts",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/v1/reports/contacts is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_clientcontactreportcontroller___invoke"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "POST /api/v1/reports/invoice_items",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/v1/reports/invoice_items is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_invoiceitemreportcontroller___invoke"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "POST /api/v1/password_timeout",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/v1/password_timeout is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_passwordtimeoutcontroller___invoke"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "GET /client/subscriptions/{subscription}/purchase/v2",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Subscription is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_subscription_ctrl_app_http_controllers_clientportal_subscriptionpurchasecontroller_upgrade",
+   "ctrl_app_http_controllers_clientportal_subscriptionpurchasecontroller_upgrade"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "POST /api/v1/emails/entityHistory",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/v1/emails/entityHistory is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_emailhistorycontroller_entityHistory"
+  ]
+ },
+ {
+  "repo": "invoiceninja",
+  "route": "POST /api/v1/one_time_token",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/v1/one_time_token is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_3_token_auth",
+   "ctrl_onetimetokencontroller_create"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "GET /vaults/{vault}/calendar/years/{year}/months/{month}/days/{day}",
+  "type": "resource_unprotected",
+  "sev": "HIGH",
+  "summary": "Vault is loaded by ID with no authorization check — any logged-in user can reach any Vault",
+  "ev": [
+   "resource_vault_ctrl_vaultcalendarcontroller_day",
+   "ctrl_vaultcalendarcontroller_day"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "POST /vaults/{vault}/contacts/{contact}/vcard",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /vaults/{vault}/contacts/{contact}/vcard is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_contactvcardcontroller_download"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "DELETE /vaults/{vault}/contacts/{contact}/",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "DELETE /vaults/{vault}/contacts/{contact}/ is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_contactcontroller_destroy"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "POST /vaults/{vault}/search",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /vaults/{vault}/search is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_vaultsearchcontroller_show"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "PUT /settings/cancel",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PUT /settings/cancel is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_cancelaccountcontroller_destroy"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "POST /settings/personalize/modules",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /settings/personalize/modules is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_personalizemodulescontroller_store"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "GET /vaults/{vault}/contacts/",
+  "type": "resource_unprotected",
+  "sev": "HIGH",
+  "summary": "Vault is loaded by ID with no authorization check — any logged-in user can reach any Vault",
+  "ev": [
+   "resource_vault_ctrl_contactcontroller_index",
+   "ctrl_contactcontroller_index"
+  ]
+ },
+ {
+  "repo": "monica",
+  "route": "DELETE /settings/personalize/modules/{module}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "DELETE /settings/personalize/modules/{module} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_0_auth_sanctum",
+   "ctrl_personalizemodulescontroller_destroy"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "GET /{company_id}/signed/invoices/{invoice}/pdf",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Document is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_document_ctrl_portal_invoices_pdfInvoice",
+   "ctrl_portal_invoices_pdfInvoice"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "POST /auth/login",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /auth/login is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth_redirect",
+   "ctrl_auth_login_store"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "GET /{company_id}/signed/invoices/{invoice}/finish",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Document is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_document_ctrl_portal_invoices_finish",
+   "ctrl_portal_invoices_finish"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "POST /auth/forgot",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /auth/forgot is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth_redirect",
+   "ctrl_auth_forgot_store"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "POST /auth/reset",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /auth/reset is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth_redirect",
+   "ctrl_auth_reset_store"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "GET /{company_id}/signed/invoices/{invoice}/print",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Document is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_document_ctrl_portal_invoices_printInvoice",
+   "ctrl_portal_invoices_printInvoice"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "GET /{company_id}/signed/payments/{payment}/print",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Transaction is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_transaction_ctrl_portal_payments_printPayment",
+   "ctrl_portal_payments_printPayment"
+  ]
+ },
+ {
+  "repo": "akaunting",
+  "route": "POST /auth/register",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /auth/register is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth_redirect",
+   "ctrl_auth_register_store"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "PUT /api/artists.songs/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PUT /api/artists.songs/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth",
+   "ctrl_artistsongcontroller_update"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "POST /api/artists.songs",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /api/artists.songs is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth",
+   "ctrl_artistsongcontroller_store"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "GET /api/youtube/search/song/{song}",
+  "type": "resource_unprotected",
+  "sev": "HIGH",
+  "summary": "Song is loaded by ID with no authorization check — any logged-in user can reach any Song",
+  "ev": [
+   "resource_song_ctrl_searchyoutubecontroller___invoke",
+   "ctrl_searchyoutubecontroller___invoke"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "POST /api/me/subsonic-api-key/regenerate",
+  "type": "sensitive_field_exposed",
+  "sev": "HIGH",
+  "summary": "UserResource::toArray serializes 3 sensitive field(s): is_admin, subsonic_api_key, has_password",
+  "ev": [
+   "api_res_userresource_ctrl_regeneratesubsonicapikeycontroller___invoke",
+   "ctrl_regeneratesubsonicapikeycontroller___invoke"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "PATCH /api/artists.songs/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PATCH /api/artists.songs/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth",
+   "ctrl_artistsongcontroller_update"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "GET /embeds/{embed}/stream/{song}/{options}",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "Song is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_song_ctrl_streamembedcontroller___invoke",
+   "ctrl_streamembedcontroller___invoke"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "GET /api/albums/{id}",
+  "type": "resource_unprotected",
+  "sev": "HIGH",
+  "summary": "Album is loaded by ID with no authorization check — any logged-in user can reach any Album",
+  "ev": [
+   "resource_album_ctrl_albumcontroller_show",
+   "ctrl_albumcontroller_show"
+  ]
+ },
+ {
+  "repo": "koel",
+  "route": "DELETE /api/artists.songs/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "DELETE /api/artists.songs/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_1_auth",
+   "ctrl_artistsongcontroller_destroy"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "GET /search",
+  "type": "resource_unprotected",
+  "sev": "HIGH",
+  "summary": "SearchResultsFormatter is loaded by ID with no authorization check — any logged-in user can reach any SearchResultsFormatter",
+  "ev": [
+   "resource_searchresultsformatter_ctrl_searchcontroller_search",
+   "ctrl_searchcontroller_search"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "PUT /settings/webhooks/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PUT /settings/webhooks/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_activitycontrollers_webhookcontroller_update"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "PUT /my-account/shortcuts",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PUT /my-account/shortcuts is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_usercontrollers_useraccountcontroller_updateShortcuts"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "DELETE /ajax/page/{id}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "DELETE /ajax/page/{id} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_entitycontrollers_pagecontroller_ajaxDestroy"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "PATCH /preferences/change-view/{type}",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PATCH /preferences/change-view/{type} is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_usercontrollers_userpreferencescontroller_changeView"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "POST /settings/webhooks/create",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "POST /settings/webhooks/create is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_activitycontrollers_webhookcontroller_store"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "PATCH /preferences/toggle-dark-mode",
+  "type": "missing_authorization",
+  "sev": "HIGH",
+  "summary": "PATCH /preferences/toggle-dark-mode is authenticated but not authorized — any logged-in user can perform this mutation",
+  "ev": [
+   "mw_10_auth",
+   "ctrl_usercontrollers_userpreferencescontroller_toggleDarkMode"
+  ]
+ },
+ {
+  "repo": "BookStack",
+  "route": "GET /manifest.json",
+  "type": "resource_unprotected",
+  "sev": "CRITICAL",
+  "summary": "PwaManifestBuilder is loaded by ID on a public route with no authentication or authorization",
+  "ev": [
+   "resource_pwamanifestbuilder_ctrl_metacontroller_pwaManifest",
+   "ctrl_metacontroller_pwaManifest"
+  ]
+ }
+]

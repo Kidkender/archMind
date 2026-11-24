@@ -1,5 +1,5 @@
 import { join } from "path"
-import { existsSync, readFileSync } from "fs"
+import { existsSync, readFileSync, readdirSync } from "fs"
 import type {
   IntermediateExecutionGraph,
   ExecutionNode,
@@ -154,6 +154,19 @@ export function augmentGraph(
     if (methodName) {
       const filePath = join(opts.projectRoot, ctrlNode.file)
       const l1 = ctrlL1(cache, filePath, methodName)
+      // Route::resource()/apiResource() registers every action, but a controller
+      // that only implements index() (koel's ArtistSongController) has no store/
+      // update/destroy — those routes fail with BadMethodCall, they can't be a
+      // security gap. Flag them so detectors skip them.
+      if (l1 && l1.methodLine === undefined && handlerCannotBeInherited(filePath)) {
+        newAnnotations.push({
+          type:        "handler_not_found",
+          nodes:       [ctrlNode.id],
+          description: `${ctrlNode.symbol} is routed but the method is not defined in ${ctrlNode.file}`,
+          severity:    "info",
+          confidence:  "HIGH",
+        })
+      }
       if (l1) {
         // Backfill line number onto the business_handler node for editor CodeLens anchoring
         if (l1.methodLine) {
@@ -181,14 +194,75 @@ export function augmentGraph(
             relation:     "form_request",
             traceability: "static",
           })
+
+          // FormRequest::authorize() that checks more than "is someone logged in"
+          // (e.g. `auth()->user()->can('edit', $this->client)`) is Laravel's
+          // standard place for authorization — record it as an authz fact.
+          if (authzBody && isRealAuthorizeBody(authzBody)) {
+            const authzId = `${id}_authz`
+            if (!newNodes.some((n) => n.id === authzId)) {
+              newNodes.push({
+                id:     authzId,
+                type:   IR_NODE_TYPES.AUTHZ_CHECK,
+                symbol: `${fr.shortName}::authorize`,
+                role:   "authorization",
+                file:   frFile,
+                detail: authzBody,
+              })
+              newEdges.push({
+                from:         id,
+                to:           authzId,
+                relation:     "policy_check",
+                traceability: "static",
+                mechanism:    authzBody,
+              })
+            }
+          }
         }
 
         // Policy nodes — include inferred file so they can be augmented below
         const addedPolicyNodes: ExecutionNode[] = []
         for (const auth of l1.authorizeCalls) {
-          const policyClass = inferPolicyClass(ctrlClass ?? "")
+          const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "_")
+
+          // Non-policy authorization ($this->checkPermission(), $user->can(), userCan()):
+          // an authorization fact, but there is no policy class to infer or to miss.
+          if (auth.kind === "helper") {
+            const helper = auth.helper ?? "check"
+            const id = `authz_${slug(ctrlNode.id)}_${slug(helper)}_${slug(auth.ability)}`
+            if (newNodes.some((n) => n.id === id)) continue
+            const helperNode: ExecutionNode = {
+              id,
+              type:   IR_NODE_TYPES.AUTHZ_CHECK,
+              symbol: auth.ability === helper ? helper : `${helper}(${auth.ability})`,
+              role:   "authorization",
+            }
+            newNodes.push(helperNode)
+            addedPolicyNodes.push(helperNode)
+            newEdges.push({
+              from:         ctrlNode.id,
+              to:           id,
+              relation:     IR_EDGE_RELATIONS.CHECKS_PERMISSION,
+              traceability: "static",
+              mechanism:    auth.mechanism,
+            })
+            continue
+          }
+
+          // Laravel resolves the policy from the model passed to authorize(), not
+          // from the controller name: authorize('access', $song) → SongPolicy.
+          // Without a known model (authorize('admin') / Gate::define abilities)
+          // the policy can't be named, so no missing_policy can be claimed.
+          const policyClass = auth.modelClass ? `${auth.modelClass}Policy` : inferPolicyClass(ctrlClass ?? "")
+          // A param typed as an interface (koel's `Authenticatable $invitor`) is
+          // resolved to its runtime class by Laravel (User → UserPolicy): only a
+          // concrete Eloquent model names its policy statically.
+          const boundParam = l1.modelParams.find((p) => p.className === auth.modelClass)
+          const policyKnown = auth.modelClass !== undefined &&
+            (!boundParam || isEloquentModel(boundParam.classFqcn, opts.projectRoot, config.namespaces, ctrlNode.file))
           const policyFile  = resolvePolicyFile(opts.projectRoot, policyClass, config.policyPaths)
-          const id = `policy_${policyClass.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${auth.ability}`
+          const id = `policy_${slug(policyClass)}_${auth.ability}`
+          if (newNodes.some((n) => n.id === id)) continue
           const policyNode: ExecutionNode = {
             id,
             type: IR_NODE_TYPES.AUTHZ_CHECK,
@@ -200,7 +274,7 @@ export function augmentGraph(
           addedPolicyNodes.push(policyNode)
 
           // Annotate when the policy class file doesn't exist — structural fact, deterministic
-          if (!existsSync(join(opts.projectRoot, policyFile))) {
+          if (policyKnown && !policyExists(opts.projectRoot, policyClass, policyFile)) {
             newAnnotations.push({
               type:        "missing_policy",
               nodes:       [id],
@@ -219,7 +293,7 @@ export function augmentGraph(
         }
 
         // RESOURCE nodes — route-model-binding params (IR v1.1)
-        emitResourceNodes(newNodes, newEdges, ctrlNode, l1.modelParams, addedPolicyNodes, l1.authorizeCalls)
+        emitResourceNodes(newNodes, newEdges, ctrlNode, l1.modelParams, addedPolicyNodes, l1.authorizeCalls, opts.projectRoot, config.namespaces)
 
         // API_RESOURCE nodes — JsonResource returns (IR v1.2)
         emitApiResourceNodes(newNodes, newEdges, ctrlNode, l1.returnedResources, opts.projectRoot, config, cache)
@@ -502,6 +576,129 @@ export function fqcnToRelativePath(fqcn: string): string {
 
 // ---- Helpers ----------------------------------------------------------
 
+/**
+ * True when a controller can't get a missing action from elsewhere: it extends
+ * nothing or Laravel's bare base `Controller`, uses no traits and has no __call.
+ * Anything else (a CRUD base class, a trait) might provide the method.
+ */
+function handlerCannotBeInherited(absFile: string): boolean {
+  let src: string
+  try { src = readFileSync(absFile, "utf-8") } catch { return false }
+  const decl = src.match(/\bclass\s+\w+(?:\s+extends\s+([\w\\]+))?/)
+  if (!decl) return false
+  const parent = decl[1]?.split("\\").pop()
+  if (parent && parent !== "Controller") return false
+  const body = src.slice(decl.index! + decl[0].length)
+  // `use SomeTrait;` inside the class body (imports precede the class keyword)
+  if (/^\s*use\s+[\w\\]+(\s*,\s*[\w\\]+)*\s*[;{]/m.test(body)) return false
+  if (/function\s+__call\s*\(/.test(body)) return false
+  return true
+}
+
+/**
+ * Whether a FormRequest authorize() return expression is a real authorization
+ * check, as opposed to `true`, `false` or a bare "is authenticated" test.
+ */
+export function isRealAuthorizeBody(body: string): boolean {
+  const b = body.trim().replace(/;$/, "").trim()
+  if (/^(true|false)$/i.test(b)) return false
+  const authOnly =
+    /^!?\s*(auth\(\)(->guard\([^)]*\))?->(check|guest)\(\)|Auth::(check|guest)\(\)|\$this->user\(\)|auth\(\)->user\(\)|\(bool\)\s*\$this->user\(\)|!?\s*is_null\(\s*(\$this->user\(\)|auth\(\)->user\(\))\s*\)|(\$this->user\(\)|auth\(\)->user\(\))\s*(!==|!=|===|==)\s*null|auth\(\)->id\(\)|Auth::id\(\))$/i
+  return !authOnly.test(b)
+}
+
+const serviceAuthzCache = new Map<string, { symbol: string; rules: string[]; mechanism: string } | null>()
+
+/**
+ * Authorization performed by a service class, read from its source:
+ *  - a `permissions()` method returning a non-empty list of rule names
+ *    (monica's BaseService pattern, enforced by validateRules()), or
+ *  - a Gate / authorize / can / AuthorizationException / abort(403) check in
+ *    the body of the called method.
+ */
+function detectServiceAuthorization(
+  absFile: string,
+  method: string,
+): { symbol: string; rules: string[]; mechanism: string } | null {
+  const key = `${absFile}#${method}`
+  if (serviceAuthzCache.has(key)) return serviceAuthzCache.get(key)!
+  let result: { symbol: string; rules: string[]; mechanism: string } | null = null
+  let src = ""
+  try { src = readFileSync(absFile, "utf-8") } catch { /* unreadable */ }
+
+  const perms = src.match(/function\s+permissions\s*\([^)]*\)[^{]*\{([\s\S]*?)\n\s*\}/)
+  if (perms) {
+    const rules = [...perms[1].matchAll(/['"]([\w.:-]+)['"]/g)].map((m) => m[1]!)
+    if (rules.length > 0) result = { symbol: "permissions", rules, mechanism: `permissions(): [${rules.join(", ")}]` }
+  }
+
+  if (!result) {
+    const start = src.search(new RegExp(`function\\s+${method}\\s*\\(`))
+    if (start >= 0) {
+      const next = src.slice(start + 8).search(/\n\s*(public|protected|private)?\s*(static\s+)?function\s+\w+\s*\(/)
+      const body = next >= 0 ? src.slice(start, start + 8 + next) : src.slice(start)
+      const m = body.match(/Gate::(authorize|allows|denies|check|inspect)\s*\([^;]*|\$this->authorize\s*\([^;]*|->(can|cannot|hasPermissionTo|hasRole)\s*\([^;]*|throw\s+new\s+\\?[\w\\]*AuthorizationException[^;]*|abort(_if|_unless)?\s*\([^;]*\b403\b[^;]*/)
+      // Or the record is re-fetched through a query scoped to the caller, so
+      // another user's record 404s (koel: getOne() → withUserContext() →
+      // accessible(); whereBelongsTo(auth()->user()); where('user_id', auth()->id())).
+      const scoped = m ? null : body.match(/->(accessible|withUserContext|forUser|visibleTo|ownedBy|accessibleBy)\s*\([^;]*|whereBelongsTo\s*\(\s*(auth\(\)|\$user|\$this->user|Auth::)[^;]*|where\(\s*['"](user_id|owner_id|author_id|created_by)['"]\s*,\s*(auth\(\)|\$user|\$this->user|Auth::|\$request->user\(\))[^;]*/)
+      if (m) result = { symbol: method, rules: [], mechanism: m[0].trim().slice(0, 160) }
+      else if (scoped) result = { symbol: `${method} (query scoped to caller)`, rules: [], mechanism: scoped[0].trim().slice(0, 160) }
+    }
+  }
+
+  serviceAuthzCache.set(key, result)
+  return result
+}
+
+// Per project root: every *Policy.php basename under app/ (any depth), plus the
+// text of providers that register policies explicitly.
+const policyIndexCache = new Map<string, { files: Set<string>; registrations: string }>()
+
+function policyIndex(projectRoot: string): { files: Set<string>; registrations: string } {
+  const cached = policyIndexCache.get(projectRoot)
+  if (cached) return cached
+  const files = new Set<string>()
+  let registrations = ""
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 8) return
+    let entries: import("fs").Dirent[]
+    try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (e.name === "node_modules" || e.name === "vendor" || e.name.startsWith(".")) continue
+        walk(join(dir, e.name), depth + 1)
+      } else if (e.name.endsWith(".php")) {
+        if (e.name.endsWith("Policy.php")) files.add(e.name.slice(0, -4))
+        // Policy registrations live in providers ($policies, Gate::policy) or on
+        // the model itself (#[UsePolicy(...)]) — keep the text of files that mention one
+        if (/Provider\.php$|\/Models\//.test(join(dir, e.name).replace(/\\/g, "/"))) {
+          try {
+            const text = readFileSync(join(dir, e.name), "utf-8")
+            if (/\$policies|Gate::policy|UsePolicy/.test(text)) registrations += "\n" + text
+          } catch { /* unreadable file */ }
+        }
+      }
+    }
+  }
+  walk(join(projectRoot, "app"), 0)
+  const index = { files, registrations }
+  policyIndexCache.set(projectRoot, index)
+  return index
+}
+
+/**
+ * Whether a policy class exists anywhere Laravel could find it: the configured
+ * policy path, any *Policy.php under app/ (domain folders), or an explicit
+ * registration ($policies map, Gate::policy(), #[UsePolicy]).
+ */
+function policyExists(projectRoot: string, policyClass: string, policyFile: string): boolean {
+  if (existsSync(join(projectRoot, policyFile))) return true
+  const { files, registrations } = policyIndex(projectRoot)
+  if (files.has(policyClass)) return true
+  return new RegExp(`\\b${policyClass}\\b`).test(registrations)
+}
+
 function inferPolicyClass(controllerClass: string): string {
   const m = controllerClass.match(/^(.+)Controller$/)
   return m ? `${m[1]}Policy` : `${controllerClass}Policy`
@@ -575,6 +772,31 @@ function addServiceCallNodes(
       relation:     "calls",
       traceability: "semantic",
     })
+
+    // Authorization enforced inside the service (monica's
+    // `permissions(): ['author_must_be_vault_manager']`, or a Gate/authorize/can
+    // check in the called method) — make it an explicit authz fact.
+    const serviceAuthz = file ? detectServiceAuthorization(join(projectRoot, file), sc.method) : null
+    if (serviceAuthz) {
+      const authzId = `${id}_authz`
+      if (!nodes.some((n) => n.id === authzId)) {
+        nodes.push({
+          id:     authzId,
+          type:   IR_NODE_TYPES.AUTHZ_CHECK,
+          symbol: `${sc.serviceClass}::${serviceAuthz.symbol}`,
+          role:   "authorization",
+          ...(file ? { file } : {}),
+          ...(serviceAuthz.rules.length > 0 ? { args: serviceAuthz.rules } : {}),
+        })
+        edges.push({
+          from:         id,
+          to:           authzId,
+          relation:     IR_EDGE_RELATIONS.CHECKS_PERMISSION,
+          traceability: "static",
+          mechanism:    serviceAuthz.mechanism,
+        })
+      }
+    }
 
     // Cross-method extension of Phase 6 (narrow cut): this call received a
     // request-derived value as one of its arguments — check whether the
@@ -1102,15 +1324,57 @@ import type { AuthorizeCall } from "./controller-parser.js"
  *   - Find the AUTHZ_CHECK node added for that call
  *   - Emit ir:authorizes edge: AUTHZ_CHECK → RESOURCE
  */
+const eloquentCache = new Map<string, boolean>()
+
+/** Whether a route-bound param class is an Eloquent model (by namespace, else by its class declaration). */
+function isEloquentModel(fqcn: string, projectRoot: string, namespaces: Record<string, string>, callerFile?: string): boolean {
+  if (/\\Models?\\/.test(fqcn)) return true
+  const key = `${projectRoot}|${fqcn}|${fqcn.includes("\\") ? "" : (callerFile ?? "")}`
+  const hit = eloquentCache.get(key)
+  if (hit !== undefined) return hit
+  // Short name with no `use` import: same-namespace class we can't place — try the
+  // conventional model folders, else keep the previous behaviour (treat as a model).
+  const candidates = fqcn.includes("\\")
+    ? [fqcnToPath(fqcn, namespaces)].filter((p): p is string => p !== null)
+    : [
+        // same namespace as the caller → same directory under PSR-4
+        ...(callerFile ? [`${callerFile.replace(/[\\/][^\\/]+$/, "")}/${fqcn}.php`] : []),
+        `app/Models/${fqcn}.php`,
+        `app/${fqcn}.php`,
+      ]
+  const file = candidates.find((rel) => existsSync(join(projectRoot, rel)))
+  let result: boolean
+  if (file) {
+    try {
+      const src = readFileSync(join(projectRoot, file), "utf-8")
+      result = /class\s+\w+\s+extends\s+\\?[\w\\]*(Model|Authenticatable|Pivot|User)\b/.test(src)
+    } catch {
+      result = false
+    }
+  } else {
+    result = !fqcn.includes("\\")
+  }
+  eloquentCache.set(key, result)
+  return result
+}
+
 function emitResourceNodes(
   nodes: ExecutionNode[],
   edges: ExecutionEdge[],
   ctrlNode: ExecutionNode,
   modelParams: ModelParam[],
   policyNodes: ExecutionNode[],
-  authorizeCalls: AuthorizeCall[]
+  authorizeCalls: AuthorizeCall[],
+  projectRoot?: string,
+  namespaces?: Record<string, string>
 ): void {
   for (const mp of modelParams) {
+    // Only Eloquent models are resources a caller can reach by ID. Typed params
+    // such as SearchResultsFormatter or BankIntegrationFilters are injected
+    // helpers, not data, and must not raise resource_unprotected.
+    if (projectRoot && namespaces && !isEloquentModel(mp.classFqcn, projectRoot, namespaces, ctrlNode.file)) continue
+    if (mp.usedInBody === false) continue
+
     const resourceId = `resource_${mp.className.toLowerCase()}_${ctrlNode.id}`
 
     if (!nodes.some((n) => n.id === resourceId)) {
@@ -1134,8 +1398,10 @@ function emitResourceNodes(
     for (const auth of authorizeCalls) {
       if (auth.modelVar !== mp.paramName) continue
       // Find the policy node that corresponds to this authorize call (matched by ability)
-      const policyNode = policyNodes.find(
-        (p) => p.symbol.endsWith(`::${auth.ability}`)
+      const policyNode = policyNodes.find((p) =>
+        auth.kind === "helper"
+          ? p.symbol === auth.helper || p.symbol === `${auth.helper}(${auth.ability})`
+          : p.symbol.endsWith(`::${auth.ability}`)
       )
       if (!policyNode) continue
       edges.push({

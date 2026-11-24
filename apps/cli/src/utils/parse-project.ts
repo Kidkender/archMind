@@ -111,8 +111,35 @@ export function detectFramework(projectRoot: string): Framework {
   return "unknown"
 }
 
+const SUPPORTED_FRAMEWORKS = "Laravel, NestJS, Spring Boot, Go/Gin, Express"
+
+/**
+ * Warn on stderr (stdout stays clean for --json) when nothing was analyzed,
+ * so an unsupported project never reads as "no findings" — a false all-clear.
+ */
+function warnIfNothingParsed(parsed: ParsedProject, detected: Framework): ParsedProject {
+  if (detected === "unknown") {
+    process.stderr.write(
+      `archmind: could not detect a supported framework in ${parsed.projectRoot}\n` +
+      `          (supported: ${SUPPORTED_FRAMEWORKS}). Falling back to Laravel parsing.\n`,
+    )
+  }
+  if (parsed.routeCount === 0) {
+    process.stderr.write(
+      `archmind: found 0 entrypoints in ${parsed.projectRoot} (parsed as ${parsed.framework}).\n` +
+      `          Nothing was analyzed. If this project uses a supported framework, please open an issue:\n` +
+      `          https://github.com/kidkender/archmind/issues\n`,
+    )
+  }
+  return parsed
+}
+
 export function parseProject(projectRoot: string): ParsedProject {
   const framework = detectFramework(projectRoot)
+  return warnIfNothingParsed(parseDetectedProject(projectRoot, framework), framework)
+}
+
+function parseDetectedProject(projectRoot: string, framework: Framework): ParsedProject {
 
   if (framework === "nestjs") {
     const graphs = parseNestJSProject(projectRoot)

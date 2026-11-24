@@ -1,0 +1,43 @@
+name: Wrong finding or missed route
+description: ArchMind reported something that isn't a problem, missed a route, or found nothing on your project.
+labels: [accuracy]
+body:
+  - type: dropdown
+    id: framework
+    attributes:
+      label: Framework
+      options: [Laravel, NestJS, Express, Spring Boot, Go/Gin, Other / not detected]
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong
+      options:
+        - False positive (finding is not a real problem)
+        - Missed problem (a real issue was not reported)
+        - Route missing or wrong (path, middleware, handler)
+        - Nothing analyzed (0 entrypoints)
+    validations:
+      required: true
+  - type: input
+    id: route
+    attributes:
+      label: Route
+      placeholder: "DELETE /api/vaults/{id}"
+  - type: textarea
+    id: got
+    attributes:
+      label: What ArchMind output
+      description: Paste the relevant part of `archmind findings` or `archmind trace` output.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and why
+      description: e.g. "authorization happens in a custom middleware `EnsureTeamOwner`" — a small code snippet helps most.
+  - type: input
+    id: version
+    attributes:
+      label: ArchMind version
+      placeholder: "0.10.0"

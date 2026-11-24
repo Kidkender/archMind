@@ -44,9 +44,11 @@ describe("middlewareToNode", () => {
     expect(node.type).toBe("email_verification")
   })
 
-  test("class-based: ResolveTenant → middleware with class name", () => {
+  test("class-based: ResolveTenant → unknown middleware, not an auth gate", () => {
+    // Resolving a tenant is not authentication — defaulting class middleware to
+    // auth_gate made public routes read as "authenticated" (invoiceninja SessionDomains).
     const node = middlewareToNode("ResolveTenant", 1)
-    expect(node.type).toBe("ir:auth_gate")
+    expect(node.type).toBe("ir:unknown_middleware")
     expect(node.symbol).toBe("ResolveTenant")
     expect(node.args).toContain("ResolveTenant")
   })

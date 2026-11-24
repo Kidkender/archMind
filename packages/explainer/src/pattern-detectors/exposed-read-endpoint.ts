@@ -4,6 +4,7 @@ import { query } from "@kidkender/archmind-graph-query"
 import type { Finding } from "../findings/types.js"
 import { FINDING_TYPES } from "../findings/types.js"
 import { stableHash } from "../findings/stable-hash.js"
+import { isPublicByDesign } from "./public-paths.js"
 
 const READ_METHODS = new Set(["GET", "HEAD"])
 
@@ -41,7 +42,8 @@ export function detectExposedReadEndpoint(
     {
       id: `${FINDING_TYPES.EXPOSED_READ_ENDPOINT}-${stableHash([ctrlNode.id, method])}`,
       type: FINDING_TYPES.EXPOSED_READ_ENDPOINT,
-      severity: "MEDIUM",
+      // SSO callbacks, invitation links, password reset… are public by design
+      severity: isPublicByDesign(graph.path) ? "INFO" : "MEDIUM",
       confidence: "MEDIUM",
       provenance: {
         detector: FINDING_TYPES.EXPOSED_READ_ENDPOINT,

@@ -1,7 +1,7 @@
 {
   "name": "@kidkender/archmind",
   "version": "0.10.0",
-  "description": "Execution topology intelligence for Laravel, NestJS, and Go/Gin — trace routes, detect regressions, find security gaps. No LLM required.",
+  "description": "Find routes with missing authorization, lost transactions and unscoped tenant queries in Laravel, NestJS, Express, Spring Boot and Go/Gin apps — and fail CI when a refactor drops them. Offline, no LLM.",
   "type": "module",
   "bin": {
     "archmind": "./dist/index.cjs"
@@ -14,6 +14,7 @@
   "dependencies": {
     "tree-sitter": "^0.21.0",
     "tree-sitter-php": "^0.22.0",
+    "tree-sitter-java": "^0.23.5",
     "@kidkender/archmind-explainer": "*",
     "@kidkender/archmind-laravel-parser": "*",
     "@kidkender/archmind-llm-client": "*",
@@ -32,15 +33,24 @@
   },
   "keywords": [
     "laravel",
-    "static-analysis",
+    "nestjs",
+    "express",
+    "spring-boot",
+    "gin",
     "security",
+    "authorization",
+    "multi-tenant",
+    "static-analysis",
+    "sast",
+    "ci",
     "cli",
+    "github-actions",
     "execution-graph"
   ],
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kidkender/archmind"
+    "url": "git+https://github.com/Kidkender/archMind.git"
   },
   "engines": {
     "node": ">=18"
@@ -52,5 +62,9 @@
     "dist/index.cjs",
     "CHANGELOG.md",
     "README.md"
-  ]
+  ],
+  "homepage": "https://github.com/Kidkender/archMind#readme",
+  "bugs": {
+    "url": "https://github.com/Kidkender/archMind/issues"
+  }
 }
