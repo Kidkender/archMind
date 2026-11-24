@@ -27,7 +27,7 @@
     "@kidkender/archmind-runtime-correlator": "*"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/node": "^20.0.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.4.0",
