@@ -1,6 +1,6 @@
 {
   "name": "@kidkender/archmind",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Find routes with missing authorization, lost transactions and unscoped tenant queries in Laravel, NestJS, Express, Spring Boot and Go/Gin apps — and fail CI when a refactor drops them. Offline, no LLM.",
   "type": "module",
   "bin": {
